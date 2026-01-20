@@ -84,31 +84,6 @@ export default function DispositionForm() {
   const [isLoadingPostcode, setIsLoadingPostcode] = useState(false)
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
 
-  // Parse query params on mount
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
-    const contact_id = params.get('contact_id')
-    const name = params.get('name')
-    const phone = params.get('phone')
-    const email = params.get('email')
-    const postcode = params.get('postcode')
-
-    if (contact_id || name || phone || email) {
-      setContactInfo({
-        contact_id: contact_id || '',
-        name: name || '',
-        phone: phone || '',
-        email: email || '',
-      })
-    }
-
-    // Pre-fill postcode if provided
-    if (postcode && postcode.length === 4 && /^\d{4}$/.test(postcode)) {
-      setFormData(prev => ({ ...prev, postcode }))
-      lookupPostcode(postcode)
-    }
-  }, [lookupPostcode])
-
   // Lookup postcode when 4 digits entered
   const lookupPostcode = useCallback(async (postcode: string) => {
     if (postcode.length !== 4) {
@@ -147,6 +122,31 @@ export default function DispositionForm() {
       setIsLoadingPostcode(false)
     }
   }, [])
+
+  // Parse query params on mount
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const contact_id = params.get('contact_id')
+    const name = params.get('name')
+    const phone = params.get('phone')
+    const email = params.get('email')
+    const postcode = params.get('postcode')
+
+    if (contact_id || name || phone || email) {
+      setContactInfo({
+        contact_id: contact_id || '',
+        name: name || '',
+        phone: phone || '',
+        email: email || '',
+      })
+    }
+
+    // Pre-fill postcode if provided
+    if (postcode && postcode.length === 4 && /^\d{4}$/.test(postcode)) {
+      setFormData(prev => ({ ...prev, postcode }))
+      lookupPostcode(postcode)
+    }
+  }, [lookupPostcode])
 
   const handlePostcodeChange = (value: string) => {
     const numericValue = value.replace(/\D/g, '').slice(0, 4)
