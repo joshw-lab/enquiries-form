@@ -91,6 +91,7 @@ export default function DispositionForm() {
     const name = params.get('name')
     const phone = params.get('phone')
     const email = params.get('email')
+    const postcode = params.get('postcode')
 
     if (contact_id || name || phone || email) {
       setContactInfo({
@@ -100,7 +101,13 @@ export default function DispositionForm() {
         email: email || '',
       })
     }
-  }, [])
+
+    // Pre-fill postcode if provided
+    if (postcode && postcode.length === 4 && /^\d{4}$/.test(postcode)) {
+      setFormData(prev => ({ ...prev, postcode }))
+      lookupPostcode(postcode)
+    }
+  }, [lookupPostcode])
 
   // Lookup postcode when 4 digits entered
   const lookupPostcode = useCallback(async (postcode: string) => {
