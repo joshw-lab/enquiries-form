@@ -1,4 +1,5 @@
-import { getSupabase } from './supabase'
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://rzvuzdwhvahwqqhzmuli.supabase.co'
+const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
 
 export interface DayData {
   date: string
@@ -51,35 +52,37 @@ export interface DaySlotsResponse {
 }
 
 export async function getCalendarHeatMap(postcode: string, daysAhead: number = 14): Promise<HeatMapResponse> {
-  const supabase = getSupabase()
-  if (!supabase) {
-    throw new Error('Supabase client not available')
-  }
-
-  const { data, error } = await supabase.functions.invoke('get-calendar-heatmap', {
-    body: { postcode: parseInt(postcode), days_ahead: daysAhead }
+  const response = await fetch(`${SUPABASE_URL}/functions/v1/get-calendar-heatmap`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'apikey': SUPABASE_ANON_KEY,
+    },
+    body: JSON.stringify({ postcode: parseInt(postcode), days_ahead: daysAhead })
   })
 
-  if (error) {
-    throw new Error(error.message || 'Failed to fetch calendar availability')
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}))
+    throw new Error(errorData.error || 'Failed to fetch calendar availability')
   }
 
-  return data as HeatMapResponse
+  return response.json()
 }
 
 export async function getDaySlots(postcode: string, date: string): Promise<DaySlotsResponse> {
-  const supabase = getSupabase()
-  if (!supabase) {
-    throw new Error('Supabase client not available')
-  }
-
-  const { data, error } = await supabase.functions.invoke('get-day-slots', {
-    body: { postcode: parseInt(postcode), date }
+  const response = await fetch(`${SUPABASE_URL}/functions/v1/get-day-slots`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'apikey': SUPABASE_ANON_KEY,
+    },
+    body: JSON.stringify({ postcode: parseInt(postcode), date })
   })
 
-  if (error) {
-    throw new Error(error.message || 'Failed to fetch day slots')
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}))
+    throw new Error(errorData.error || 'Failed to fetch day slots')
   }
 
-  return data as DaySlotsResponse
+  return response.json()
 }

@@ -1,0 +1,7 @@
+# Supabase Edge Functions Configuration
+
+[functions.get-calendar-heatmap]
+verify_jwt = false
+
+[functions.get-day-slots]
+verify_jwt = false
