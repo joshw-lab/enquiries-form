@@ -1,23 +1,61 @@
 @import "tailwindcss";
 
+/* HubSpot Design System Inspired Styles */
 :root {
-  --background: #f9fafb;
-  --foreground: #171717;
+  /* HubSpot Colors */
+  --hs-color-primary: #ff7a59;
+  --hs-color-primary-dark: #e8654a;
+  --hs-color-secondary: #00a4bd;
+  --hs-color-success: #00bda5;
+  --hs-color-warning: #f5c26b;
+  --hs-color-danger: #f2545b;
+  --hs-color-info: #7c98b6;
+
+  /* Grays */
+  --hs-gray-900: #33475b;
+  --hs-gray-700: #516f90;
+  --hs-gray-500: #7c98b6;
+  --hs-gray-300: #cbd6e2;
+  --hs-gray-200: #dfe3eb;
+  --hs-gray-100: #eaf0f6;
+  --hs-gray-50: #f5f8fa;
+
+  /* Background */
+  --background: #f5f8fa;
+  --foreground: #33475b;
+  --hs-background: #f5f8fa;
+  --hs-card-background: #ffffff;
+
+  /* Text */
+  --hs-text-primary: #33475b;
+  --hs-text-secondary: #516f90;
+  --hs-text-muted: #7c98b6;
+
+  /* Borders */
+  --hs-border-color: #cbd6e2;
+  --hs-border-radius: 3px;
+  --hs-border-radius-lg: 6px;
+
+  /* Shadows */
+  --hs-shadow-sm: 0 1px 3px rgba(51, 71, 91, 0.1);
+  --hs-shadow-md: 0 4px 12px rgba(51, 71, 91, 0.15);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
+  --font-sans: 'Lexend Deca', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
   --font-mono: var(--font-geist-mono);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--hs-background);
+  color: var(--hs-text-primary);
+  font-family: 'Lexend Deca', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+  line-height: 1.5;
 }
 
+/* Animations */
 @keyframes slide-in {
   from {
     transform: translateX(100%);
@@ -31,4 +69,158 @@ body {
 
 .animate-slide-in {
   animation: slide-in 0.3s ease-out;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* HubSpot Form Elements */
+.hs-input {
+  width: 100%;
+  padding: 9px 12px;
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--hs-text-primary);
+  background-color: var(--hs-card-background);
+  border: 1px solid var(--hs-border-color);
+  border-radius: var(--hs-border-radius);
+  transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+}
+
+.hs-input:focus {
+  outline: none;
+  border-color: var(--hs-color-secondary);
+  box-shadow: 0 0 0 3px rgba(0, 164, 189, 0.15);
+}
+
+.hs-input::placeholder {
+  color: var(--hs-text-muted);
+}
+
+.hs-input.error {
+  border-color: var(--hs-color-danger);
+}
+
+/* HubSpot Select */
+.hs-select {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%237c98b6' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+  background-position: right 8px center;
+  background-repeat: no-repeat;
+  background-size: 20px;
+  padding-right: 36px;
+}
+
+/* HubSpot Label */
+.hs-label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--hs-text-primary);
+}
+
+/* HubSpot Card */
+.hs-card {
+  background: var(--hs-card-background);
+  border: 1px solid var(--hs-border-color);
+  border-radius: var(--hs-border-radius-lg);
+  box-shadow: var(--hs-shadow-sm);
+}
+
+/* HubSpot Button */
+.hs-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 20px;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  border-radius: var(--hs-border-radius);
+  cursor: pointer;
+  transition: all 0.15s ease-in-out;
+  border: none;
+}
+
+.hs-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.hs-button-primary {
+  background-color: var(--hs-color-primary);
+  color: white;
+}
+
+.hs-button-primary:hover:not(:disabled) {
+  background-color: var(--hs-color-primary-dark);
+}
+
+/* HubSpot Section Header */
+.hs-section-header {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--hs-text-secondary);
+  margin-bottom: 12px;
+}
+
+/* HubSpot Tile Header */
+.hs-tile-header {
+  padding: 12px 16px;
+  background-color: var(--hs-gray-50);
+  border-bottom: 1px solid var(--hs-border-color);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--hs-text-primary);
+}
+
+/* Loading Spinner */
+.hs-spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--hs-gray-300);
+  border-top-color: var(--hs-color-secondary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+/* HubSpot Link */
+.hs-link {
+  color: var(--hs-color-secondary);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.hs-link:hover {
+  text-decoration: underline;
+}
+
+/* Error Text */
+.hs-error-text {
+  font-size: 12px;
+  color: var(--hs-color-danger);
+  margin-top: 4px;
+}
+
+/* Description Item */
+.hs-description-item label {
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  color: var(--hs-text-muted);
+  margin-bottom: 2px;
+  display: block;
+}
+
+.hs-description-item span {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--hs-text-primary);
 }

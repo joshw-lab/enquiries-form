@@ -12,6 +12,7 @@ interface ContactInfo {
   name: string
   phone: string
   email: string
+  agent: string
 }
 
 interface FormData {
@@ -123,21 +124,27 @@ export default function DispositionForm() {
     }
   }, [])
 
-  // Parse query params on mount
+  // Parse query params on mount - supports both old and RingCentral format
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
-    const contact_id = params.get('contact_id')
+
+    // Support both formats:
+    // Old: contact_id, name, phone, email
+    // RingCentral: contactID, name, email, postcode, agent
+    const contact_id = params.get('contactID') || params.get('contact_id')
     const name = params.get('name')
     const phone = params.get('phone')
     const email = params.get('email')
     const postcode = params.get('postcode')
+    const agent = params.get('agent')
 
-    if (contact_id || name || phone || email) {
+    if (contact_id || name || phone || email || agent) {
       setContactInfo({
         contact_id: contact_id || '',
         name: name || '',
         phone: phone || '',
         email: email || '',
+        agent: agent || '',
       })
     }
 
@@ -199,37 +206,41 @@ export default function DispositionForm() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-4 md:p-6">
-      <div className="max-w-4xl mx-auto space-y-6">
+    <div className="min-h-screen p-4 md:p-6" style={{ background: 'var(--hs-background)' }}>
+      <div className="max-w-4xl mx-auto space-y-4">
         {/* Contact Info Header */}
         {contactInfo && (
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-            <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
-              Contact Information
-            </h2>
+          <div className="hs-card p-4">
+            <h2 className="hs-section-header">Contact Information</h2>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               {contactInfo.contact_id && (
-                <div>
-                  <span className="text-xs text-gray-500">Contact ID</span>
-                  <p className="font-medium text-gray-900">{contactInfo.contact_id}</p>
+                <div className="hs-description-item">
+                  <label>Contact ID</label>
+                  <span>{contactInfo.contact_id}</span>
                 </div>
               )}
               {contactInfo.name && (
-                <div>
-                  <span className="text-xs text-gray-500">Name</span>
-                  <p className="font-medium text-gray-900">{contactInfo.name}</p>
+                <div className="hs-description-item">
+                  <label>Name</label>
+                  <span>{contactInfo.name}</span>
                 </div>
               )}
               {contactInfo.phone && (
-                <div>
-                  <span className="text-xs text-gray-500">Phone</span>
-                  <p className="font-medium text-gray-900">{contactInfo.phone}</p>
+                <div className="hs-description-item">
+                  <label>Phone</label>
+                  <span>{contactInfo.phone}</span>
                 </div>
               )}
               {contactInfo.email && (
-                <div>
-                  <span className="text-xs text-gray-500">Email</span>
-                  <p className="font-medium text-gray-900">{contactInfo.email}</p>
+                <div className="hs-description-item">
+                  <label>Email</label>
+                  <span>{contactInfo.email}</span>
+                </div>
+              )}
+              {contactInfo.agent && (
+                <div className="hs-description-item">
+                  <label>Agent</label>
+                  <span>{contactInfo.agent}</span>
                 </div>
               )}
             </div>
@@ -237,38 +248,32 @@ export default function DispositionForm() {
         )}
 
         {/* Postcode Lookup */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Postcode
-          </label>
-          <input
-            type="text"
-            value={formData.postcode}
-            onChange={(e) => handlePostcodeChange(e.target.value)}
-            placeholder="Enter 4-digit postcode"
-            className="w-full md:w-48 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900"
-          />
-
-          {isLoadingPostcode && (
-            <p className="mt-2 text-sm text-gray-500">Looking up postcode...</p>
-          )}
-
+        <div className="hs-card p-4">
+          <label className="hs-label">Postcode</label>
+          <div className="flex items-center gap-3">
+            <input
+              type="text"
+              value={formData.postcode}
+              onChange={(e) => handlePostcodeChange(e.target.value)}
+              placeholder="Enter 4-digit postcode"
+              className={`hs-input w-48 ${postcodeError ? 'error' : ''}`}
+            />
+            {isLoadingPostcode && <div className="hs-spinner" />}
+          </div>
           {postcodeError && (
-            <p className="mt-2 text-sm text-red-600 font-medium">{postcodeError}</p>
+            <p className="hs-error-text">{postcodeError}</p>
           )}
         </div>
 
         {/* Map & Calendar Embeds */}
         {postcodeZone && (
           <div className="space-y-4">
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-              <div className="p-3 bg-gray-50 border-b border-gray-200">
-                <h3 className="font-medium text-gray-900">Service Area Map</h3>
-              </div>
+            <div className="hs-card overflow-hidden">
+              <div className="hs-tile-header">Service Area Map</div>
               <iframe
                 src={convertMapViewerToEmbed(postcodeZone.map_url)}
                 width="100%"
-                height="350"
+                height="300"
                 style={{ border: 0 }}
                 allowFullScreen
                 loading="lazy"
@@ -276,14 +281,14 @@ export default function DispositionForm() {
               />
             </div>
 
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-              <div className="p-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
-                <h3 className="font-medium text-gray-900">Available Appointments</h3>
+            <div className="hs-card overflow-hidden">
+              <div className="hs-tile-header flex items-center justify-between">
+                <span>Available Appointments</span>
                 <a
                   href={postcodeZone.calendar_url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-sm text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1"
+                  className="hs-link text-sm flex items-center gap-1"
                 >
                   Open in new tab
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -294,7 +299,7 @@ export default function DispositionForm() {
               <iframe
                 src={convertCalendarCidToEmbed(postcodeZone.calendar_url)}
                 width="100%"
-                height="500"
+                height="400"
                 style={{ border: 0 }}
                 frameBorder="0"
                 scrolling="no"
@@ -304,62 +309,81 @@ export default function DispositionForm() {
         )}
 
         {/* Disposition Buttons */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-4">
-            Call Disposition
-          </h2>
-          <div className="flex flex-wrap gap-3">
+        <div className="hs-card p-4">
+          <h2 className="hs-section-header">Call Disposition</h2>
+          <div className="flex flex-wrap gap-2">
             <button
               onClick={() => handleDispositionClick('book_water_test')}
-              className={`px-5 py-3 rounded-lg font-medium transition-all ${
+              className={`px-4 py-2.5 rounded font-medium text-sm transition-all ${
                 formData.disposition === 'book_water_test'
-                  ? 'bg-green-600 text-white ring-2 ring-green-600 ring-offset-2'
-                  : 'bg-green-500 text-white hover:bg-green-600'
+                  ? 'text-white shadow-md ring-2 ring-offset-2'
+                  : 'text-white hover:opacity-90'
               }`}
+              style={{
+                backgroundColor: 'var(--hs-color-success)',
+                ringColor: formData.disposition === 'book_water_test' ? 'var(--hs-color-success)' : undefined
+              }}
             >
               Book Water Test
             </button>
 
             <button
               onClick={() => handleDispositionClick('call_back')}
-              className={`px-5 py-3 rounded-lg font-medium transition-all ${
+              className={`px-4 py-2.5 rounded font-medium text-sm transition-all ${
                 formData.disposition === 'call_back'
-                  ? 'bg-yellow-500 text-white ring-2 ring-yellow-500 ring-offset-2'
-                  : 'bg-yellow-400 text-gray-900 hover:bg-yellow-500'
+                  ? 'shadow-md ring-2 ring-offset-2'
+                  : 'hover:opacity-90'
               }`}
+              style={{
+                backgroundColor: 'var(--hs-color-warning)',
+                color: 'var(--hs-gray-900)',
+                ringColor: formData.disposition === 'call_back' ? 'var(--hs-color-warning)' : undefined
+              }}
             >
               Call Back
             </button>
 
             <button
               onClick={() => handleDispositionClick('not_interested')}
-              className={`px-5 py-3 rounded-lg font-medium transition-all ${
+              className={`px-4 py-2.5 rounded font-medium text-sm transition-all ${
                 formData.disposition === 'not_interested'
-                  ? 'bg-orange-600 text-white ring-2 ring-orange-600 ring-offset-2'
-                  : 'bg-orange-500 text-white hover:bg-orange-600'
+                  ? 'text-white shadow-md ring-2 ring-offset-2'
+                  : 'text-white hover:opacity-90'
               }`}
+              style={{
+                backgroundColor: 'var(--hs-color-primary)',
+                ringColor: formData.disposition === 'not_interested' ? 'var(--hs-color-primary)' : undefined
+              }}
             >
               Not Interested
             </button>
 
             <button
               onClick={() => handleDispositionClick('cross_department')}
-              className={`px-5 py-3 rounded-lg font-medium transition-all ${
+              className={`px-4 py-2.5 rounded font-medium text-sm transition-all ${
                 formData.disposition === 'cross_department'
-                  ? 'bg-blue-700 text-white ring-2 ring-blue-700 ring-offset-2'
-                  : 'bg-blue-600 text-white hover:bg-blue-700'
+                  ? 'text-white shadow-md ring-2 ring-offset-2'
+                  : 'text-white hover:opacity-90'
               }`}
+              style={{
+                backgroundColor: 'var(--hs-color-secondary)',
+                ringColor: formData.disposition === 'cross_department' ? 'var(--hs-color-secondary)' : undefined
+              }}
             >
               Cross Department
             </button>
 
             <button
               onClick={() => handleDispositionClick('not_compatible')}
-              className={`px-5 py-3 rounded-lg font-medium transition-all ${
+              className={`px-4 py-2.5 rounded font-medium text-sm transition-all ${
                 formData.disposition === 'not_compatible'
-                  ? 'bg-gray-900 text-white ring-2 ring-gray-900 ring-offset-2'
-                  : 'bg-gray-800 text-white hover:bg-gray-900'
+                  ? 'text-white shadow-md ring-2 ring-offset-2'
+                  : 'text-white hover:opacity-90'
               }`}
+              style={{
+                backgroundColor: 'var(--hs-gray-700)',
+                ringColor: formData.disposition === 'not_compatible' ? 'var(--hs-gray-700)' : undefined
+              }}
             >
               Not Compatible
             </button>
@@ -368,33 +392,29 @@ export default function DispositionForm() {
 
         {/* Conditional Fields */}
         {formData.disposition && (
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 space-y-4">
+          <div className="hs-card p-4 space-y-4">
             {/* Book Water Test Fields */}
             {formData.disposition === 'book_water_test' && (
               <>
-                <h3 className="font-medium text-gray-900 pb-2 border-b border-gray-200">
+                <h3 className="font-semibold text-sm pb-2 border-b" style={{ color: 'var(--hs-text-primary)', borderColor: 'var(--hs-border-color)' }}>
                   Book Water Test Details
                 </h3>
                 <div className="grid md:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Appointment Date *
-                    </label>
+                    <label className="hs-label">Appointment Date *</label>
                     <input
                       type="date"
                       value={formData.appointmentDate}
                       onChange={(e) => setFormData(prev => ({ ...prev, appointmentDate: e.target.value }))}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900"
+                      className="hs-input"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Time Slot *
-                    </label>
+                    <label className="hs-label">Time Slot *</label>
                     <select
                       value={formData.timeSlot}
                       onChange={(e) => setFormData(prev => ({ ...prev, timeSlot: e.target.value as 'AM' | 'PM' | '' }))}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900"
+                      className="hs-input hs-select"
                     >
                       <option value="">Select time slot</option>
                       <option value="AM">AM (8:00 - 12:00)</option>
@@ -403,15 +423,13 @@ export default function DispositionForm() {
                   </div>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Address *
-                  </label>
+                  <label className="hs-label">Address *</label>
                   <input
                     type="text"
                     value={formData.address}
                     onChange={(e) => setFormData(prev => ({ ...prev, address: e.target.value }))}
                     placeholder="Full appointment address"
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900"
+                    className="hs-input"
                   />
                 </div>
               </>
@@ -420,30 +438,26 @@ export default function DispositionForm() {
             {/* Call Back Fields */}
             {formData.disposition === 'call_back' && (
               <>
-                <h3 className="font-medium text-gray-900 pb-2 border-b border-gray-200">
+                <h3 className="font-semibold text-sm pb-2 border-b" style={{ color: 'var(--hs-text-primary)', borderColor: 'var(--hs-border-color)' }}>
                   Call Back Details
                 </h3>
                 <div className="grid md:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Callback Date *
-                    </label>
+                    <label className="hs-label">Callback Date *</label>
                     <input
                       type="date"
                       value={formData.callbackDate}
                       onChange={(e) => setFormData(prev => ({ ...prev, callbackDate: e.target.value }))}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900"
+                      className="hs-input"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Callback Time *
-                    </label>
+                    <label className="hs-label">Callback Time *</label>
                     <input
                       type="time"
                       value={formData.callbackTime}
                       onChange={(e) => setFormData(prev => ({ ...prev, callbackTime: e.target.value }))}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900"
+                      className="hs-input"
                     />
                   </div>
                 </div>
@@ -453,17 +467,15 @@ export default function DispositionForm() {
             {/* Not Interested Fields */}
             {formData.disposition === 'not_interested' && (
               <>
-                <h3 className="font-medium text-gray-900 pb-2 border-b border-gray-200">
+                <h3 className="font-semibold text-sm pb-2 border-b" style={{ color: 'var(--hs-text-primary)', borderColor: 'var(--hs-border-color)' }}>
                   Not Interested Details
                 </h3>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Reason *
-                  </label>
+                  <label className="hs-label">Reason *</label>
                   <select
                     value={formData.notInterestedReason}
                     onChange={(e) => setFormData(prev => ({ ...prev, notInterestedReason: e.target.value }))}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900"
+                    className="hs-input hs-select"
                   >
                     <option value="">Select reason</option>
                     {NOT_INTERESTED_REASONS.map((reason) => (
@@ -477,17 +489,15 @@ export default function DispositionForm() {
             {/* Cross Department Fields */}
             {formData.disposition === 'cross_department' && (
               <>
-                <h3 className="font-medium text-gray-900 pb-2 border-b border-gray-200">
+                <h3 className="font-semibold text-sm pb-2 border-b" style={{ color: 'var(--hs-text-primary)', borderColor: 'var(--hs-border-color)' }}>
                   Cross Department Details
                 </h3>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Department *
-                  </label>
+                  <label className="hs-label">Department *</label>
                   <select
                     value={formData.department}
                     onChange={(e) => setFormData(prev => ({ ...prev, department: e.target.value }))}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900"
+                    className="hs-input hs-select"
                   >
                     <option value="">Select department</option>
                     {DEPARTMENTS.map((dept) => (
@@ -501,17 +511,15 @@ export default function DispositionForm() {
             {/* Not Compatible Fields */}
             {formData.disposition === 'not_compatible' && (
               <>
-                <h3 className="font-medium text-gray-900 pb-2 border-b border-gray-200">
+                <h3 className="font-semibold text-sm pb-2 border-b" style={{ color: 'var(--hs-text-primary)', borderColor: 'var(--hs-border-color)' }}>
                   Not Compatible Details
                 </h3>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Reason *
-                  </label>
+                  <label className="hs-label">Reason *</label>
                   <select
                     value={formData.notCompatibleReason}
                     onChange={(e) => setFormData(prev => ({ ...prev, notCompatibleReason: e.target.value }))}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900"
+                    className="hs-input hs-select"
                   >
                     <option value="">Select reason</option>
                     {NOT_COMPATIBLE_REASONS.map((reason) => (
@@ -524,28 +532,27 @@ export default function DispositionForm() {
 
             {/* Notes field - shown for all dispositions */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Notes
-              </label>
+              <label className="hs-label">Notes</label>
               <textarea
                 value={formData.notes}
                 onChange={(e) => setFormData(prev => ({ ...prev, notes: e.target.value }))}
                 rows={3}
                 placeholder="Additional notes..."
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 resize-none"
+                className="hs-input resize-none"
               />
             </div>
 
             {/* Submit Button */}
-            <div className="pt-4">
+            <div className="pt-2">
               <button
                 onClick={handleSubmit}
                 disabled={!isFormValid()}
-                className={`w-full py-3 px-6 rounded-lg font-medium transition-all ${
-                  isFormValid()
-                    ? 'bg-blue-600 text-white hover:bg-blue-700'
-                    : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                }`}
+                className="w-full py-2.5 px-6 rounded font-medium text-white transition-all hs-button hs-button-primary"
+                style={{
+                  backgroundColor: isFormValid() ? 'var(--hs-color-primary)' : 'var(--hs-gray-300)',
+                  color: isFormValid() ? 'white' : 'var(--hs-text-muted)',
+                  cursor: isFormValid() ? 'pointer' : 'not-allowed',
+                }}
               >
                 Submit Disposition
               </button>
