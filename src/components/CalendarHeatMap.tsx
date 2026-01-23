@@ -73,13 +73,16 @@ export default function CalendarHeatMap({ postcode, onDaySelect, onError }: Cale
 
   const { priority_breakdown, service_area_name, total_slots_available } = heatMapData
 
-  // Combine all days into a flat array for the grid
+  // Flatten all days into a single list, ordered by date
   const allDays = [
     ...priority_breakdown.critical.days,
     ...priority_breakdown.urgent.days,
     ...priority_breakdown.warm.days,
     ...priority_breakdown.cooling.days,
   ]
+
+  // Find first day with available slots
+  const firstAvailableIndex = allDays.findIndex(d => d.available_count > 0)
 
   return (
     <div className="hs-heatmap-container">
@@ -90,149 +93,63 @@ export default function CalendarHeatMap({ postcode, onDaySelect, onError }: Cale
             {service_area_name}
           </span>
           <span className="text-xs" style={{ color: 'var(--hs-text-muted)' }}>
-            {total_slots_available} slots
+            {total_slots_available} slots available
           </span>
         </div>
       </div>
 
-      {/* Priority Sections */}
-      <div className="hs-heatmap-sections">
-        {/* Critical - Today */}
-        {priority_breakdown.critical.days.length > 0 && (
-          <PrioritySection
-            tier={priority_breakdown.critical}
-            onDaySelect={onDaySelect}
+      {/* Flat list of all days */}
+      <div className="hs-heatmap-list">
+        {allDays.map((day, index) => (
+          <DayRow
+            key={day.date}
+            day={day}
+            onSelect={onDaySelect}
+            isFirstAvailable={index === firstAvailableIndex}
           />
-        )}
-
-        {/* Urgent - 24-48 hours */}
-        {priority_breakdown.urgent.days.length > 0 && (
-          <PrioritySection
-            tier={priority_breakdown.urgent}
-            onDaySelect={onDaySelect}
-          />
-        )}
-
-        {/* Warm - This week */}
-        {priority_breakdown.warm.days.length > 0 && (
-          <PrioritySection
-            tier={priority_breakdown.warm}
-            onDaySelect={onDaySelect}
-            compact
-          />
-        )}
-
-        {/* Cooling - Next week */}
-        {priority_breakdown.cooling.days.length > 0 && (
-          <PrioritySection
-            tier={priority_breakdown.cooling}
-            onDaySelect={onDaySelect}
-            compact
-          />
-        )}
-      </div>
-
-      {/* Legend */}
-      <div className="hs-heatmap-legend">
-        <div className="hs-legend-item">
-          <div className="hs-legend-dot" style={{ backgroundColor: '#DC2626' }} />
-          <span>Today ~85%</span>
-        </div>
-        <div className="hs-legend-item">
-          <div className="hs-legend-dot" style={{ backgroundColor: '#F97316' }} />
-          <span>Hot ~65%</span>
-        </div>
-        <div className="hs-legend-item">
-          <div className="hs-legend-dot" style={{ backgroundColor: '#F59E0B' }} />
-          <span>Warm ~50%</span>
-        </div>
-        <div className="hs-legend-item">
-          <div className="hs-legend-dot" style={{ backgroundColor: '#10B981' }} />
-          <span>Cool ~30%</span>
-        </div>
+        ))}
       </div>
     </div>
   )
 }
 
-interface PrioritySectionProps {
-  tier: { label: string; days: DayData[]; total_slots: number }
-  onDaySelect: (date: string, dayData: DayData) => void
-  compact?: boolean
+interface DayRowProps {
+  day: DayData
+  onSelect: (date: string, dayData: DayData) => void
+  isFirstAvailable?: boolean
 }
 
-function PrioritySection({ tier, onDaySelect, compact = false }: PrioritySectionProps) {
-  if (tier.days.length === 0) return null
-
-  const accentColor = tier.days[0]?.color || '#6B7280'
+function DayRow({ day, onSelect, isFirstAvailable }: DayRowProps) {
+  const hasSlots = day.available_count > 0
 
   return (
-    <div className="hs-priority-section">
-      <div
-        className="hs-priority-header"
-        style={{ backgroundColor: accentColor }}
-      >
-        <span>{tier.days[0]?.icon} {tier.label}</span>
-        <span className="hs-priority-slots">{tier.total_slots} slots</span>
+    <button
+      onClick={() => onSelect(day.date, day)}
+      disabled={!hasSlots}
+      className={`hs-day-row-flat ${isFirstAvailable ? 'hs-day-row-highlight' : ''}`}
+    >
+      <div className="hs-day-row-flat-date">
+        <span className="hs-day-row-flat-weekday">{day.day_name}</span>
+        <span className="hs-day-row-flat-daynum">{day.day_number}</span>
+        <span className="hs-day-row-flat-month">{day.month_name}</span>
       </div>
 
-      {compact ? (
-        <div className="hs-priority-grid">
-          {tier.days.map((day) => (
-            <DayCard key={day.date} day={day} onSelect={onDaySelect} />
-          ))}
-        </div>
-      ) : (
-        <div className="hs-priority-list">
-          {tier.days.map((day) => (
-            <DayRow key={day.date} day={day} onSelect={onDaySelect} />
-          ))}
-        </div>
+      <div className="hs-day-row-flat-slots">
+        {hasSlots ? (
+          <>
+            <span className="hs-day-row-flat-count">{day.available_count}</span>
+            <span className="hs-day-row-flat-label">slots</span>
+          </>
+        ) : (
+          <span className="hs-day-row-flat-none">-</span>
+        )}
+      </div>
+
+      {hasSlots && (
+        <svg className="hs-day-row-flat-arrow" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+        </svg>
       )}
-    </div>
-  )
-}
-
-function DayRow({ day, onSelect }: { day: DayData; onSelect: (date: string, dayData: DayData) => void }) {
-  return (
-    <button
-      onClick={() => onSelect(day.date, day)}
-      disabled={day.available_count === 0}
-      className="hs-day-row"
-    >
-      <div className="hs-day-row-info">
-        <span className="hs-day-row-date">
-          {day.day_name} {day.month_name} {day.day_number}
-        </span>
-        <span className="hs-day-row-message">{day.message}</span>
-      </div>
-      <div className="hs-day-row-slots" style={{ color: day.color }}>
-        <span className="hs-day-row-count">{day.available_count}</span>
-        <span className="hs-day-row-label">slots</span>
-      </div>
-      <svg className="hs-day-row-arrow" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-      </svg>
-    </button>
-  )
-}
-
-function DayCard({ day, onSelect }: { day: DayData; onSelect: (date: string, dayData: DayData) => void }) {
-  return (
-    <button
-      onClick={() => onSelect(day.date, day)}
-      disabled={day.available_count === 0}
-      className="hs-day-card"
-      style={{
-        borderColor: day.color,
-        opacity: day.available_count === 0 ? 0.5 : 1
-      }}
-    >
-      <div className="hs-day-card-weekday">{day.day_name}</div>
-      <div className="hs-day-card-number">{day.day_number}</div>
-      <div className="hs-day-card-slots" style={{ color: day.color }}>
-        {day.available_count}
-      </div>
     </button>
   )
 }

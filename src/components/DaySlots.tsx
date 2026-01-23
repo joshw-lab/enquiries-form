@@ -1,18 +1,16 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { getDaySlots, DaySlotsResponse, TimeSlot, DayData } from '@/lib/calendar-api'
+import { getDaySlots, DaySlotsResponse, TimeSlot } from '@/lib/calendar-api'
 
 interface DaySlotsProps {
   postcode: string
   date: string
-  dayData: DayData
-  onBack: () => void
   onSlotSelect: (date: string, slot: 'AM' | 'PM', timeSlot: TimeSlot) => void
   onError?: (error: string) => void
 }
 
-export default function DaySlots({ postcode, date, dayData, onBack, onSlotSelect, onError }: DaySlotsProps) {
+export default function DaySlots({ postcode, date, onSlotSelect, onError }: DaySlotsProps) {
   const [loading, setLoading] = useState(false)
   const [slotsData, setSlotsData] = useState<DaySlotsResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -74,23 +72,10 @@ export default function DaySlots({ postcode, date, dayData, onBack, onSlotSelect
 
   return (
     <div className="hs-dayslots-container">
-      {/* Header */}
-      <div
-        className="hs-dayslots-header"
-        style={{ backgroundColor: dayData.color }}
-      >
-        <button onClick={onBack} className="hs-dayslots-back">
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-          </svg>
-          Back
-        </button>
-        <div className="hs-dayslots-title">
-          <span>{dayData.icon} {day_display}</span>
-        </div>
-        <div className="hs-dayslots-meta">
-          <span>{dayData.conversionRate} close rate</span>
-        </div>
+      {/* Clean Header */}
+      <div className="hs-dayslots-header-clean">
+        <div className="hs-dayslots-title-clean">{day_display}</div>
+        <div className="hs-dayslots-subtitle">{total_slots} available slots</div>
       </div>
 
       {/* Slots Content */}
@@ -105,9 +90,7 @@ export default function DaySlots({ postcode, date, dayData, onBack, onSlotSelect
             {grouped_by_period.morning.length > 0 && (
               <SlotPeriod
                 title="Morning"
-                icon="🌅"
                 slots={grouped_by_period.morning}
-                accentColor={dayData.color}
                 onSlotClick={handleSlotClick}
               />
             )}
@@ -116,9 +99,7 @@ export default function DaySlots({ postcode, date, dayData, onBack, onSlotSelect
             {grouped_by_period.afternoon.length > 0 && (
               <SlotPeriod
                 title="Afternoon"
-                icon="☀️"
                 slots={grouped_by_period.afternoon}
-                accentColor={dayData.color}
                 onSlotClick={handleSlotClick}
               />
             )}
@@ -127,9 +108,7 @@ export default function DaySlots({ postcode, date, dayData, onBack, onSlotSelect
             {grouped_by_period.evening.length > 0 && (
               <SlotPeriod
                 title="Evening"
-                icon="🌙"
                 slots={grouped_by_period.evening}
-                accentColor={dayData.color}
                 onSlotClick={handleSlotClick}
               />
             )}
@@ -142,17 +121,15 @@ export default function DaySlots({ postcode, date, dayData, onBack, onSlotSelect
 
 interface SlotPeriodProps {
   title: string
-  icon: string
   slots: TimeSlot[]
-  accentColor: string
   onSlotClick: (slot: TimeSlot) => void
 }
 
-function SlotPeriod({ title, icon, slots, accentColor, onSlotClick }: SlotPeriodProps) {
+function SlotPeriod({ title, slots, onSlotClick }: SlotPeriodProps) {
   return (
     <div className="hs-slot-period">
-      <div className="hs-slot-period-header">
-        <span>{icon} {title}</span>
+      <div className="hs-slot-period-header-clean">
+        <span>{title}</span>
         <span className="hs-slot-period-count">{slots.length} slots</span>
       </div>
       <div className="hs-slot-period-grid">
@@ -160,13 +137,10 @@ function SlotPeriod({ title, icon, slots, accentColor, onSlotClick }: SlotPeriod
           <button
             key={slot.event_id}
             onClick={() => onSlotClick(slot)}
-            className="hs-slot-button"
-            style={{ borderColor: accentColor }}
+            className="hs-slot-button-clean"
           >
-            <span className="hs-slot-time">{slot.time}</span>
-            <span className="hs-slot-cta" style={{ color: accentColor }}>
-              Book
-            </span>
+            <span className="hs-slot-time-clean">{slot.time}</span>
+            <span className="hs-slot-cta-clean">Book</span>
           </button>
         ))}
       </div>

@@ -221,10 +221,28 @@ serve(async (req) => {
       futureDate.toISOString()
     )
 
-    // Filter for available slots "(No title)"
-    const availableSlots = events.filter(event =>
-      event.summary === '(No title)' && event.start?.dateTime
-    )
+    // Debug: Log total events and some sample summaries
+    console.log(`Total events from calendar: ${events.length}`)
+    if (events.length > 0) {
+      const sampleSummaries = events.slice(0, 10).map(e => e.summary || '(undefined)')
+      console.log(`Sample event summaries: ${JSON.stringify(sampleSummaries)}`)
+    }
+
+    // Filter for available slots - check for "(No title)", empty, null, or undefined summaries
+    const availableSlots = events.filter(event => {
+      const summary = event.summary
+      const isNoTitle = !summary || summary === '(No title)' || summary.trim() === ''
+      return isNoTitle && event.start?.dateTime
+    })
+
+    console.log(`Available slots after filter: ${availableSlots.length}`)
+
+    // Debug: Log events that have "No title" in summary (partial match)
+    const partialMatches = events.filter(e => e.summary && e.summary.toLowerCase().includes('no title'))
+    console.log(`Events with "No title" in summary: ${partialMatches.length}`)
+    if (partialMatches.length > 0) {
+      console.log(`Partial match summaries: ${JSON.stringify(partialMatches.slice(0, 5).map(e => e.summary))}`)
+    }
 
     // Group by day and calculate heat map
     const dailyAvailability = new Map<string, any>()

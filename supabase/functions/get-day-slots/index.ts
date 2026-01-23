@@ -150,12 +150,30 @@ serve(async (req) => {
       endOfDay.toISOString()
     )
 
-    // Filter for available slots
+    // Filter for available slots - check for "(No title)", empty, null, or undefined summaries
     const availableSlots = events
-      .filter(event => event.summary === '(No title)' && event.start?.dateTime)
+      .filter(event => {
+        const summary = event.summary
+        const isNoTitle = !summary || summary === '(No title)' || summary.trim() === ''
+        return isNoTitle && event.start?.dateTime
+      })
       .map(event => {
         const startTime = new Date(event.start!.dateTime!)
-        const hour = startTime.getHours()
+        // Use Australian Eastern timezone for display
+        const timeStr = startTime.toLocaleTimeString('en-AU', {
+          hour: 'numeric',
+          minute: '2-digit',
+          hour12: true,
+          timeZone: 'Australia/Sydney'
+        })
+
+        // Get hour in Australian Eastern timezone
+        const hourStr = startTime.toLocaleTimeString('en-AU', {
+          hour: 'numeric',
+          hour12: false,
+          timeZone: 'Australia/Sydney'
+        })
+        const hour = parseInt(hourStr)
 
         let period = 'morning'
         if (hour >= 12 && hour < 17) period = 'afternoon'
@@ -164,12 +182,8 @@ serve(async (req) => {
         return {
           event_id: event.id,
           datetime: event.start!.dateTime,
-          time: startTime.toLocaleTimeString('en-US', {
-            hour: 'numeric',
-            minute: '2-digit',
-            hour12: true
-          }),
-          hour: startTime.getHours(),
+          time: timeStr,
+          hour,
           period
         }
       })

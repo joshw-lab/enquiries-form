@@ -494,13 +494,11 @@ export default function DispositionForm() {
                   onDaySelect={handleCalendarDaySelect}
                   onError={(error) => setToast({ message: error, type: 'error' })}
                 />
-              ) : selectedCalendarDate && selectedDayData ? (
+              ) : selectedCalendarDate ? (
                 <DaySlots
                   postcode={formData.postcode}
                   date={selectedCalendarDate}
-                  dayData={selectedDayData}
                   onSlotSelect={handleSlotSelect}
-                  onBack={handleCalendarBack}
                   onError={(error) => setToast({ message: error, type: 'error' })}
                 />
               ) : null}
