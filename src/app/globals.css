@@ -340,6 +340,102 @@ body {
   color: var(--hs-text-secondary);
 }
 
+/* Day Accordion Styles */
+.hs-day-accordion {
+  border-bottom: 1px solid var(--hs-gray-100);
+}
+
+.hs-day-row-expanded {
+  background-color: var(--hs-gray-50);
+  border-bottom: none;
+}
+
+.hs-day-row-flat-arrow-down {
+  transform: rotate(0deg);
+}
+
+.hs-day-accordion-content {
+  background-color: var(--hs-gray-50);
+  padding: 0 12px 12px 12px;
+}
+
+.hs-slots-inline {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.hs-slot-group-inline {
+  background: white;
+  border-radius: var(--hs-border-radius);
+  padding: 8px;
+}
+
+.hs-slot-group-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--hs-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  padding-bottom: 6px;
+  margin-bottom: 6px;
+  border-bottom: 1px solid var(--hs-border-color);
+}
+
+.hs-slot-group-count {
+  font-weight: 400;
+  color: var(--hs-text-muted);
+  text-transform: none;
+}
+
+.hs-slot-grid-inline {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+}
+
+.hs-slot-button-inline {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 8px 6px;
+  background: white;
+  border: 1px solid var(--hs-border-color);
+  border-radius: var(--hs-border-radius);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.hs-slot-button-inline:hover {
+  background-color: var(--hs-gray-50);
+  border-color: var(--hs-color-primary);
+}
+
+.hs-slot-time-inline {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--hs-text-primary);
+}
+
+.hs-slot-cta-inline {
+  font-size: 9px;
+  font-weight: 500;
+  color: var(--hs-color-primary);
+  margin-top: 1px;
+}
+
+.hs-spinner-small {
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--hs-gray-200);
+  border-top-color: var(--hs-color-primary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
 /* Day Slots Styles */
 .hs-dayslots-container {
   display: flex;
