@@ -267,10 +267,11 @@ export default function DispositionForm() {
   // Parse query params on mount
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
-    const contact_id = params.get('contact_id')
+    const contact_id = params.get('contact_id') || params.get('contactID')
     const name = params.get('name')
     const phone = params.get('phone')
     const email = params.get('email')
+    const postcode = params.get('postcode')
 
     if (contact_id || name || phone || email) {
       setContactInfo({
@@ -290,7 +291,13 @@ export default function DispositionForm() {
         emailAddress: email || '',
       }))
     }
-  }, [])
+
+    // Pre-populate postcode if provided
+    if (postcode && postcode.length === 4 && /^\d{4}$/.test(postcode)) {
+      setFormData(prev => ({ ...prev, postcode, postalCode: postcode }))
+      lookupPostcode(postcode)
+    }
+  }, [lookupPostcode])
 
   // Lookup postcode when 4 digits entered
   const lookupPostcode = useCallback(async (postcode: string) => {
