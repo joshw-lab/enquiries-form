@@ -510,192 +510,204 @@ export default function DispositionForm() {
   const inputClass = "w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900"
   const labelClass = "block text-sm font-medium text-gray-700 mb-1"
 
+  // Check if we have a contact with lead data to show sidebar
+  const showSidebar = contactInfo?.contact_id
+
   return (
-    <div className="min-h-screen bg-gray-50 p-4 md:p-6">
-      <div className="max-w-4xl mx-auto space-y-6">
-        {/* Quick Contact Info Banner */}
-        {contactInfo && (
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-            <div className="flex flex-wrap items-center gap-4 text-sm">
-              {contactInfo.name && (
-                <span className="font-medium text-blue-900">{contactInfo.name}</span>
-              )}
-              {contactInfo.phone && (
-                <span className="text-blue-700">
-                  <svg className="w-4 h-4 inline-block mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
-                  </svg>
-                  {contactInfo.phone}
-                </span>
-              )}
-              {contactInfo.email && (
-                <span className="text-blue-700">
-                  <svg className="w-4 h-4 inline-block mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                  </svg>
-                  {contactInfo.email}
-                </span>
-              )}
-              {contactInfo.contact_id && (
-                <span className="text-blue-600 text-xs bg-blue-100 px-2 py-0.5 rounded">
-                  ID: {contactInfo.contact_id}
-                </span>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Disposition Buttons - MOVED TO TOP */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-4">
-            Call Disposition
-          </h2>
-          <div className="flex flex-wrap gap-3">
-            <button
-              onClick={() => handleDispositionClick('book_water_test')}
-              className={`px-5 py-3 rounded-lg font-medium transition-all ${
-                formData.disposition === 'book_water_test'
-                  ? 'bg-green-600 text-white ring-2 ring-green-600 ring-offset-2'
-                  : 'bg-green-500 text-white hover:bg-green-600'
-              }`}
-            >
-              Book Water Test
-            </button>
-
-            <button
-              onClick={() => handleDispositionClick('not_interested')}
-              className={`px-5 py-3 rounded-lg font-medium transition-all ${
-                formData.disposition === 'not_interested'
-                  ? 'bg-orange-600 text-white ring-2 ring-orange-600 ring-offset-2'
-                  : 'bg-orange-500 text-white hover:bg-orange-600'
-              }`}
-            >
-              Not Interested
-            </button>
-
-            <button
-              onClick={() => handleDispositionClick('other_department')}
-              className={`px-5 py-3 rounded-lg font-medium transition-all ${
-                formData.disposition === 'other_department'
-                  ? 'bg-blue-700 text-white ring-2 ring-blue-700 ring-offset-2'
-                  : 'bg-blue-600 text-white hover:bg-blue-700'
-              }`}
-            >
-              Other Department
-            </button>
-
-            <button
-              onClick={() => handleDispositionClick('unable_to_service')}
-              className={`px-5 py-3 rounded-lg font-medium transition-all ${
-                formData.disposition === 'unable_to_service'
-                  ? 'bg-gray-700 text-white ring-2 ring-gray-700 ring-offset-2'
-                  : 'bg-gray-600 text-white hover:bg-gray-700'
-              }`}
-            >
-              Unable to Service
-            </button>
-
-            <button
-              onClick={() => handleDispositionClick('wrong_number')}
-              className={`px-5 py-3 rounded-lg font-medium transition-all ${
-                formData.disposition === 'wrong_number'
-                  ? 'bg-red-700 text-white ring-2 ring-red-700 ring-offset-2'
-                  : 'bg-red-600 text-white hover:bg-red-700'
-              }`}
-            >
-              Wrong Number
-            </button>
+    <div className="min-h-screen bg-gray-50">
+      {/* Quick Contact Info Banner - Full Width */}
+      {contactInfo && (
+        <div className="bg-blue-50 border-b border-blue-200 px-4 py-2">
+          <div className="max-w-[1800px] mx-auto flex flex-wrap items-center gap-4 text-sm">
+            {contactInfo.name && (
+              <span className="font-medium text-blue-900">{contactInfo.name}</span>
+            )}
+            {contactInfo.phone && (
+              <span className="text-blue-700">
+                <svg className="w-4 h-4 inline-block mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+                </svg>
+                {contactInfo.phone}
+              </span>
+            )}
+            {contactInfo.email && (
+              <span className="text-blue-700">
+                <svg className="w-4 h-4 inline-block mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                </svg>
+                {contactInfo.email}
+              </span>
+            )}
+            {contactInfo.contact_id && (
+              <span className="text-blue-600 text-xs bg-blue-100 px-2 py-0.5 rounded">
+                ID: {contactInfo.contact_id}
+              </span>
+            )}
           </div>
         </div>
+      )}
 
-        {/* Postcode Lookup */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Postcode
-          </label>
-          <input
-            type="text"
-            value={formData.postcode}
-            onChange={(e) => handlePostcodeChange(e.target.value)}
-            placeholder="Enter 4-digit postcode"
-            className="w-full md:w-48 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900"
-          />
-
-          {isLoadingPostcode && (
-            <p className="mt-2 text-sm text-gray-500">Looking up postcode...</p>
-          )}
-
-          {postcodeError && (
-            <p className="mt-2 text-sm text-red-600 font-medium">{postcodeError}</p>
-          )}
-        </div>
-
-        {/* Map & Calendar Embeds */}
-        {postcodeZone && (
-          <div className="grid md:grid-cols-2 gap-4">
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-              <div className="p-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
-                <h3 className="font-medium text-gray-900">Service Area Map</h3>
-                <a
-                  href={postcodeZone.map_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-sm text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1"
-                >
-                  Open in new tab
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                  </svg>
-                </a>
-              </div>
-              <iframe
-                src={convertMapViewerToEmbed(postcodeZone.map_url)}
-                width="100%"
-                height="300"
-                style={{ border: 0 }}
-                allowFullScreen
-                loading="lazy"
-                referrerPolicy="no-referrer-when-downgrade"
+      {/* Main Layout - Sidebar + Content */}
+      <div className={`flex flex-col lg:flex-row ${showSidebar ? 'max-w-[1800px]' : 'max-w-4xl'} mx-auto`}>
+        {/* Left Sidebar - Lead Information */}
+        {showSidebar && (
+          <aside className="lg:w-80 xl:w-96 flex-shrink-0 p-4 lg:h-[calc(100vh-48px)] lg:sticky lg:top-0">
+            <div className="h-full">
+              <LeadInfoAccordion
+                leadData={leadData}
+                isLoading={isLoadingLead}
+                error={leadError}
+                compact={true}
+                defaultExpandedSections={['contact', 'property', 'waterAssessment']}
               />
             </div>
+          </aside>
+        )}
 
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-              <div className="p-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
-                <h3 className="font-medium text-gray-900">Available Appointments</h3>
-                <a
-                  href={postcodeZone.calendar_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-sm text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1"
-                >
-                  Open in new tab
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                  </svg>
-                </a>
-              </div>
-              <iframe
-                src={convertCalendarCidToEmbed(postcodeZone.calendar_url)}
-                width="100%"
-                height="300"
-                style={{ border: 0 }}
-                frameBorder="0"
-                scrolling="no"
-              />
+        {/* Right Main Content - Form */}
+        <main className={`flex-1 p-4 md:p-6 space-y-4 ${showSidebar ? 'lg:border-l lg:border-gray-200' : ''}`}>
+          {/* Disposition Buttons */}
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+            <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
+              Call Disposition
+            </h2>
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => handleDispositionClick('book_water_test')}
+                className={`px-4 py-2 rounded-lg font-medium text-sm transition-all ${
+                  formData.disposition === 'book_water_test'
+                    ? 'bg-green-600 text-white ring-2 ring-green-600 ring-offset-2'
+                    : 'bg-green-500 text-white hover:bg-green-600'
+                }`}
+              >
+                Book Water Test
+              </button>
+
+              <button
+                onClick={() => handleDispositionClick('not_interested')}
+                className={`px-4 py-2 rounded-lg font-medium text-sm transition-all ${
+                  formData.disposition === 'not_interested'
+                    ? 'bg-orange-600 text-white ring-2 ring-orange-600 ring-offset-2'
+                    : 'bg-orange-500 text-white hover:bg-orange-600'
+                }`}
+              >
+                Not Interested
+              </button>
+
+              <button
+                onClick={() => handleDispositionClick('other_department')}
+                className={`px-4 py-2 rounded-lg font-medium text-sm transition-all ${
+                  formData.disposition === 'other_department'
+                    ? 'bg-blue-700 text-white ring-2 ring-blue-700 ring-offset-2'
+                    : 'bg-blue-600 text-white hover:bg-blue-700'
+                }`}
+              >
+                Other Department
+              </button>
+
+              <button
+                onClick={() => handleDispositionClick('unable_to_service')}
+                className={`px-4 py-2 rounded-lg font-medium text-sm transition-all ${
+                  formData.disposition === 'unable_to_service'
+                    ? 'bg-gray-700 text-white ring-2 ring-gray-700 ring-offset-2'
+                    : 'bg-gray-600 text-white hover:bg-gray-700'
+                }`}
+              >
+                Unable to Service
+              </button>
+
+              <button
+                onClick={() => handleDispositionClick('wrong_number')}
+                className={`px-4 py-2 rounded-lg font-medium text-sm transition-all ${
+                  formData.disposition === 'wrong_number'
+                    ? 'bg-red-700 text-white ring-2 ring-red-700 ring-offset-2'
+                    : 'bg-red-600 text-white hover:bg-red-700'
+                }`}
+              >
+                Wrong Number
+              </button>
             </div>
           </div>
-        )}
 
-        {/* Lead Information Accordion */}
-        {contactInfo?.contact_id && (
-          <LeadInfoAccordion
-            leadData={leadData}
-            isLoading={isLoadingLead}
-            error={leadError}
-          />
-        )}
+          {/* Postcode Lookup */}
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Postcode
+            </label>
+            <input
+              type="text"
+              value={formData.postcode}
+              onChange={(e) => handlePostcodeChange(e.target.value)}
+              placeholder="Enter 4-digit postcode"
+              className="w-full md:w-48 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900"
+            />
 
-        {/* Conditional Fields */}
+            {isLoadingPostcode && (
+              <p className="mt-2 text-sm text-gray-500">Looking up postcode...</p>
+            )}
+
+            {postcodeError && (
+              <p className="mt-2 text-sm text-red-600 font-medium">{postcodeError}</p>
+            )}
+          </div>
+
+          {/* Map & Calendar Embeds */}
+          {postcodeZone && (
+            <div className="grid md:grid-cols-2 gap-4">
+              <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+                <div className="p-2 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
+                  <h3 className="font-medium text-gray-900 text-sm">Service Area Map</h3>
+                  <a
+                    href={postcodeZone.map_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1"
+                  >
+                    Open
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                    </svg>
+                  </a>
+                </div>
+                <iframe
+                  src={convertMapViewerToEmbed(postcodeZone.map_url)}
+                  width="100%"
+                  height="250"
+                  style={{ border: 0 }}
+                  allowFullScreen
+                  loading="lazy"
+                  referrerPolicy="no-referrer-when-downgrade"
+                />
+              </div>
+
+              <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+                <div className="p-2 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
+                  <h3 className="font-medium text-gray-900 text-sm">Available Appointments</h3>
+                  <a
+                    href={postcodeZone.calendar_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1"
+                  >
+                    Open
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                    </svg>
+                  </a>
+                </div>
+                <iframe
+                  src={convertCalendarCidToEmbed(postcodeZone.calendar_url)}
+                  width="100%"
+                  height="250"
+                  style={{ border: 0 }}
+                  frameBorder="0"
+                  scrolling="no"
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Conditional Fields */}
         {formData.disposition && (
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 space-y-6">
 
@@ -1490,6 +1502,7 @@ export default function DispositionForm() {
             </div>
           </div>
         )}
+        </main>
       </div>
 
       {/* Toast Notification */}

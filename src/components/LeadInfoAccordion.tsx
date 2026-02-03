@@ -7,6 +7,8 @@ interface LeadInfoAccordionProps {
   leadData: LeadData | null
   isLoading: boolean
   error: string | null
+  defaultExpandedSections?: string[]
+  compact?: boolean
 }
 
 // Chevron icon component
@@ -36,21 +38,23 @@ function SectionHeader({
   isExpanded,
   onClick,
   fieldCount,
+  compact = false,
 }: {
   label: string
   isExpanded: boolean
   onClick: () => void
   fieldCount: number
+  compact?: boolean
 }) {
   return (
     <button
       onClick={onClick}
-      className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 hover:bg-gray-100 transition-colors border-b border-gray-200"
+      className={`w-full flex items-center justify-between bg-gray-50 hover:bg-gray-100 transition-colors border-b border-gray-200 ${compact ? 'px-3 py-2' : 'px-4 py-3'}`}
     >
       <div className="flex items-center gap-2">
-        <span className="font-medium text-gray-900">{label}</span>
-        <span className="text-xs text-gray-500 bg-gray-200 px-2 py-0.5 rounded-full">
-          {fieldCount} fields
+        <span className={`font-medium text-gray-900 ${compact ? 'text-sm' : ''}`}>{label}</span>
+        <span className={`text-gray-500 bg-gray-200 px-1.5 py-0.5 rounded-full ${compact ? 'text-[10px]' : 'text-xs'}`}>
+          {fieldCount}
         </span>
       </div>
       <ChevronIcon isExpanded={isExpanded} />
@@ -59,16 +63,16 @@ function SectionHeader({
 }
 
 // Field display component
-function FieldDisplay({ field }: { field: LeadField }) {
+function FieldDisplay({ field, compact = false }: { field: LeadField; compact?: boolean }) {
   const displayValue = field.value || '—'
   const isEmpty = !field.value
 
   return (
-    <div className="py-2">
-      <dt className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+    <div className={compact ? "py-1" : "py-2"}>
+      <dt className={`font-medium text-gray-500 uppercase tracking-wide ${compact ? 'text-[10px]' : 'text-xs'}`}>
         {field.label}
       </dt>
-      <dd className={`mt-1 text-sm ${isEmpty ? 'text-gray-400 italic' : 'text-gray-900'}`}>
+      <dd className={`mt-0.5 ${compact ? 'text-xs' : 'text-sm'} ${isEmpty ? 'text-gray-400 italic' : 'text-gray-900'}`}>
         {displayValue}
       </dd>
     </div>
@@ -76,34 +80,34 @@ function FieldDisplay({ field }: { field: LeadField }) {
 }
 
 // Section content component
-function SectionContent({ section }: { section: LeadSection }) {
+function SectionContent({ section, compact = false }: { section: LeadSection; compact?: boolean }) {
   const fields = Object.entries(section.fields)
   const populatedFields = fields.filter(([, field]) => field.value)
   const emptyFields = fields.filter(([, field]) => !field.value)
 
   return (
-    <div className="px-4 py-3 bg-white border-b border-gray-200">
+    <div className={`bg-white border-b border-gray-200 ${compact ? 'px-3 py-2' : 'px-4 py-3'}`}>
       {populatedFields.length > 0 && (
-        <dl className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-x-4 gap-y-1">
+        <dl className={`grid gap-x-3 gap-y-0.5 ${compact ? 'grid-cols-1' : 'grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-x-4 gap-y-1'}`}>
           {populatedFields.map(([key, field]) => (
-            <FieldDisplay key={key} field={field} />
+            <FieldDisplay key={key} field={field} compact={compact} />
           ))}
         </dl>
       )}
       {emptyFields.length > 0 && (
-        <details className="mt-3">
-          <summary className="text-xs text-gray-500 cursor-pointer hover:text-gray-700">
+        <details className="mt-2">
+          <summary className={`text-gray-500 cursor-pointer hover:text-gray-700 ${compact ? 'text-[10px]' : 'text-xs'}`}>
             Show {emptyFields.length} empty fields
           </summary>
-          <dl className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-x-4 gap-y-1 mt-2 opacity-60">
+          <dl className={`mt-1 opacity-60 grid gap-x-3 gap-y-0.5 ${compact ? 'grid-cols-1' : 'grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-x-4 gap-y-1'}`}>
             {emptyFields.map(([key, field]) => (
-              <FieldDisplay key={key} field={field} />
+              <FieldDisplay key={key} field={field} compact={compact} />
             ))}
           </dl>
         </details>
       )}
       {populatedFields.length === 0 && emptyFields.length === 0 && (
-        <p className="text-sm text-gray-500 italic">No data available</p>
+        <p className={`text-gray-500 italic ${compact ? 'text-xs' : 'text-sm'}`}>No data available</p>
       )}
     </div>
   )
@@ -144,14 +148,15 @@ function AccordionSection({
   section,
   isExpanded,
   onToggle,
+  compact = false,
 }: {
   sectionKey: string
   section: LeadSection
   isExpanded: boolean
   onToggle: () => void
+  compact?: boolean
 }) {
   const fieldCount = Object.values(section.fields).filter(f => f.value).length
-  const totalFields = Object.keys(section.fields).length
 
   return (
     <div>
@@ -160,20 +165,26 @@ function AccordionSection({
         isExpanded={isExpanded}
         onClick={onToggle}
         fieldCount={fieldCount}
+        compact={compact}
       />
-      {isExpanded && <SectionContent section={section} />}
+      {isExpanded && <SectionContent section={section} compact={compact} />}
     </div>
   )
 }
+
+// Default priority sections to expand
+const DEFAULT_EXPANDED = ['contact', 'property', 'waterAssessment']
 
 export default function LeadInfoAccordion({
   leadData,
   isLoading,
   error,
+  defaultExpandedSections = DEFAULT_EXPANDED,
+  compact = false,
 }: LeadInfoAccordionProps) {
-  // Track which sections are expanded (all expanded by default)
+  // Track which sections are expanded
   const [expandedSections, setExpandedSections] = useState<Set<string>>(
-    new Set(['contact', 'leadManagement', 'property', 'waterAssessment', 'appointment', 'referrals', 'salesNotes', 'statusFlags'])
+    new Set(defaultExpandedSections)
   )
 
   // Toggle section expansion
@@ -252,44 +263,44 @@ export default function LeadInfoAccordion({
   const allCollapsed = expandedSections.size === 0
 
   return (
-    <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+    <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden h-full flex flex-col">
       {/* Header with expand/collapse controls */}
-      <div className="px-4 py-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <h2 className="font-semibold text-gray-900">Lead Information</h2>
-          <span className="text-xs text-gray-500 bg-white px-2 py-1 rounded border border-gray-200">
-            ID: {leadData.id}
+      <div className={`bg-gray-50 border-b border-gray-200 flex items-center justify-between ${compact ? 'px-3 py-2' : 'px-4 py-3'}`}>
+        <div className="flex items-center gap-2">
+          <h2 className={`font-semibold text-gray-900 ${compact ? 'text-sm' : ''}`}>Lead Information</h2>
+          <span className={`text-gray-500 bg-white px-1.5 py-0.5 rounded border border-gray-200 ${compact ? 'text-[10px]' : 'text-xs'}`}>
+            {leadData.id}
           </span>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1">
           <button
             onClick={expandAll}
             disabled={allExpanded}
-            className={`text-xs px-2 py-1 rounded transition-colors ${
+            className={`px-1.5 py-0.5 rounded transition-colors ${compact ? 'text-[10px]' : 'text-xs'} ${
               allExpanded
                 ? 'text-gray-400 cursor-not-allowed'
                 : 'text-blue-600 hover:bg-blue-50'
             }`}
           >
-            Expand All
+            All
           </button>
           <span className="text-gray-300">|</span>
           <button
             onClick={collapseAll}
             disabled={allCollapsed}
-            className={`text-xs px-2 py-1 rounded transition-colors ${
+            className={`px-1.5 py-0.5 rounded transition-colors ${compact ? 'text-[10px]' : 'text-xs'} ${
               allCollapsed
                 ? 'text-gray-400 cursor-not-allowed'
                 : 'text-blue-600 hover:bg-blue-50'
             }`}
           >
-            Collapse All
+            None
           </button>
         </div>
       </div>
 
-      {/* Accordion sections */}
-      <div>
+      {/* Accordion sections - scrollable */}
+      <div className="flex-1 overflow-y-auto">
         {sectionOrder.map((sectionKey) => {
           const section = leadData.sections[sectionKey]
           return (
@@ -299,6 +310,7 @@ export default function LeadInfoAccordion({
               section={section}
               isExpanded={expandedSections.has(sectionKey)}
               onToggle={() => toggleSection(sectionKey)}
+              compact={compact}
             />
           )
         })}
