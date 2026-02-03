@@ -629,6 +629,823 @@ export default function DispositionForm() {
             </div>
           </div>
 
+          {/* Conditional Disposition Fields - Directly under buttons */}
+          {formData.disposition && (
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 space-y-6">
+
+              {/* ============================================ */}
+              {/* BOOK WATER TEST FIELDS */}
+              {/* ============================================ */}
+              {formData.disposition === 'book_water_test' && (
+                <>
+                  <h3 className="font-medium text-gray-900 pb-2 border-b border-gray-200">
+                    Book Water Test - SL/DL
+                  </h3>
+
+                  {/* Lead Status */}
+                  <div>
+                    <label className={labelClass}>Lead Status *</label>
+                    <div className="flex gap-4">
+                      <label className="flex items-center gap-2">
+                        <input
+                          type="radio"
+                          name="leadStatus"
+                          value="SL"
+                          checked={formData.leadStatus === 'SL'}
+                          onChange={() => updateField('leadStatus', 'SL')}
+                          className="text-blue-600"
+                        />
+                        <span className="text-gray-900">SL (Single Leg)</span>
+                      </label>
+                      <label className="flex items-center gap-2">
+                        <input
+                          type="radio"
+                          name="leadStatus"
+                          value="DL"
+                          checked={formData.leadStatus === 'DL'}
+                          onChange={() => updateField('leadStatus', 'DL')}
+                          className="text-blue-600"
+                        />
+                        <span className="text-gray-900">DL (Double Leg)</span>
+                      </label>
+                    </div>
+                  </div>
+
+                  {/* Contact Details Section */}
+                  <div className="border-t border-gray-200 pt-4">
+                    <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
+                      Contact Details
+                    </h4>
+                    <div className="grid md:grid-cols-2 gap-4">
+                      <div>
+                        <label className={labelClass}>First Name *</label>
+                        <input
+                          type="text"
+                          value={formData.firstName}
+                          onChange={(e) => updateField('firstName', e.target.value)}
+                          className={inputClass}
+                        />
+                      </div>
+                      <div>
+                        <label className={labelClass}>Last Name *</label>
+                        <input
+                          type="text"
+                          value={formData.lastName}
+                          onChange={(e) => updateField('lastName', e.target.value)}
+                          className={inputClass}
+                        />
+                      </div>
+                      <div>
+                        <label className={labelClass}>Phone Number *</label>
+                        <input
+                          type="tel"
+                          value={formData.phoneNumber}
+                          onChange={(e) => updateField('phoneNumber', e.target.value)}
+                          className={inputClass}
+                        />
+                      </div>
+                      <div>
+                        <label className={labelClass}>Email</label>
+                        <input
+                          type="email"
+                          value={formData.emailAddress}
+                          onChange={(e) => updateField('emailAddress', e.target.value)}
+                          className={inputClass}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Address Section */}
+                  <div className="border-t border-gray-200 pt-4">
+                    <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
+                      Address
+                    </h4>
+                    <div className="grid gap-4">
+                      <div>
+                        <label className={labelClass}>Street Address *</label>
+                        <input
+                          type="text"
+                          value={formData.streetAddress}
+                          onChange={(e) => updateField('streetAddress', e.target.value)}
+                          className={inputClass}
+                        />
+                      </div>
+                      <div className="grid md:grid-cols-3 gap-4">
+                        <div>
+                          <label className={labelClass}>City *</label>
+                          <input
+                            type="text"
+                            value={formData.city}
+                            onChange={(e) => updateField('city', e.target.value)}
+                            className={inputClass}
+                          />
+                        </div>
+                        <div>
+                          <label className={labelClass}>State/Region *</label>
+                          <select
+                            value={formData.stateRegion}
+                            onChange={(e) => updateField('stateRegion', e.target.value)}
+                            className={selectClass}
+                          >
+                            <option value="">Select state</option>
+                            {AUSTRALIAN_STATES.map(state => (
+                              <option key={state} value={state}>{state}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className={labelClass}>Postal Code *</label>
+                          <input
+                            type="text"
+                            value={formData.postalCode}
+                            onChange={(e) => updateField('postalCode', e.target.value.replace(/\D/g, '').slice(0, 4))}
+                            className={inputClass}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Property Information Section */}
+                  <div className="border-t border-gray-200 pt-4">
+                    <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
+                      Property Information
+                    </h4>
+                    <div className="grid md:grid-cols-2 gap-4">
+                      <div>
+                        <label className={labelClass}>Home Owner *</label>
+                        <div className="flex gap-4">
+                          <label className="flex items-center gap-2">
+                            <input
+                              type="radio"
+                              name="homeOwner"
+                              value="yes"
+                              checked={formData.homeOwner === 'yes'}
+                              onChange={() => updateField('homeOwner', 'yes')}
+                              className="text-blue-600"
+                            />
+                            <span className="text-gray-900">Yes</span>
+                          </label>
+                          <label className="flex items-center gap-2">
+                            <input
+                              type="radio"
+                              name="homeOwner"
+                              value="no"
+                              checked={formData.homeOwner === 'no'}
+                              onChange={() => updateField('homeOwner', 'no')}
+                              className="text-blue-600"
+                            />
+                            <span className="text-gray-900">No</span>
+                          </label>
+                        </div>
+                      </div>
+                      <div>
+                        <label className={labelClass}>Mains Water *</label>
+                        <div className="flex gap-4">
+                          <label className="flex items-center gap-2">
+                            <input
+                              type="radio"
+                              name="mainsWater"
+                              value="yes"
+                              checked={formData.mainsWater === 'yes'}
+                              onChange={() => updateField('mainsWater', 'yes')}
+                              className="text-blue-600"
+                            />
+                            <span className="text-gray-900">Yes</span>
+                          </label>
+                          <label className="flex items-center gap-2">
+                            <input
+                              type="radio"
+                              name="mainsWater"
+                              value="no"
+                              checked={formData.mainsWater === 'no'}
+                              onChange={() => updateField('mainsWater', 'no')}
+                              className="text-blue-600"
+                            />
+                            <span className="text-gray-900">No</span>
+                          </label>
+                        </div>
+                      </div>
+                      <div>
+                        <label className={labelClass}>How many people in the house? *</label>
+                        <select
+                          value={formData.peopleInHouse}
+                          onChange={(e) => updateField('peopleInHouse', e.target.value)}
+                          className={selectClass}
+                        >
+                          <option value="">Select</option>
+                          {PEOPLE_IN_HOUSE_OPTIONS.map(num => (
+                            <option key={num} value={num}>{num}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className={labelClass}>Type of Property *</label>
+                        <select
+                          value={formData.propertyType}
+                          onChange={(e) => updateField('propertyType', e.target.value)}
+                          className={selectClass}
+                        >
+                          <option value="">Select property type</option>
+                          {PROPERTY_TYPES.map(type => (
+                            <option key={type} value={type}>{type}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className={labelClass}>Strata</label>
+                        <div className="flex gap-4">
+                          <label className="flex items-center gap-2">
+                            <input
+                              type="radio"
+                              name="strata"
+                              value="yes"
+                              checked={formData.strata === 'yes'}
+                              onChange={() => updateField('strata', 'yes')}
+                              className="text-blue-600"
+                            />
+                            <span className="text-gray-900">Yes</span>
+                          </label>
+                          <label className="flex items-center gap-2">
+                            <input
+                              type="radio"
+                              name="strata"
+                              value="no"
+                              checked={formData.strata === 'no'}
+                              onChange={() => updateField('strata', 'no')}
+                              className="text-blue-600"
+                            />
+                            <span className="text-gray-900">No</span>
+                          </label>
+                        </div>
+                      </div>
+                      <div>
+                        <label className={labelClass}>Partner Name</label>
+                        <input
+                          type="text"
+                          value={formData.partnerName}
+                          onChange={(e) => updateField('partnerName', e.target.value)}
+                          className={inputClass}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Referral Section */}
+                  <div className="border-t border-gray-200 pt-4">
+                    <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
+                      Referral Information
+                    </h4>
+                    <div className="grid md:grid-cols-2 gap-4">
+                      <div>
+                        <label className={labelClass}>Referred?</label>
+                        <div className="flex gap-4">
+                          <label className="flex items-center gap-2">
+                            <input
+                              type="radio"
+                              name="referred"
+                              value="yes"
+                              checked={formData.referred === 'yes'}
+                              onChange={() => updateField('referred', 'yes')}
+                              className="text-blue-600"
+                            />
+                            <span className="text-gray-900">Yes</span>
+                          </label>
+                          <label className="flex items-center gap-2">
+                            <input
+                              type="radio"
+                              name="referred"
+                              value="no"
+                              checked={formData.referred === 'no'}
+                              onChange={() => updateField('referred', 'no')}
+                              className="text-blue-600"
+                            />
+                            <span className="text-gray-900">No</span>
+                          </label>
+                        </div>
+                      </div>
+                      {formData.referred === 'yes' && (
+                        <div>
+                          <label className={labelClass}>Referrer&apos;s Name</label>
+                          <input
+                            type="text"
+                            value={formData.referrersName}
+                            onChange={(e) => updateField('referrersName', e.target.value)}
+                            className={inputClass}
+                          />
+                        </div>
+                      )}
+                      <div>
+                        <label className={labelClass}>How did you find out about us?</label>
+                        <select
+                          value={formData.howDidYouFindUs}
+                          onChange={(e) => updateField('howDidYouFindUs', e.target.value)}
+                          className={selectClass}
+                        >
+                          <option value="">Select</option>
+                          {HOW_DID_YOU_FIND_US.map(source => (
+                            <option key={source} value={source}>{source}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Water Concerns Section */}
+                  <div className="border-t border-gray-200 pt-4">
+                    <label className={labelClass}>Water Concerns</label>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mt-2">
+                      {WATER_CONCERNS.map(concern => (
+                        <label key={concern} className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={formData.waterConcerns.includes(concern)}
+                            onChange={() => handleWaterConcernsChange(concern)}
+                            className="rounded text-blue-600"
+                          />
+                          <span className="text-sm text-gray-900">{concern}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Common Notes */}
+                  <div className="border-t border-gray-200 pt-4">
+                    <label className={labelClass}>Notes</label>
+                    <textarea
+                      value={formData.notes}
+                      onChange={(e) => updateField('notes', e.target.value)}
+                      rows={3}
+                      placeholder="Additional notes..."
+                      className={`${inputClass} resize-none`}
+                    />
+                  </div>
+
+                  {/* Submit Button */}
+                  <div className="pt-4">
+                    <button
+                      onClick={handleSubmit}
+                      disabled={!isFormValid() || isSubmitting}
+                      className={`w-full py-3 px-6 rounded-lg font-medium transition-all flex items-center justify-center gap-2 ${
+                        isFormValid() && !isSubmitting
+                          ? 'bg-blue-600 text-white hover:bg-blue-700'
+                          : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                      }`}
+                    >
+                      {isSubmitting ? (
+                        <>
+                          <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                          Submitting to HubSpot...
+                        </>
+                      ) : (
+                        'Submit Disposition'
+                      )}
+                    </button>
+                  </div>
+                </>
+              )}
+
+              {/* ============================================ */}
+              {/* NOT INTERESTED FIELDS */}
+              {/* ============================================ */}
+              {formData.disposition === 'not_interested' && (
+                <>
+                  <h3 className="font-medium text-gray-900 pb-2 border-b border-gray-200">
+                    Not Interested Details
+                  </h3>
+
+                  <div>
+                    <label className={labelClass}>Reason Type *</label>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-2">
+                      {[
+                        { value: 'refuse_dl', label: 'Refuse DL' },
+                        { value: 'price', label: 'Price' },
+                        { value: 'time_constraints', label: 'Time Constraints' },
+                        { value: 'needs_partner_check', label: 'Needs to Check with Partner' },
+                        { value: 'product_unnecessary', label: 'Product Unnecessary' },
+                        { value: 'consultation_unnecessary', label: 'Consultation Unnecessary' },
+                        { value: 'customer_complaint', label: 'Customer Complaint' },
+                      ].map(({ value, label }) => (
+                        <button
+                          key={value}
+                          type="button"
+                          onClick={() => updateField('notInterestedSubType', value as NotInterestedSubType)}
+                          className={`p-2 border rounded-lg text-sm transition-all ${
+                            formData.notInterestedSubType === value
+                              ? 'border-orange-500 bg-orange-50 ring-2 ring-orange-500'
+                              : 'border-gray-300 hover:border-orange-400'
+                          }`}
+                        >
+                          <span className="text-gray-900">{label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className={labelClass}>List Classification *</label>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-2">
+                      <button
+                        type="button"
+                        onClick={() => updateField('listClassification', 'amberlist')}
+                        className={`p-3 border rounded-lg text-left transition-all ${
+                          formData.listClassification === 'amberlist'
+                            ? 'border-amber-500 bg-amber-50 ring-2 ring-amber-500'
+                            : 'border-gray-300 hover:border-amber-400'
+                        }`}
+                      >
+                        <span className="font-medium text-amber-700">Amberlist</span>
+                        <p className="text-xs text-gray-500 mt-1">Not Ready Now - Call back in 3 months</p>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => updateField('listClassification', 'greylist')}
+                        className={`p-3 border rounded-lg text-left transition-all ${
+                          formData.listClassification === 'greylist'
+                            ? 'border-gray-500 bg-gray-100 ring-2 ring-gray-500'
+                            : 'border-gray-300 hover:border-gray-400'
+                        }`}
+                      >
+                        <span className="font-medium text-gray-700">Greylist</span>
+                        <p className="text-xs text-gray-500 mt-1">Advised Not Interested - Marketing only</p>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => updateField('listClassification', 'blacklist')}
+                        className={`p-3 border rounded-lg text-left transition-all ${
+                          formData.listClassification === 'blacklist'
+                            ? 'border-gray-900 bg-gray-200 ring-2 ring-gray-900'
+                            : 'border-gray-300 hover:border-gray-600'
+                        }`}
+                      >
+                        <span className="font-medium text-gray-900">Blacklist</span>
+                        <p className="text-xs text-gray-500 mt-1">Do Not Contact - Remove from all comms</p>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className={labelClass}>Advised Not Interested - Specify Reason *</label>
+                    <select
+                      value={formData.advisedNotInterestedReason}
+                      onChange={(e) => updateField('advisedNotInterestedReason', e.target.value)}
+                      className={selectClass}
+                    >
+                      <option value="">Select reason</option>
+                      {ADVISED_NOT_INTERESTED_REASONS.map(reason => (
+                        <option key={reason} value={reason}>{reason}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {formData.listClassification && (
+                    <p className="text-sm bg-gray-50 p-3 rounded-lg">
+                      <strong>HubSpot Action: </strong>
+                      {formData.listClassification === 'amberlist' && 'Automation will call customer back in 3 months'}
+                      {formData.listClassification === 'greylist' && 'Customer remains on database for marketing only'}
+                      {formData.listClassification === 'blacklist' && 'Customer removed from all forms of communication'}
+                    </p>
+                  )}
+
+                  {/* Notes */}
+                  <div className="border-t border-gray-200 pt-4">
+                    <label className={labelClass}>Notes</label>
+                    <textarea
+                      value={formData.notes}
+                      onChange={(e) => updateField('notes', e.target.value)}
+                      rows={3}
+                      placeholder="Additional notes..."
+                      className={`${inputClass} resize-none`}
+                    />
+                  </div>
+
+                  {/* Submit */}
+                  <div className="pt-4">
+                    <button
+                      onClick={handleSubmit}
+                      disabled={!isFormValid() || isSubmitting}
+                      className={`w-full py-3 px-6 rounded-lg font-medium transition-all flex items-center justify-center gap-2 ${
+                        isFormValid() && !isSubmitting
+                          ? 'bg-blue-600 text-white hover:bg-blue-700'
+                          : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                      }`}
+                    >
+                      {isSubmitting ? 'Submitting...' : 'Submit Disposition'}
+                    </button>
+                  </div>
+                </>
+              )}
+
+              {/* ============================================ */}
+              {/* OTHER DEPARTMENT FIELDS */}
+              {/* ============================================ */}
+              {formData.disposition === 'other_department' && (
+                <>
+                  <h3 className="font-medium text-gray-900 pb-2 border-b border-gray-200">
+                    Other Department (Transfer Call)
+                  </h3>
+
+                  <div>
+                    <label className={labelClass}>Department *</label>
+                    <select
+                      value={formData.otherDepartment}
+                      onChange={(e) => updateField('otherDepartment', e.target.value as OtherDepartmentType)}
+                      className={selectClass}
+                    >
+                      <option value="">Select department</option>
+                      {OTHER_DEPARTMENTS.map(({ value, label }) => (
+                        <option key={value} value={value}>{label}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {formData.otherDepartment === 'is' && (
+                    <>
+                      <div>
+                        <label className={labelClass}>Create Internal Sales Deal</label>
+                        <div className="flex gap-4 mt-2">
+                          <label className="flex items-center gap-2">
+                            <input
+                              type="radio"
+                              name="createIsDeal"
+                              value="yes"
+                              checked={formData.createIsDeal === 'yes'}
+                              onChange={() => updateField('createIsDeal', 'yes')}
+                              className="text-blue-600"
+                            />
+                            <span className="text-gray-900">Yes</span>
+                          </label>
+                          <label className="flex items-center gap-2">
+                            <input
+                              type="radio"
+                              name="createIsDeal"
+                              value="no"
+                              checked={formData.createIsDeal === 'no'}
+                              onChange={() => updateField('createIsDeal', 'no')}
+                              className="text-blue-600"
+                            />
+                            <span className="text-gray-900">No</span>
+                          </label>
+                        </div>
+                      </div>
+                      <div>
+                        <label className={labelClass}>Notes for Internal Sales</label>
+                        <textarea
+                          value={formData.notesForInternalSales}
+                          onChange={(e) => updateField('notesForInternalSales', e.target.value)}
+                          rows={3}
+                          placeholder="Enter notes for Internal Sales team..."
+                          className={`${inputClass} resize-none`}
+                        />
+                      </div>
+                      <p className="text-sm text-gray-500 bg-blue-50 p-3 rounded-lg">
+                        <strong>HubSpot Action:</strong> Automation will create an Internal Sales deal.
+                      </p>
+                    </>
+                  )}
+
+                  {formData.otherDepartment && formData.otherDepartment !== 'is' && (
+                    <p className="text-sm text-gray-500 bg-gray-50 p-3 rounded-lg">
+                      Transfer call to {OTHER_DEPARTMENTS.find(d => d.value === formData.otherDepartment)?.label} department.
+                    </p>
+                  )}
+
+                  {/* Notes */}
+                  <div className="border-t border-gray-200 pt-4">
+                    <label className={labelClass}>Notes</label>
+                    <textarea
+                      value={formData.notes}
+                      onChange={(e) => updateField('notes', e.target.value)}
+                      rows={3}
+                      placeholder="Additional notes..."
+                      className={`${inputClass} resize-none`}
+                    />
+                  </div>
+
+                  {/* Submit */}
+                  <div className="pt-4">
+                    <button
+                      onClick={handleSubmit}
+                      disabled={!isFormValid() || isSubmitting}
+                      className={`w-full py-3 px-6 rounded-lg font-medium transition-all flex items-center justify-center gap-2 ${
+                        isFormValid() && !isSubmitting
+                          ? 'bg-blue-600 text-white hover:bg-blue-700'
+                          : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                      }`}
+                    >
+                      {isSubmitting ? 'Submitting...' : 'Submit Disposition'}
+                    </button>
+                  </div>
+                </>
+              )}
+
+              {/* ============================================ */}
+              {/* UNABLE TO SERVICE FIELDS */}
+              {/* ============================================ */}
+              {formData.disposition === 'unable_to_service' && (
+                <>
+                  <h3 className="font-medium text-gray-900 pb-2 border-b border-gray-200">
+                    Unable to Service Details
+                  </h3>
+
+                  <div>
+                    <label className={labelClass}>Reason *</label>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-2">
+                      {[
+                        { value: 'water_source', label: 'Water Source', desc: 'Non-mains water' },
+                        { value: 'non_homeowner', label: 'Non Homeowner', desc: 'Renting/leasing' },
+                        { value: 'incompatible_dwelling', label: 'Incompatible Dwelling', desc: 'Property type issue' },
+                        { value: 'mistaken_enquiry', label: 'Mistaken Enquiry', desc: 'Wrong company/service' },
+                      ].map(({ value, label, desc }) => (
+                        <button
+                          key={value}
+                          type="button"
+                          onClick={() => updateField('unableToServiceSubType', value as UnableToServiceSubType)}
+                          className={`p-3 border rounded-lg text-left transition-all ${
+                            formData.unableToServiceSubType === value
+                              ? 'border-gray-700 bg-gray-100 ring-2 ring-gray-700'
+                              : 'border-gray-300 hover:border-gray-500'
+                          }`}
+                        >
+                          <span className="font-medium text-gray-900">{label}</span>
+                          <p className="text-xs text-gray-500 mt-1">{desc}</p>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {formData.unableToServiceSubType === 'water_source' && (
+                    <div>
+                      <label className={labelClass}>Water Source Type</label>
+                      <select
+                        value={formData.waterSource}
+                        onChange={(e) => updateField('waterSource', e.target.value)}
+                        className={selectClass}
+                      >
+                        <option value="">Select water source</option>
+                        {WATER_SOURCES.map(source => (
+                          <option key={source} value={source}>{source}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  <div>
+                    <label className={labelClass}>List Classification *</label>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-2">
+                      <button
+                        type="button"
+                        onClick={() => updateField('listClassification', 'amberlist')}
+                        className={`p-3 border rounded-lg text-left transition-all ${
+                          formData.listClassification === 'amberlist'
+                            ? 'border-amber-500 bg-amber-50 ring-2 ring-amber-500'
+                            : 'border-gray-300 hover:border-amber-400'
+                        }`}
+                      >
+                        <span className="font-medium text-amber-700">Amberlist</span>
+                        <p className="text-xs text-gray-500 mt-1">Not Ready Now</p>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => updateField('listClassification', 'greylist')}
+                        className={`p-3 border rounded-lg text-left transition-all ${
+                          formData.listClassification === 'greylist'
+                            ? 'border-gray-500 bg-gray-100 ring-2 ring-gray-500'
+                            : 'border-gray-300 hover:border-gray-400'
+                        }`}
+                      >
+                        <span className="font-medium text-gray-700">Greylist</span>
+                        <p className="text-xs text-gray-500 mt-1">Advised Not Interested</p>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => updateField('listClassification', 'blacklist')}
+                        className={`p-3 border rounded-lg text-left transition-all ${
+                          formData.listClassification === 'blacklist'
+                            ? 'border-gray-900 bg-gray-200 ring-2 ring-gray-900'
+                            : 'border-gray-300 hover:border-gray-600'
+                        }`}
+                      >
+                        <span className="font-medium text-gray-900">Blacklist</span>
+                        <p className="text-xs text-gray-500 mt-1">Do Not Contact</p>
+                      </button>
+                    </div>
+                  </div>
+
+                  <p className="text-sm text-gray-500 bg-gray-50 p-3 rounded-lg">
+                    <strong>Contact Owner:</strong> CHF Promotions
+                  </p>
+
+                  {/* Notes */}
+                  <div className="border-t border-gray-200 pt-4">
+                    <label className={labelClass}>Notes</label>
+                    <textarea
+                      value={formData.notes}
+                      onChange={(e) => updateField('notes', e.target.value)}
+                      rows={3}
+                      placeholder="Additional notes..."
+                      className={`${inputClass} resize-none`}
+                    />
+                  </div>
+
+                  {/* Submit */}
+                  <div className="pt-4">
+                    <button
+                      onClick={handleSubmit}
+                      disabled={!isFormValid() || isSubmitting}
+                      className={`w-full py-3 px-6 rounded-lg font-medium transition-all flex items-center justify-center gap-2 ${
+                        isFormValid() && !isSubmitting
+                          ? 'bg-blue-600 text-white hover:bg-blue-700'
+                          : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                      }`}
+                    >
+                      {isSubmitting ? 'Submitting...' : 'Submit Disposition'}
+                    </button>
+                  </div>
+                </>
+              )}
+
+              {/* ============================================ */}
+              {/* WRONG NUMBER FIELDS */}
+              {/* ============================================ */}
+              {formData.disposition === 'wrong_number' && (
+                <>
+                  <h3 className="font-medium text-gray-900 pb-2 border-b border-gray-200">
+                    Wrong Number Details
+                  </h3>
+
+                  <div>
+                    <label className={labelClass}>Type *</label>
+                    <div className="grid grid-cols-2 gap-3 mt-2">
+                      <button
+                        type="button"
+                        onClick={() => updateField('wrongNumberSubType', 'wrong_person')}
+                        className={`p-4 border rounded-lg text-left transition-all ${
+                          formData.wrongNumberSubType === 'wrong_person'
+                            ? 'border-red-600 bg-red-50 ring-2 ring-red-600'
+                            : 'border-gray-300 hover:border-red-400'
+                        }`}
+                      >
+                        <span className="font-medium text-gray-900">Wrong Person</span>
+                        <p className="text-xs text-gray-500 mt-1">Number belongs to different person</p>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => updateField('wrongNumberSubType', 'invalid_number')}
+                        className={`p-4 border rounded-lg text-left transition-all ${
+                          formData.wrongNumberSubType === 'invalid_number'
+                            ? 'border-red-600 bg-red-50 ring-2 ring-red-600'
+                            : 'border-gray-300 hover:border-red-400'
+                        }`}
+                      >
+                        <span className="font-medium text-gray-900">Invalid Number</span>
+                        <p className="text-xs text-gray-500 mt-1">Number does not exist or disconnected</p>
+                      </button>
+                    </div>
+                  </div>
+
+                  <p className="text-sm text-gray-500 bg-red-50 p-3 rounded-lg">
+                    <strong>Outcome:</strong> Unreachable<br />
+                    <strong>HubSpot Action:</strong> Automation will email the customer to ask for correct number.<br />
+                    <strong>Contact Owner:</strong> CHF Promotions<br />
+                    <strong>List Status:</strong> Greylist - No response to email
+                  </p>
+
+                  {/* Notes */}
+                  <div className="border-t border-gray-200 pt-4">
+                    <label className={labelClass}>Notes</label>
+                    <textarea
+                      value={formData.notes}
+                      onChange={(e) => updateField('notes', e.target.value)}
+                      rows={3}
+                      placeholder="Additional notes..."
+                      className={`${inputClass} resize-none`}
+                    />
+                  </div>
+
+                  {/* Submit */}
+                  <div className="pt-4">
+                    <button
+                      onClick={handleSubmit}
+                      disabled={!isFormValid() || isSubmitting}
+                      className={`w-full py-3 px-6 rounded-lg font-medium transition-all flex items-center justify-center gap-2 ${
+                        isFormValid() && !isSubmitting
+                          ? 'bg-blue-600 text-white hover:bg-blue-700'
+                          : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                      }`}
+                    >
+                      {isSubmitting ? 'Submitting...' : 'Submit Disposition'}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
           {/* Postcode Lookup */}
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
             <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -706,802 +1523,6 @@ export default function DispositionForm() {
               </div>
             </div>
           )}
-
-          {/* Conditional Fields */}
-        {formData.disposition && (
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 space-y-6">
-
-            {/* ============================================ */}
-            {/* BOOK WATER TEST FIELDS */}
-            {/* ============================================ */}
-            {formData.disposition === 'book_water_test' && (
-              <>
-                <h3 className="font-medium text-gray-900 pb-2 border-b border-gray-200">
-                  Book Water Test - SL/DL
-                </h3>
-
-                {/* Booking Details Section */}
-                <div>
-                  <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
-                    Booking Details
-                  </h4>
-                  <div className="grid md:grid-cols-2 gap-4">
-                    <div>
-                      <label className={labelClass}>Date of Booking Call</label>
-                      <input
-                        type="date"
-                        value={formData.dateOfBookingCall}
-                        onChange={(e) => updateField('dateOfBookingCall', e.target.value)}
-                        className={inputClass}
-                      />
-                    </div>
-                    <div>
-                      <label className={labelClass}>Leads Rep</label>
-                      <input
-                        type="text"
-                        value={formData.leadsRep}
-                        onChange={(e) => updateField('leadsRep', e.target.value)}
-                        className={inputClass}
-                      />
-                    </div>
-                    <div>
-                      <label className={labelClass}>Water Test Day</label>
-                      <select
-                        value={formData.waterTestDay}
-                        onChange={(e) => updateField('waterTestDay', e.target.value)}
-                        className={selectClass}
-                      >
-                        <option value="">Select day</option>
-                        {DAYS_OF_WEEK.map(day => (
-                          <option key={day} value={day}>{day}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className={labelClass}>Water Test Date *</label>
-                      <input
-                        type="date"
-                        value={formData.waterTestDate}
-                        onChange={(e) => updateField('waterTestDate', e.target.value)}
-                        className={inputClass}
-                      />
-                    </div>
-                    <div>
-                      <label className={labelClass}>Water Test Time *</label>
-                      <select
-                        value={formData.waterTestTime}
-                        onChange={(e) => updateField('waterTestTime', e.target.value)}
-                        className={selectClass}
-                      >
-                        <option value="">Select time</option>
-                        {WATER_TEST_TIMES.map(time => (
-                          <option key={time} value={time}>{time}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className={labelClass}>Available From</label>
-                      <input
-                        type="time"
-                        value={formData.availableFrom}
-                        onChange={(e) => updateField('availableFrom', e.target.value)}
-                        className={inputClass}
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Lead Status */}
-                <div className="border-t border-gray-200 pt-4">
-                  <label className={labelClass}>Lead Status *</label>
-                  <div className="flex gap-4">
-                    <label className="flex items-center gap-2">
-                      <input
-                        type="radio"
-                        name="leadStatus"
-                        value="SL"
-                        checked={formData.leadStatus === 'SL'}
-                        onChange={() => updateField('leadStatus', 'SL')}
-                        className="text-blue-600"
-                      />
-                      <span className="text-gray-900">SL (Single Leg)</span>
-                    </label>
-                    <label className="flex items-center gap-2">
-                      <input
-                        type="radio"
-                        name="leadStatus"
-                        value="DL"
-                        checked={formData.leadStatus === 'DL'}
-                        onChange={() => updateField('leadStatus', 'DL')}
-                        className="text-blue-600"
-                      />
-                      <span className="text-gray-900">DL (Double Leg)</span>
-                    </label>
-                  </div>
-                </div>
-
-                {/* Contact Details Section */}
-                <div className="border-t border-gray-200 pt-4">
-                  <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
-                    Contact Details
-                  </h4>
-                  <div className="grid md:grid-cols-2 gap-4">
-                    <div>
-                      <label className={labelClass}>First Name *</label>
-                      <input
-                        type="text"
-                        value={formData.firstName}
-                        onChange={(e) => updateField('firstName', e.target.value)}
-                        className={inputClass}
-                      />
-                    </div>
-                    <div>
-                      <label className={labelClass}>Last Name *</label>
-                      <input
-                        type="text"
-                        value={formData.lastName}
-                        onChange={(e) => updateField('lastName', e.target.value)}
-                        className={inputClass}
-                      />
-                    </div>
-                    <div>
-                      <label className={labelClass}>Phone Number *</label>
-                      <input
-                        type="tel"
-                        value={formData.phoneNumber}
-                        onChange={(e) => updateField('phoneNumber', e.target.value)}
-                        className={inputClass}
-                      />
-                    </div>
-                    <div>
-                      <label className={labelClass}>Email</label>
-                      <input
-                        type="email"
-                        value={formData.emailAddress}
-                        onChange={(e) => updateField('emailAddress', e.target.value)}
-                        className={inputClass}
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Address Section */}
-                <div className="border-t border-gray-200 pt-4">
-                  <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
-                    Address
-                  </h4>
-                  <div className="grid gap-4">
-                    <div>
-                      <label className={labelClass}>Street Address *</label>
-                      <input
-                        type="text"
-                        value={formData.streetAddress}
-                        onChange={(e) => updateField('streetAddress', e.target.value)}
-                        className={inputClass}
-                      />
-                    </div>
-                    <div className="grid md:grid-cols-3 gap-4">
-                      <div>
-                        <label className={labelClass}>City *</label>
-                        <input
-                          type="text"
-                          value={formData.city}
-                          onChange={(e) => updateField('city', e.target.value)}
-                          className={inputClass}
-                        />
-                      </div>
-                      <div>
-                        <label className={labelClass}>State/Region *</label>
-                        <select
-                          value={formData.stateRegion}
-                          onChange={(e) => updateField('stateRegion', e.target.value)}
-                          className={selectClass}
-                        >
-                          <option value="">Select state</option>
-                          {AUSTRALIAN_STATES.map(state => (
-                            <option key={state} value={state}>{state}</option>
-                          ))}
-                        </select>
-                      </div>
-                      <div>
-                        <label className={labelClass}>Postal Code *</label>
-                        <input
-                          type="text"
-                          value={formData.postalCode}
-                          onChange={(e) => updateField('postalCode', e.target.value.replace(/\D/g, '').slice(0, 4))}
-                          className={inputClass}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Property Information Section */}
-                <div className="border-t border-gray-200 pt-4">
-                  <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
-                    Property Information
-                  </h4>
-                  <div className="grid md:grid-cols-2 gap-4">
-                    <div>
-                      <label className={labelClass}>Home Owner *</label>
-                      <div className="flex gap-4">
-                        <label className="flex items-center gap-2">
-                          <input
-                            type="radio"
-                            name="homeOwner"
-                            value="yes"
-                            checked={formData.homeOwner === 'yes'}
-                            onChange={() => updateField('homeOwner', 'yes')}
-                            className="text-blue-600"
-                          />
-                          <span className="text-gray-900">Yes</span>
-                        </label>
-                        <label className="flex items-center gap-2">
-                          <input
-                            type="radio"
-                            name="homeOwner"
-                            value="no"
-                            checked={formData.homeOwner === 'no'}
-                            onChange={() => updateField('homeOwner', 'no')}
-                            className="text-blue-600"
-                          />
-                          <span className="text-gray-900">No</span>
-                        </label>
-                      </div>
-                    </div>
-                    <div>
-                      <label className={labelClass}>Mains Water *</label>
-                      <div className="flex gap-4">
-                        <label className="flex items-center gap-2">
-                          <input
-                            type="radio"
-                            name="mainsWater"
-                            value="yes"
-                            checked={formData.mainsWater === 'yes'}
-                            onChange={() => updateField('mainsWater', 'yes')}
-                            className="text-blue-600"
-                          />
-                          <span className="text-gray-900">Yes</span>
-                        </label>
-                        <label className="flex items-center gap-2">
-                          <input
-                            type="radio"
-                            name="mainsWater"
-                            value="no"
-                            checked={formData.mainsWater === 'no'}
-                            onChange={() => updateField('mainsWater', 'no')}
-                            className="text-blue-600"
-                          />
-                          <span className="text-gray-900">No</span>
-                        </label>
-                      </div>
-                    </div>
-                    <div>
-                      <label className={labelClass}>How many people in the house? *</label>
-                      <select
-                        value={formData.peopleInHouse}
-                        onChange={(e) => updateField('peopleInHouse', e.target.value)}
-                        className={selectClass}
-                      >
-                        <option value="">Select</option>
-                        {PEOPLE_IN_HOUSE_OPTIONS.map(num => (
-                          <option key={num} value={num}>{num}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className={labelClass}>Type of Property *</label>
-                      <select
-                        value={formData.propertyType}
-                        onChange={(e) => updateField('propertyType', e.target.value)}
-                        className={selectClass}
-                      >
-                        <option value="">Select property type</option>
-                        {PROPERTY_TYPES.map(type => (
-                          <option key={type} value={type}>{type}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className={labelClass}>Strata</label>
-                      <div className="flex gap-4">
-                        <label className="flex items-center gap-2">
-                          <input
-                            type="radio"
-                            name="strata"
-                            value="yes"
-                            checked={formData.strata === 'yes'}
-                            onChange={() => updateField('strata', 'yes')}
-                            className="text-blue-600"
-                          />
-                          <span className="text-gray-900">Yes</span>
-                        </label>
-                        <label className="flex items-center gap-2">
-                          <input
-                            type="radio"
-                            name="strata"
-                            value="no"
-                            checked={formData.strata === 'no'}
-                            onChange={() => updateField('strata', 'no')}
-                            className="text-blue-600"
-                          />
-                          <span className="text-gray-900">No</span>
-                        </label>
-                      </div>
-                    </div>
-                    <div>
-                      <label className={labelClass}>Partner Name</label>
-                      <input
-                        type="text"
-                        value={formData.partnerName}
-                        onChange={(e) => updateField('partnerName', e.target.value)}
-                        className={inputClass}
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Referral Section */}
-                <div className="border-t border-gray-200 pt-4">
-                  <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
-                    Referral Information
-                  </h4>
-                  <div className="grid md:grid-cols-2 gap-4">
-                    <div>
-                      <label className={labelClass}>Referred?</label>
-                      <div className="flex gap-4">
-                        <label className="flex items-center gap-2">
-                          <input
-                            type="radio"
-                            name="referred"
-                            value="yes"
-                            checked={formData.referred === 'yes'}
-                            onChange={() => updateField('referred', 'yes')}
-                            className="text-blue-600"
-                          />
-                          <span className="text-gray-900">Yes</span>
-                        </label>
-                        <label className="flex items-center gap-2">
-                          <input
-                            type="radio"
-                            name="referred"
-                            value="no"
-                            checked={formData.referred === 'no'}
-                            onChange={() => updateField('referred', 'no')}
-                            className="text-blue-600"
-                          />
-                          <span className="text-gray-900">No</span>
-                        </label>
-                      </div>
-                    </div>
-                    {formData.referred === 'yes' && (
-                      <div>
-                        <label className={labelClass}>Referrer&apos;s Name</label>
-                        <input
-                          type="text"
-                          value={formData.referrersName}
-                          onChange={(e) => updateField('referrersName', e.target.value)}
-                          className={inputClass}
-                        />
-                      </div>
-                    )}
-                    <div>
-                      <label className={labelClass}>How did you find out about us?</label>
-                      <select
-                        value={formData.howDidYouFindUs}
-                        onChange={(e) => updateField('howDidYouFindUs', e.target.value)}
-                        className={selectClass}
-                      >
-                        <option value="">Select</option>
-                        {HOW_DID_YOU_FIND_US.map(source => (
-                          <option key={source} value={source}>{source}</option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Water Concerns Section */}
-                <div className="border-t border-gray-200 pt-4">
-                  <label className={labelClass}>Water Concerns</label>
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mt-2">
-                    {WATER_CONCERNS.map(concern => (
-                      <label key={concern} className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={formData.waterConcerns.includes(concern)}
-                          onChange={() => handleWaterConcernsChange(concern)}
-                          className="rounded text-blue-600"
-                        />
-                        <span className="text-sm text-gray-900">{concern}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-              </>
-            )}
-
-            {/* ============================================ */}
-            {/* NOT INTERESTED FIELDS */}
-            {/* ============================================ */}
-            {formData.disposition === 'not_interested' && (
-              <>
-                <h3 className="font-medium text-gray-900 pb-2 border-b border-gray-200">
-                  Not Interested Details
-                </h3>
-
-                <div>
-                  <label className={labelClass}>Reason Type *</label>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-2">
-                    {[
-                      { value: 'refuse_dl', label: 'Refuse DL' },
-                      { value: 'price', label: 'Price' },
-                      { value: 'time_constraints', label: 'Time Constraints' },
-                      { value: 'needs_partner_check', label: 'Needs to Check with Partner' },
-                      { value: 'product_unnecessary', label: 'Product Unnecessary' },
-                      { value: 'consultation_unnecessary', label: 'Consultation Unnecessary' },
-                      { value: 'customer_complaint', label: 'Customer Complaint' },
-                    ].map(({ value, label }) => (
-                      <button
-                        key={value}
-                        type="button"
-                        onClick={() => updateField('notInterestedSubType', value as NotInterestedSubType)}
-                        className={`p-2 border rounded-lg text-sm transition-all ${
-                          formData.notInterestedSubType === value
-                            ? 'border-orange-500 bg-orange-50 ring-2 ring-orange-500'
-                            : 'border-gray-300 hover:border-orange-400'
-                        }`}
-                      >
-                        <span className="text-gray-900">{label}</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div>
-                  <label className={labelClass}>List Classification *</label>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-2">
-                    <button
-                      type="button"
-                      onClick={() => updateField('listClassification', 'amberlist')}
-                      className={`p-3 border rounded-lg text-left transition-all ${
-                        formData.listClassification === 'amberlist'
-                          ? 'border-amber-500 bg-amber-50 ring-2 ring-amber-500'
-                          : 'border-gray-300 hover:border-amber-400'
-                      }`}
-                    >
-                      <span className="font-medium text-amber-700">Amberlist</span>
-                      <p className="text-xs text-gray-500 mt-1">Not Ready Now - Call back in 3 months</p>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => updateField('listClassification', 'greylist')}
-                      className={`p-3 border rounded-lg text-left transition-all ${
-                        formData.listClassification === 'greylist'
-                          ? 'border-gray-500 bg-gray-100 ring-2 ring-gray-500'
-                          : 'border-gray-300 hover:border-gray-400'
-                      }`}
-                    >
-                      <span className="font-medium text-gray-700">Greylist</span>
-                      <p className="text-xs text-gray-500 mt-1">Advised Not Interested - Marketing only</p>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => updateField('listClassification', 'blacklist')}
-                      className={`p-3 border rounded-lg text-left transition-all ${
-                        formData.listClassification === 'blacklist'
-                          ? 'border-gray-900 bg-gray-200 ring-2 ring-gray-900'
-                          : 'border-gray-300 hover:border-gray-600'
-                      }`}
-                    >
-                      <span className="font-medium text-gray-900">Blacklist</span>
-                      <p className="text-xs text-gray-500 mt-1">Do Not Contact - Remove from all comms</p>
-                    </button>
-                  </div>
-                </div>
-
-                <div>
-                  <label className={labelClass}>Advised Not Interested - Specify Reason *</label>
-                  <select
-                    value={formData.advisedNotInterestedReason}
-                    onChange={(e) => updateField('advisedNotInterestedReason', e.target.value)}
-                    className={selectClass}
-                  >
-                    <option value="">Select reason</option>
-                    {ADVISED_NOT_INTERESTED_REASONS.map(reason => (
-                      <option key={reason} value={reason}>{reason}</option>
-                    ))}
-                  </select>
-                </div>
-
-                {formData.listClassification && (
-                  <p className="text-sm bg-gray-50 p-3 rounded-lg">
-                    <strong>HubSpot Action: </strong>
-                    {formData.listClassification === 'amberlist' && 'Automation will call customer back in 3 months'}
-                    {formData.listClassification === 'greylist' && 'Customer remains on database for marketing only'}
-                    {formData.listClassification === 'blacklist' && 'Customer removed from all forms of communication'}
-                  </p>
-                )}
-              </>
-            )}
-
-            {/* ============================================ */}
-            {/* OTHER DEPARTMENT (TRANSFER CALL) FIELDS */}
-            {/* ============================================ */}
-            {formData.disposition === 'other_department' && (
-              <>
-                <h3 className="font-medium text-gray-900 pb-2 border-b border-gray-200">
-                  Other Department (Transfer Call)
-                </h3>
-
-                <div>
-                  <label className={labelClass}>Department *</label>
-                  <select
-                    value={formData.otherDepartment}
-                    onChange={(e) => updateField('otherDepartment', e.target.value as OtherDepartmentType)}
-                    className={selectClass}
-                  >
-                    <option value="">Select department</option>
-                    {OTHER_DEPARTMENTS.map(({ value, label }) => (
-                      <option key={value} value={value}>{label}</option>
-                    ))}
-                  </select>
-                </div>
-
-                {formData.otherDepartment === 'is' && (
-                  <>
-                    <div>
-                      <label className={labelClass}>Create Internal Sales Deal</label>
-                      <div className="flex gap-4 mt-2">
-                        <label className="flex items-center gap-2">
-                          <input
-                            type="radio"
-                            name="createIsDeal"
-                            value="yes"
-                            checked={formData.createIsDeal === 'yes'}
-                            onChange={() => updateField('createIsDeal', 'yes')}
-                            className="text-blue-600"
-                          />
-                          <span className="text-gray-900">Yes</span>
-                        </label>
-                        <label className="flex items-center gap-2">
-                          <input
-                            type="radio"
-                            name="createIsDeal"
-                            value="no"
-                            checked={formData.createIsDeal === 'no'}
-                            onChange={() => updateField('createIsDeal', 'no')}
-                            className="text-blue-600"
-                          />
-                          <span className="text-gray-900">No</span>
-                        </label>
-                      </div>
-                    </div>
-                    <div>
-                      <label className={labelClass}>Notes for Internal Sales</label>
-                      <textarea
-                        value={formData.notesForInternalSales}
-                        onChange={(e) => updateField('notesForInternalSales', e.target.value)}
-                        rows={3}
-                        placeholder="Enter notes for Internal Sales team..."
-                        className={`${inputClass} resize-none`}
-                      />
-                    </div>
-                    <p className="text-sm text-gray-500 bg-blue-50 p-3 rounded-lg">
-                      <strong>HubSpot Action:</strong> Automation will create an Internal Sales deal.
-                    </p>
-                  </>
-                )}
-
-                {formData.otherDepartment && formData.otherDepartment !== 'is' && (
-                  <p className="text-sm text-gray-500 bg-gray-50 p-3 rounded-lg">
-                    Transfer call to {OTHER_DEPARTMENTS.find(d => d.value === formData.otherDepartment)?.label} department.
-                  </p>
-                )}
-              </>
-            )}
-
-            {/* ============================================ */}
-            {/* UNABLE TO SERVICE FIELDS */}
-            {/* ============================================ */}
-            {formData.disposition === 'unable_to_service' && (
-              <>
-                <h3 className="font-medium text-gray-900 pb-2 border-b border-gray-200">
-                  Unable to Service Details
-                </h3>
-
-                <div>
-                  <label className={labelClass}>Reason *</label>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-2">
-                    {[
-                      { value: 'water_source', label: 'Water Source', desc: 'Non-mains water' },
-                      { value: 'non_homeowner', label: 'Non Homeowner', desc: 'Renting/leasing' },
-                      { value: 'incompatible_dwelling', label: 'Incompatible Dwelling', desc: 'Property type issue' },
-                      { value: 'mistaken_enquiry', label: 'Mistaken Enquiry', desc: 'Wrong company/service' },
-                    ].map(({ value, label, desc }) => (
-                      <button
-                        key={value}
-                        type="button"
-                        onClick={() => updateField('unableToServiceSubType', value as UnableToServiceSubType)}
-                        className={`p-3 border rounded-lg text-left transition-all ${
-                          formData.unableToServiceSubType === value
-                            ? 'border-gray-700 bg-gray-100 ring-2 ring-gray-700'
-                            : 'border-gray-300 hover:border-gray-500'
-                        }`}
-                      >
-                        <span className="font-medium text-gray-900">{label}</span>
-                        <p className="text-xs text-gray-500 mt-1">{desc}</p>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {formData.unableToServiceSubType === 'water_source' && (
-                  <div>
-                    <label className={labelClass}>Water Source Type</label>
-                    <select
-                      value={formData.waterSource}
-                      onChange={(e) => updateField('waterSource', e.target.value)}
-                      className={selectClass}
-                    >
-                      <option value="">Select water source</option>
-                      {WATER_SOURCES.map(source => (
-                        <option key={source} value={source}>{source}</option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-
-                <div>
-                  <label className={labelClass}>List Classification *</label>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-2">
-                    <button
-                      type="button"
-                      onClick={() => updateField('listClassification', 'amberlist')}
-                      className={`p-3 border rounded-lg text-left transition-all ${
-                        formData.listClassification === 'amberlist'
-                          ? 'border-amber-500 bg-amber-50 ring-2 ring-amber-500'
-                          : 'border-gray-300 hover:border-amber-400'
-                      }`}
-                    >
-                      <span className="font-medium text-amber-700">Amberlist</span>
-                      <p className="text-xs text-gray-500 mt-1">Not Ready Now</p>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => updateField('listClassification', 'greylist')}
-                      className={`p-3 border rounded-lg text-left transition-all ${
-                        formData.listClassification === 'greylist'
-                          ? 'border-gray-500 bg-gray-100 ring-2 ring-gray-500'
-                          : 'border-gray-300 hover:border-gray-400'
-                      }`}
-                    >
-                      <span className="font-medium text-gray-700">Greylist</span>
-                      <p className="text-xs text-gray-500 mt-1">Advised Not Interested</p>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => updateField('listClassification', 'blacklist')}
-                      className={`p-3 border rounded-lg text-left transition-all ${
-                        formData.listClassification === 'blacklist'
-                          ? 'border-gray-900 bg-gray-200 ring-2 ring-gray-900'
-                          : 'border-gray-300 hover:border-gray-600'
-                      }`}
-                    >
-                      <span className="font-medium text-gray-900">Blacklist</span>
-                      <p className="text-xs text-gray-500 mt-1">Do Not Contact</p>
-                    </button>
-                  </div>
-                </div>
-
-                <div>
-                  <label className={labelClass}>Advised Not Interested - Specify Reason</label>
-                  <select
-                    value={formData.advisedNotInterestedReason}
-                    onChange={(e) => updateField('advisedNotInterestedReason', e.target.value)}
-                    className={selectClass}
-                  >
-                    <option value="">Select reason</option>
-                    {ADVISED_NOT_INTERESTED_REASONS.map(reason => (
-                      <option key={reason} value={reason}>{reason}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <p className="text-sm text-gray-500 bg-gray-50 p-3 rounded-lg">
-                  <strong>Contact Owner:</strong> CHF Promotions
-                </p>
-              </>
-            )}
-
-            {/* ============================================ */}
-            {/* WRONG NUMBER FIELDS */}
-            {/* ============================================ */}
-            {formData.disposition === 'wrong_number' && (
-              <>
-                <h3 className="font-medium text-gray-900 pb-2 border-b border-gray-200">
-                  Wrong Number Details
-                </h3>
-
-                <div>
-                  <label className={labelClass}>Type *</label>
-                  <div className="grid grid-cols-2 gap-3 mt-2">
-                    <button
-                      type="button"
-                      onClick={() => updateField('wrongNumberSubType', 'wrong_person')}
-                      className={`p-4 border rounded-lg text-left transition-all ${
-                        formData.wrongNumberSubType === 'wrong_person'
-                          ? 'border-red-600 bg-red-50 ring-2 ring-red-600'
-                          : 'border-gray-300 hover:border-red-400'
-                      }`}
-                    >
-                      <span className="font-medium text-gray-900">Wrong Person</span>
-                      <p className="text-xs text-gray-500 mt-1">Number belongs to different person</p>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => updateField('wrongNumberSubType', 'invalid_number')}
-                      className={`p-4 border rounded-lg text-left transition-all ${
-                        formData.wrongNumberSubType === 'invalid_number'
-                          ? 'border-red-600 bg-red-50 ring-2 ring-red-600'
-                          : 'border-gray-300 hover:border-red-400'
-                      }`}
-                    >
-                      <span className="font-medium text-gray-900">Invalid Number</span>
-                      <p className="text-xs text-gray-500 mt-1">Number does not exist or disconnected</p>
-                    </button>
-                  </div>
-                </div>
-
-                <p className="text-sm text-gray-500 bg-red-50 p-3 rounded-lg">
-                  <strong>Outcome:</strong> Unreachable<br />
-                  <strong>HubSpot Action:</strong> Automation will email the customer to ask for correct number.<br />
-                  <strong>Contact Owner:</strong> CHF Promotions<br />
-                  <strong>List Status:</strong> Greylist - No response to email
-                </p>
-              </>
-            )}
-
-            {/* ============================================ */}
-            {/* COMMON NOTES FIELD */}
-            {/* ============================================ */}
-            <div className="border-t border-gray-200 pt-4">
-              <label className={labelClass}>Notes</label>
-              <textarea
-                value={formData.notes}
-                onChange={(e) => updateField('notes', e.target.value)}
-                rows={3}
-                placeholder="Additional notes..."
-                className={`${inputClass} resize-none`}
-              />
-            </div>
-
-            {/* Submit Button */}
-            <div className="pt-4">
-              <button
-                onClick={handleSubmit}
-                disabled={!isFormValid() || isSubmitting}
-                className={`w-full py-3 px-6 rounded-lg font-medium transition-all flex items-center justify-center gap-2 ${
-                  isFormValid() && !isSubmitting
-                    ? 'bg-blue-600 text-white hover:bg-blue-700'
-                    : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                }`}
-              >
-                {isSubmitting ? (
-                  <>
-                    <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                    Submitting to HubSpot...
-                  </>
-                ) : (
-                  'Submit Disposition'
-                )}
-              </button>
-            </div>
-          </div>
-        )}
         </main>
       </div>
 
