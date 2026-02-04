@@ -308,6 +308,7 @@ export default function DispositionForm() {
   const [isLoadingPostcode, setIsLoadingPostcode] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
+  const [showValidation, setShowValidation] = useState(false)
 
   // Lead data state
   const [leadData, setLeadData] = useState<LeadData | null>(null)
@@ -480,7 +481,15 @@ export default function DispositionForm() {
   const handleSubmit = async () => {
     if (isSubmitting) return
 
+    // Check if form is valid before submitting
+    if (!isFormValid()) {
+      setShowValidation(true)
+      setToast({ message: 'Please fill in all required fields', type: 'error' })
+      return
+    }
+
     setIsSubmitting(true)
+    setShowValidation(false)
 
     const payload = {
       ...formData,
@@ -514,6 +523,7 @@ export default function DispositionForm() {
 
       if (result.success) {
         setToast({ message: 'Form submitted successfully to HubSpot!', type: 'success' })
+        setShowValidation(false)
         // Reset form after successful submission
         setFormData(prev => ({
           ...initialFormData,
@@ -570,10 +580,30 @@ export default function DispositionForm() {
     setFormData(prev => ({ ...prev, [field]: value }))
   }
 
+  // Helper function to check if a field is invalid
+  const isFieldInvalid = (fieldValue: any) => {
+    return showValidation && !fieldValue
+  }
+
   // Common select component styling
   const selectClass = "w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
   const inputClass = "w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900"
   const labelClass = "block text-sm font-medium text-gray-700 mb-1"
+
+  // Styling for invalid fields
+  const getFieldClass = (baseClass: string, fieldValue: any) => {
+    if (isFieldInvalid(fieldValue)) {
+      return `${baseClass} border-red-500 focus:ring-red-500 focus:border-red-500`
+    }
+    return baseClass
+  }
+
+  const getErrorLabelClass = (fieldValue: any) => {
+    if (isFieldInvalid(fieldValue)) {
+      return `${labelClass} text-red-600`
+    }
+    return labelClass
+  }
 
   // Check if we have a contact with lead data to show sidebar
   const showSidebar = contactInfo?.contact_id
@@ -709,8 +739,8 @@ export default function DispositionForm() {
 
                   {/* Lead Status */}
                   <div>
-                    <label className={labelClass}>Lead Status *</label>
-                    <div className="flex gap-4">
+                    <label className={getErrorLabelClass(formData.leadStatus)}>Lead Status *</label>
+                    <div className={`flex gap-4 ${isFieldInvalid(formData.leadStatus) ? 'p-2 border-2 border-red-500 rounded-lg' : ''}`}>
                       <label className="flex items-center gap-2">
                         <input
                           type="radio"
@@ -734,6 +764,9 @@ export default function DispositionForm() {
                         <span className="text-gray-900">DL (Double Leg)</span>
                       </label>
                     </div>
+                    {isFieldInvalid(formData.leadStatus) && (
+                      <p className="text-red-600 text-sm mt-1">This field is required</p>
+                    )}
                   </div>
 
                   {/* Contact Details Section */}
@@ -743,31 +776,40 @@ export default function DispositionForm() {
                     </h4>
                     <div className="grid md:grid-cols-2 gap-4">
                       <div>
-                        <label className={labelClass}>First Name *</label>
+                        <label className={getErrorLabelClass(formData.firstName)}>First Name *</label>
                         <input
                           type="text"
                           value={formData.firstName}
                           onChange={(e) => updateField('firstName', e.target.value)}
-                          className={inputClass}
+                          className={getFieldClass(inputClass, formData.firstName)}
                         />
+                        {isFieldInvalid(formData.firstName) && (
+                          <p className="text-red-600 text-sm mt-1">This field is required</p>
+                        )}
                       </div>
                       <div>
-                        <label className={labelClass}>Last Name *</label>
+                        <label className={getErrorLabelClass(formData.lastName)}>Last Name *</label>
                         <input
                           type="text"
                           value={formData.lastName}
                           onChange={(e) => updateField('lastName', e.target.value)}
-                          className={inputClass}
+                          className={getFieldClass(inputClass, formData.lastName)}
                         />
+                        {isFieldInvalid(formData.lastName) && (
+                          <p className="text-red-600 text-sm mt-1">This field is required</p>
+                        )}
                       </div>
                       <div>
-                        <label className={labelClass}>Phone Number *</label>
+                        <label className={getErrorLabelClass(formData.phoneNumber)}>Phone Number *</label>
                         <input
                           type="tel"
                           value={formData.phoneNumber}
                           onChange={(e) => updateField('phoneNumber', e.target.value)}
-                          className={inputClass}
+                          className={getFieldClass(inputClass, formData.phoneNumber)}
                         />
+                        {isFieldInvalid(formData.phoneNumber) && (
+                          <p className="text-red-600 text-sm mt-1">This field is required</p>
+                        )}
                       </div>
                       <div>
                         <label className={labelClass}>Email</label>
@@ -788,45 +830,57 @@ export default function DispositionForm() {
                     </h4>
                     <div className="grid gap-4">
                       <div>
-                        <label className={labelClass}>Street Address *</label>
+                        <label className={getErrorLabelClass(formData.streetAddress)}>Street Address *</label>
                         <input
                           type="text"
                           value={formData.streetAddress}
                           onChange={(e) => updateField('streetAddress', e.target.value)}
-                          className={inputClass}
+                          className={getFieldClass(inputClass, formData.streetAddress)}
                         />
+                        {isFieldInvalid(formData.streetAddress) && (
+                          <p className="text-red-600 text-sm mt-1">This field is required</p>
+                        )}
                       </div>
                       <div className="grid md:grid-cols-3 gap-4">
                         <div>
-                          <label className={labelClass}>City *</label>
+                          <label className={getErrorLabelClass(formData.city)}>City *</label>
                           <input
                             type="text"
                             value={formData.city}
                             onChange={(e) => updateField('city', e.target.value)}
-                            className={inputClass}
+                            className={getFieldClass(inputClass, formData.city)}
                           />
+                          {isFieldInvalid(formData.city) && (
+                            <p className="text-red-600 text-sm mt-1">Required</p>
+                          )}
                         </div>
                         <div>
-                          <label className={labelClass}>State/Region *</label>
+                          <label className={getErrorLabelClass(formData.stateRegion)}>State/Region *</label>
                           <select
                             value={formData.stateRegion}
                             onChange={(e) => updateField('stateRegion', e.target.value)}
-                            className={selectClass}
+                            className={getFieldClass(selectClass, formData.stateRegion)}
                           >
                             <option value="">Select state</option>
                             {AUSTRALIAN_STATES.map(state => (
                               <option key={state} value={state}>{state}</option>
                             ))}
                           </select>
+                          {isFieldInvalid(formData.stateRegion) && (
+                            <p className="text-red-600 text-sm mt-1">Required</p>
+                          )}
                         </div>
                         <div>
-                          <label className={labelClass}>Postal Code *</label>
+                          <label className={getErrorLabelClass(formData.postalCode)}>Postal Code *</label>
                           <input
                             type="text"
                             value={formData.postalCode}
                             onChange={(e) => updateField('postalCode', e.target.value.replace(/\D/g, '').slice(0, 4))}
-                            className={inputClass}
+                            className={getFieldClass(inputClass, formData.postalCode)}
                           />
+                          {isFieldInvalid(formData.postalCode) && (
+                            <p className="text-red-600 text-sm mt-1">Required</p>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -839,8 +893,8 @@ export default function DispositionForm() {
                     </h4>
                     <div className="grid md:grid-cols-2 gap-4">
                       <div>
-                        <label className={labelClass}>Home Owner *</label>
-                        <div className="flex gap-4">
+                        <label className={getErrorLabelClass(formData.homeOwner)}>Home Owner *</label>
+                        <div className={`flex gap-4 ${isFieldInvalid(formData.homeOwner) ? 'p-2 border-2 border-red-500 rounded-lg' : ''}`}>
                           <label className="flex items-center gap-2">
                             <input
                               type="radio"
@@ -864,10 +918,13 @@ export default function DispositionForm() {
                             <span className="text-gray-900">No</span>
                           </label>
                         </div>
+                        {isFieldInvalid(formData.homeOwner) && (
+                          <p className="text-red-600 text-sm mt-1">This field is required</p>
+                        )}
                       </div>
                       <div>
-                        <label className={labelClass}>Mains Water *</label>
-                        <div className="flex gap-4">
+                        <label className={getErrorLabelClass(formData.mainsWater)}>Mains Water *</label>
+                        <div className={`flex gap-4 ${isFieldInvalid(formData.mainsWater) ? 'p-2 border-2 border-red-500 rounded-lg' : ''}`}>
                           <label className="flex items-center gap-2">
                             <input
                               type="radio"
@@ -891,32 +948,41 @@ export default function DispositionForm() {
                             <span className="text-gray-900">No</span>
                           </label>
                         </div>
+                        {isFieldInvalid(formData.mainsWater) && (
+                          <p className="text-red-600 text-sm mt-1">This field is required</p>
+                        )}
                       </div>
                       <div>
-                        <label className={labelClass}>How many people in the house? *</label>
+                        <label className={getErrorLabelClass(formData.peopleInHouse)}>How many people in the house? *</label>
                         <select
                           value={formData.peopleInHouse}
                           onChange={(e) => updateField('peopleInHouse', e.target.value)}
-                          className={selectClass}
+                          className={getFieldClass(selectClass, formData.peopleInHouse)}
                         >
                           <option value="">Select</option>
                           {PEOPLE_IN_HOUSE_OPTIONS.map(num => (
                             <option key={num} value={num}>{num}</option>
                           ))}
                         </select>
+                        {isFieldInvalid(formData.peopleInHouse) && (
+                          <p className="text-red-600 text-sm mt-1">This field is required</p>
+                        )}
                       </div>
                       <div>
-                        <label className={labelClass}>Type of Property *</label>
+                        <label className={getErrorLabelClass(formData.propertyType)}>Type of Property *</label>
                         <select
                           value={formData.propertyType}
                           onChange={(e) => updateField('propertyType', e.target.value)}
-                          className={selectClass}
+                          className={getFieldClass(selectClass, formData.propertyType)}
                         >
                           <option value="">Select property type</option>
                           {PROPERTY_TYPES.map(type => (
                             <option key={type} value={type}>{type}</option>
                           ))}
                         </select>
+                        {isFieldInvalid(formData.propertyType) && (
+                          <p className="text-red-600 text-sm mt-1">This field is required</p>
+                        )}
                       </div>
                       <div>
                         <label className={labelClass}>Strata</label>
@@ -1042,26 +1108,32 @@ export default function DispositionForm() {
                     </h4>
                     <div className="grid md:grid-cols-2 gap-4">
                       <div>
-                        <label className={labelClass}>Water Test Date *</label>
+                        <label className={getErrorLabelClass(formData.waterTestDate)}>Water Test Date *</label>
                         <input
                           type="date"
                           value={formData.waterTestDate}
                           onChange={(e) => updateField('waterTestDate', e.target.value)}
-                          className={inputClass}
+                          className={getFieldClass(inputClass, formData.waterTestDate)}
                         />
+                        {isFieldInvalid(formData.waterTestDate) && (
+                          <p className="text-red-600 text-sm mt-1">This field is required</p>
+                        )}
                       </div>
                       <div>
-                        <label className={labelClass}>Water Test Time *</label>
+                        <label className={getErrorLabelClass(formData.waterTestTime)}>Water Test Time *</label>
                         <select
                           value={formData.waterTestTime}
                           onChange={(e) => updateField('waterTestTime', e.target.value)}
-                          className={selectClass}
+                          className={getFieldClass(selectClass, formData.waterTestTime)}
                         >
                           <option value="">Select time</option>
                           {WATER_TEST_TIMES.map(time => (
                             <option key={time} value={time}>{time}</option>
                           ))}
                         </select>
+                        {isFieldInvalid(formData.waterTestTime) && (
+                          <p className="text-red-600 text-sm mt-1">This field is required</p>
+                        )}
                       </div>
                     </div>
                   </div>
