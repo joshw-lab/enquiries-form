@@ -35,6 +35,7 @@ interface ContactInfo {
   name: string
   phone: string
   email: string
+  agent_id?: string
 }
 
 interface FormData {
@@ -284,14 +285,16 @@ const WATER_SOURCES = [
 ]
 
 const ADVISED_NOT_INTERESTED_REASONS = [
-  'Already has filtration system',
-  'Too expensive',
-  'Not enough time',
-  'Partner needs to decide',
-  'Not needed',
-  'Had bad experience',
-  'Moving house',
-  'Health reasons',
+  'Has a System Already',
+  'Financial Reasons',
+  'Scheduling Issues (don\'t want to go ahead)',
+  'Partner not interested',
+  'No longer needed',
+  'Went with a Competitor',
+  'Selling/Moving House',
+  'Time Wasters',
+  'Hung Up',
+  'Not Specified',
   'Other',
 ]
 
@@ -369,6 +372,7 @@ export default function DispositionForm() {
     const phone = params.get('phone')
     const email = params.get('email')
     const postcode = params.get('postcode')
+    const agent_id = params.get('agent')
 
     if (contact_id || name || phone || email) {
       setContactInfo({
@@ -376,6 +380,7 @@ export default function DispositionForm() {
         name: name || '',
         phone: phone || '',
         email: email || '',
+        agent_id: agent_id || undefined,
       })
 
       // Pre-populate form fields from URL contact info (will be overridden by HubSpot data if available)
