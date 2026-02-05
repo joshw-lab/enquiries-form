@@ -212,7 +212,7 @@ export function mapLeadPropertiesToFormData(raw: RawLeadProperties): {
   waterTestDate: string
   waterTestTime: string
   leadsRep: string
-  howDidYouFindUs: string
+  howDidYouFindUs: string[]  // Multi-select array
   followUpDate: string
   wantsFollowedUp: 'yes' | 'no' | ''
 } {
@@ -245,7 +245,9 @@ export function mapLeadPropertiesToFormData(raw: RawLeadProperties): {
     waterTestDate: hubspotDateToFormValue(raw.water_test_date),
     waterTestTime: raw.water_test_time || '',
     leadsRep: raw.leads_rep || '',
-    howDidYouFindUs: raw.n1__how_did_you_find_out_about_us_ || '',
+    howDidYouFindUs: raw.n1__how_did_you_find_out_about_us_
+      ? raw.n1__how_did_you_find_out_about_us_.split(';').map(s => s.trim()).filter(Boolean)
+      : [],
     followUpDate: hubspotDateToFormValue(raw.follow_up_date),
     wantsFollowedUp: hubspotBoolToFormValue(raw.wants_followed_up__call_back),
   }

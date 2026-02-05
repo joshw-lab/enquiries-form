@@ -155,11 +155,49 @@ function getAgentDisplayName(payload: RingCXWebhookPayload): string {
 }
 
 /**
+ * Get HubSpot owner/user information including timezone
+ * Fetches user details from HubSpot API to get their configured timezone
+ */
+async function getHubSpotOwnerInfo(
+  ownerId: string,
+  accessToken: string
+): Promise<{ id: string; email?: string; timezone?: string } | null> {
+  try {
+    const response = await fetch(
+      `${HUBSPOT_API_BASE}/crm/v3/owners/${ownerId}`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+
+    if (!response.ok) {
+      console.error(`Failed to fetch owner ${ownerId}:`, response.statusText);
+      return null;
+    }
+
+    const data = await response.json();
+    console.log(`Owner ${ownerId} timezone: ${data.timezone || "not specified"}`);
+
+    return {
+      id: data.id,
+      email: data.email,
+      timezone: data.timezone, // e.g., "Australia/Perth", "Australia/Sydney"
+    };
+  } catch (error) {
+    console.error("Error fetching HubSpot owner info:", error);
+    return null;
+  }
+}
+
+/**
  * Get HubSpot owner ID from agent extern ID
- * This function can be extended to map RingCX agent IDs to HubSpot user IDs
- * For now, it's a placeholder for future implementation
+ * Maps RingCX agent IDs to HubSpot user IDs via database lookup
  *
- * To implement:
+ * To implement full mapping:
  * 1. Create a Supabase table: agent_mappings (agent_extern_id, hubspot_owner_id)
  * 2. Query this table to get the HubSpot owner ID
  * 3. Return the owner ID to associate calls with the correct HubSpot user
@@ -298,13 +336,44 @@ async function verifyContactExists(
 }
 
 /**
- * Parse call start time with timezone handling
- * RingCX may send various formats - handle them gracefully
+ * Get timezone offset for IANA timezone (e.g., "Australia/Perth" -> "+08:00")
  */
-function parseCallStartTime(callStart: string): number {
+function getTimezoneOffset(timezone: string, date: Date = new Date()): string {
+  try {
+    // Use Intl API to get offset for the timezone
+    const formatter = new Intl.DateTimeFormat("en-US", {
+      timeZone: timezone,
+      timeZoneName: "longOffset",
+    });
+    const parts = formatter.formatToParts(date);
+    const offsetPart = parts.find((part) => part.type === "timeZoneName");
+
+    if (offsetPart?.value) {
+      // Extract offset like "GMT+8" or "GMT+08:00"
+      const match = offsetPart.value.match(/GMT([+-]\d{1,2}):?(\d{2})?/);
+      if (match) {
+        const hours = match[1].padStart(3, "+0"); // "+8" -> "+08"
+        const minutes = match[2] || "00";
+        return `${hours}:${minutes}`;
+      }
+    }
+  } catch (error) {
+    console.error(`Failed to get offset for timezone ${timezone}:`, error);
+  }
+
+  // Default to UTC if can't determine
+  return "+00:00";
+}
+
+/**
+ * Parse call start time with timezone handling
+ * RingCX sends time in the agent's local timezone without timezone info
+ * We need to convert it to UTC based on the agent's HubSpot timezone
+ */
+function parseCallStartTime(callStart: string, agentTimezone?: string): number {
   if (!callStart) return Date.now();
 
-  console.log(`Parsing call_start: "${callStart}"`);
+  console.log(`Parsing call_start: "${callStart}" with timezone: ${agentTimezone || "default AWST"}`);
 
   // Check if it's already an epoch timestamp (10 or 13 digits)
   const epochMatch = callStart.match(/^\d{10,13}$/);
@@ -316,19 +385,23 @@ function parseCallStartTime(callStart: string): number {
     return timestamp;
   }
 
-  // RingCX sends datetime in AWST (GMT+8) without timezone info
+  // RingCX sends datetime without timezone info
   // Format: "2026-01-29 13:39:00" or "2026-01-29T13:39:00"
   const datetimeMatch = callStart.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})/);
   if (datetimeMatch) {
     const [_, year, month, day, hour, minute, second] = datetimeMatch;
 
-    // Parse as AWST (GMT+8) by explicitly constructing UTC time minus 8 hours
-    // AWST 13:39 = UTC 05:39 (13:39 - 8 hours)
-    const awstTime = new Date(`${year}-${month}-${day}T${hour}:${minute}:${second}+08:00`);
-    const timestamp = awstTime.getTime();
+    // Get the timezone offset (default to AWST GMT+8 if agent timezone not available)
+    const timezoneOffset = agentTimezone
+      ? getTimezoneOffset(agentTimezone, new Date(`${year}-${month}-${day}`))
+      : "+08:00"; // Default to AWST
 
-    console.log(`  Parsed as AWST datetime: ${timestamp} (${new Date(timestamp).toISOString()})`);
-    console.log(`  AWST time: ${year}-${month}-${day} ${hour}:${minute}:${second} +08:00`);
+    // Parse with the agent's timezone
+    const localTime = new Date(`${year}-${month}-${day}T${hour}:${minute}:${second}${timezoneOffset}`);
+    const timestamp = localTime.getTime();
+
+    console.log(`  Parsed as ${agentTimezone || "AWST"} datetime: ${timestamp} (${new Date(timestamp).toISOString()})`);
+    console.log(`  Local time: ${year}-${month}-${day} ${hour}:${minute}:${second} ${timezoneOffset}`);
 
     if (!isNaN(timestamp)) {
       return timestamp;
