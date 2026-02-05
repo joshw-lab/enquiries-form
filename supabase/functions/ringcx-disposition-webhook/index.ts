@@ -265,7 +265,7 @@ function mapDispositionToHubSpot(disposition: string): string {
 async function verifyContactExists(
   contactId: string,
   accessToken: string
-): Promise<boolean> {
+): Promise<{ exists: boolean; contact?: { firstname?: string; lastname?: string; phone?: string } }> {
   try {
     const response = await fetch(
       `${HUBSPOT_API_BASE}/crm/v3/objects/contacts/${contactId}?properties=firstname,lastname,phone`,
@@ -280,13 +280,20 @@ async function verifyContactExists(
     if (response.ok) {
       const data = await response.json();
       console.log(`Contact verified: ${data.id} - ${data.properties?.firstname} ${data.properties?.lastname}`);
-      return true;
+      return {
+        exists: true,
+        contact: {
+          firstname: data.properties?.firstname,
+          lastname: data.properties?.lastname,
+          phone: data.properties?.phone
+        }
+      };
     }
 
-    return false;
+    return { exists: false };
   } catch (error) {
     console.error("Error verifying contact:", error);
-    return false;
+    return { exists: false };
   }
 }
 
@@ -346,7 +353,8 @@ function parseCallStartTime(callStart: string): number {
 async function createCallEngagement(
   payload: RingCXWebhookPayload,
   contactId: string,
-  accessToken: string
+  accessToken: string,
+  contactInfo?: { firstname?: string; lastname?: string; phone?: string }
 ): Promise<{ success: boolean; callId?: string; error?: string }> {
   try {
     // Parse call duration using the new parser (handles HH:MM:SS format)
@@ -365,24 +373,37 @@ async function createCallEngagement(
     // Get agent display name
     const agentName = getAgentDisplayName(payload);
 
-    // Format phone numbers
-    const fromNumber = formatPhoneNumber(payload.ani);
-    const toNumber = formatPhoneNumber(payload.dnis);
+    // Format phone numbers based on call direction
+    // ANI = Automatic Number Identification (caller)
+    // DNIS = Dialed Number Identification Service (called party)
+    const aniFormatted = formatPhoneNumber(payload.ani);
+    const dnisFormatted = formatPhoneNumber(payload.dnis);
 
     // Format disposition for title
     const dispositionLabel = payload.disposition.replace(/_/g, " ");
     const directionLabel = callDirection === "OUTBOUND" ? "Outbound" : "Inbound";
 
-    // Build call body with notes and summary (using <br> for HubSpot rendering)
-    const callBodyParts = [
-      `<b>Agent:</b> ${agentName}`,
-      `<b>Call ID:</b> ${payload.call_id}`,
-    ];
+    // Build contact name from HubSpot data
+    const contactName = contactInfo?.firstname && contactInfo?.lastname
+      ? `${contactInfo.firstname} ${contactInfo.lastname}`
+      : contactInfo?.firstname || contactInfo?.lastname || "Unknown Contact";
 
-    // Add agent extern ID if available (for tracking which agent handled the call)
-    if (payload.agent_extern_id) {
-      callBodyParts.push(`<b>Agent ID:</b> ${payload.agent_extern_id}`);
+    // Build call body header based on direction
+    // OUTBOUND: Agent (ANI) calls contact (DNIS), display as FROM agent TO contact
+    // INBOUND: Contact (ANI) calls agent (DNIS), display as FROM contact TO agent
+    let callBodyHeader: string;
+    if (callDirection === "OUTBOUND") {
+      // Outbound: FROM agent (ANI) TO contact (DNIS)
+      callBodyHeader = `>>>>> [${directionLabel} - ${dispositionLabel}] Call from ${agentName} (${aniFormatted}) to ${contactName} (${dnisFormatted})`;
+    } else {
+      // Inbound: FROM contact (ANI) TO agent (DNIS)
+      callBodyHeader = `>>>>> [${directionLabel} - ${dispositionLabel}] Call from ${contactName} (${aniFormatted}) to ${agentName} (${dnisFormatted})`;
     }
+
+    const callBodyParts = [
+      callBodyHeader,
+      "<<<<<",
+    ];
 
     if (payload.summary) {
       callBodyParts.push(
@@ -409,8 +430,8 @@ async function createCallEngagement(
         hs_call_direction: callDirection,
         hs_call_disposition: hubspotDisposition,
         hs_call_duration: durationMs,
-        hs_call_from_number: fromNumber,
-        hs_call_to_number: toNumber,
+        hs_call_from_number: callDirection === "OUTBOUND" ? aniFormatted : aniFormatted,
+        hs_call_to_number: callDirection === "OUTBOUND" ? dnisFormatted : dnisFormatted,
         hs_call_status: "COMPLETED",
         ...(payload.recording_url && { hs_call_recording_url: payload.recording_url }),
       },
@@ -534,10 +555,10 @@ serve(async (req) => {
       );
     }
 
-    // Verify the contact exists in HubSpot
-    const contactExists = await verifyContactExists(contactId, hubspotAccessToken);
+    // Verify the contact exists in HubSpot and get contact info
+    const contactVerification = await verifyContactExists(contactId, hubspotAccessToken);
 
-    if (!contactExists) {
+    if (!contactVerification.exists) {
       console.error("HubSpot contact not found:", contactId);
       return new Response(
         JSON.stringify({
@@ -551,8 +572,13 @@ serve(async (req) => {
       );
     }
 
-    // Create call engagement in HubSpot
-    const result = await createCallEngagement(payload, contactId, hubspotAccessToken);
+    // Create call engagement in HubSpot with contact info
+    const result = await createCallEngagement(
+      payload,
+      contactId,
+      hubspotAccessToken,
+      contactVerification.contact
+    );
 
     if (!result.success) {
       return new Response(

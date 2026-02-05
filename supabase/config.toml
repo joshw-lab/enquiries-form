@@ -11,3 +11,6 @@ verify_jwt = false
 
 [functions.ringcentral-auth-callback]
 verify_jwt = false
+
+[functions.ringcx-disposition-webhook]
+verify_jwt = false

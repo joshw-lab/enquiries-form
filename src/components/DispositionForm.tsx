@@ -67,7 +67,8 @@ interface FormData {
   waterTestTime: string
   leadsRep: string
   availableFrom: string
-  howDidYouFindUs: string
+  reschedule: 'yes' | 'no' | ''
+  howDidYouFindUs: string[]  // Changed to array for multi-select checkboxes
 
   // Call Back fields
   callBackSubType: CallBackSubType
@@ -127,7 +128,8 @@ const initialFormData: FormData = {
   waterTestTime: '',
   leadsRep: '',
   availableFrom: '',
-  howDidYouFindUs: '',
+  reschedule: '',
+  howDidYouFindUs: [],  // Changed to empty array
 
   // Call Back
   callBackSubType: '',
@@ -282,6 +284,79 @@ const WATER_SOURCES = [
   'Dam Water',
   'River/Creek Water',
   'Other Non-Mains',
+]
+
+const AVAILABLE_FROM_TIMES = [
+  '9:00am',
+  '9:30am',
+  '10:00am',
+  '10:30am',
+  '11:00am',
+  '11:30am',
+  '12:00pm',
+  '12:30pm',
+  '1:00pm',
+  '1:30pm',
+  '2:00pm',
+  '2:30pm',
+  '3:00pm',
+  '3:30pm',
+  '4:00pm',
+  '4:30pm',
+  '5:00pm',
+  '5:30pm',
+  '6:00pm',
+  '6:30pm',
+  '7:00pm',
+  'Any time',
+]
+
+const LEADS_REP_TEAM = [
+  'Aleks Matlijoska',
+  'Andrew Le',
+  'Ankit Dallakoti',
+  'Bradley Clarke',
+  'Brendon Sharp',
+  'Carla Haynes',
+  'Dianne Waters',
+  'Emily McCracken',
+  'Engel Batterham',
+  'Joe Mercuri',
+  'Joshua Webster',
+  'Marika Somerville',
+  'Nicole Stewart',
+  'Nicole Turner',
+  'Phoenix Harvey',
+  'Prince Magombedze',
+  'Rebecca Heath',
+  'Shannon Watson',
+  'Shanon Li Seah',
+  'Sean McNally',
+  'Lucy Thompson',
+  'Jack Coley',
+  'Charlotte Withrow',
+  'Remon Rabie',
+  'Ivana Kasvosve',
+  'Libby Holroyd',
+  'Lucy Hook',
+  'Kay Zoabi',
+  'Sasha James',
+  'Bethany Kelly',
+  'Lauren Palmer',
+  'Jamie Bailey',
+  'Palak Walia',
+  'Ebony Daley',
+  'Jordan Stanley',
+  'Lloyd Durandar',
+  'Archie Gidden',
+  'Sorcha Devlin',
+  'Heidy Garcia',
+  'Megan Harvey',
+  'Bryce Haley',
+  'Reuben Roberts-Hunt',
+  'Abi Bishop',
+  'Sadie Wright',
+  'Joshua Davies',
 ]
 
 const ADVISED_NOT_INTERESTED_REASONS = [
@@ -487,6 +562,15 @@ export default function DispositionForm() {
       waterConcerns: prev.waterConcerns.includes(concern)
         ? prev.waterConcerns.filter(c => c !== concern)
         : [...prev.waterConcerns, concern],
+    }))
+  }
+
+  const handleHowDidYouFindUsChange = (source: string) => {
+    setFormData(prev => ({
+      ...prev,
+      howDidYouFindUs: prev.howDidYouFindUs.includes(source)
+        ? prev.howDidYouFindUs.filter(s => s !== source)
+        : [...prev.howDidYouFindUs, source],
     }))
   }
 
@@ -753,40 +837,8 @@ export default function DispositionForm() {
               {formData.disposition === 'book_water_test' && (
                 <>
                   <h3 className="font-medium text-gray-900 pb-2 border-b border-gray-200">
-                    Book Water Test - SL/DL
+                    Book Water Test
                   </h3>
-
-                  {/* Lead Status */}
-                  <div>
-                    <label className={getErrorLabelClass(formData.leadStatus)}>Lead Status *</label>
-                    <div className={`flex gap-4 ${isFieldInvalid(formData.leadStatus) ? 'p-2 border-2 border-red-500 rounded-lg' : ''}`}>
-                      <label className="flex items-center gap-2">
-                        <input
-                          type="radio"
-                          name="leadStatus"
-                          value="SL"
-                          checked={formData.leadStatus === 'SL'}
-                          onChange={() => updateField('leadStatus', 'SL')}
-                          className="text-blue-600"
-                        />
-                        <span className="text-gray-900">SL (Single Leg)</span>
-                      </label>
-                      <label className="flex items-center gap-2">
-                        <input
-                          type="radio"
-                          name="leadStatus"
-                          value="DL"
-                          checked={formData.leadStatus === 'DL'}
-                          onChange={() => updateField('leadStatus', 'DL')}
-                          className="text-blue-600"
-                        />
-                        <span className="text-gray-900">DL (Double Leg)</span>
-                      </label>
-                    </div>
-                    {isFieldInvalid(formData.leadStatus) && (
-                      <p className="text-red-600 text-sm mt-1">This field is required</p>
-                    )}
-                  </div>
 
                   {/* Contact Details Section */}
                   <div className="border-t border-gray-200 pt-4">
@@ -905,42 +957,31 @@ export default function DispositionForm() {
                     </div>
                   </div>
 
-                  {/* Property Information Section */}
+                  {/* Fact Finding Section */}
                   <div className="border-t border-gray-200 pt-4">
                     <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
-                      Property Information
+                      Fact Finding
                     </h4>
-                    <div className="grid md:grid-cols-2 gap-4">
-                      <div>
-                        <label className={getErrorLabelClass(formData.homeOwner)}>Home Owner *</label>
-                        <div className={`flex gap-4 ${isFieldInvalid(formData.homeOwner) ? 'p-2 border-2 border-red-500 rounded-lg' : ''}`}>
-                          <label className="flex items-center gap-2">
+
+                    {/* Water Concerns - MOVED UP from later position */}
+                    <div className="mb-4">
+                      <label className={labelClass}>Customer&apos;s water concerns</label>
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mt-2">
+                        {WATER_CONCERNS.map(concern => (
+                          <label key={concern} className="flex items-center gap-2">
                             <input
-                              type="radio"
-                              name="homeOwner"
-                              value="yes"
-                              checked={formData.homeOwner === 'yes'}
-                              onChange={() => updateField('homeOwner', 'yes')}
-                              className="text-blue-600"
+                              type="checkbox"
+                              checked={formData.waterConcerns.includes(concern)}
+                              onChange={() => handleWaterConcernsChange(concern)}
+                              className="rounded text-blue-600"
                             />
-                            <span className="text-gray-900">Yes</span>
+                            <span className="text-sm text-gray-900">{concern}</span>
                           </label>
-                          <label className="flex items-center gap-2">
-                            <input
-                              type="radio"
-                              name="homeOwner"
-                              value="no"
-                              checked={formData.homeOwner === 'no'}
-                              onChange={() => updateField('homeOwner', 'no')}
-                              className="text-blue-600"
-                            />
-                            <span className="text-gray-900">No</span>
-                          </label>
-                        </div>
-                        {isFieldInvalid(formData.homeOwner) && (
-                          <p className="text-red-600 text-sm mt-1">This field is required</p>
-                        )}
+                        ))}
                       </div>
+                    </div>
+
+                    <div className="grid md:grid-cols-2 gap-4">
                       <div>
                         <label className={getErrorLabelClass(formData.mainsWater)}>Mains Water *</label>
                         <div className={`flex gap-4 ${isFieldInvalid(formData.mainsWater) ? 'p-2 border-2 border-red-500 rounded-lg' : ''}`}>
@@ -1031,7 +1072,151 @@ export default function DispositionForm() {
                         </div>
                       </div>
                       <div>
-                        <label className={labelClass}>Partner Name</label>
+                        <label className={getErrorLabelClass(formData.homeOwner)}>Home Owner *</label>
+                        <div className={`flex gap-4 ${isFieldInvalid(formData.homeOwner) ? 'p-2 border-2 border-red-500 rounded-lg' : ''}`}>
+                          <label className="flex items-center gap-2">
+                            <input
+                              type="radio"
+                              name="homeOwner"
+                              value="yes"
+                              checked={formData.homeOwner === 'yes'}
+                              onChange={() => updateField('homeOwner', 'yes')}
+                              className="text-blue-600"
+                            />
+                            <span className="text-gray-900">Yes</span>
+                          </label>
+                          <label className="flex items-center gap-2">
+                            <input
+                              type="radio"
+                              name="homeOwner"
+                              value="no"
+                              checked={formData.homeOwner === 'no'}
+                              onChange={() => updateField('homeOwner', 'no')}
+                              className="text-blue-600"
+                            />
+                            <span className="text-gray-900">No</span>
+                          </label>
+                        </div>
+                        {isFieldInvalid(formData.homeOwner) && (
+                          <p className="text-red-600 text-sm mt-1">This field is required</p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Booking Information Section - MERGED FROM APPOINTMENT DETAILS */}
+                  <div className="border-t border-gray-200 pt-4">
+                    <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
+                      Booking Information
+                    </h4>
+
+                    <div className="grid md:grid-cols-2 gap-4">
+                      {/* Lead Status - MOVED FROM TOP */}
+                      <div>
+                        <label className={getErrorLabelClass(formData.leadStatus)}>Lead Status *</label>
+                        <div className={`flex gap-4 ${isFieldInvalid(formData.leadStatus) ? 'p-2 border-2 border-red-500 rounded-lg' : ''}`}>
+                          <label className="flex items-center gap-2">
+                            <input
+                              type="radio"
+                              name="leadStatus"
+                              value="SL"
+                              checked={formData.leadStatus === 'SL'}
+                              onChange={() => updateField('leadStatus', 'SL')}
+                              className="text-blue-600"
+                            />
+                            <span className="text-gray-900">SL (Single Leg)</span>
+                          </label>
+                          <label className="flex items-center gap-2">
+                            <input
+                              type="radio"
+                              name="leadStatus"
+                              value="DL"
+                              checked={formData.leadStatus === 'DL'}
+                              onChange={() => updateField('leadStatus', 'DL')}
+                              className="text-blue-600"
+                            />
+                            <span className="text-gray-900">DL (Double Leg)</span>
+                          </label>
+                        </div>
+                        {isFieldInvalid(formData.leadStatus) && (
+                          <p className="text-red-600 text-sm mt-1">This field is required</p>
+                        )}
+                      </div>
+
+                      {/* NEW FIELD: Date of booking call */}
+                      <div>
+                        <label className={labelClass}>Date of booking call</label>
+                        <input
+                          type="date"
+                          value={formData.dateOfBookingCall}
+                          onChange={(e) => updateField('dateOfBookingCall', e.target.value)}
+                          className={inputClass}
+                          placeholder="Today"
+                        />
+                      </div>
+
+                      {/* NEW FIELD: Reschedule checkbox */}
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          id="reschedule"
+                          checked={formData.reschedule === 'yes'}
+                          onChange={(e) => updateField('reschedule', e.target.checked ? 'yes' : 'no')}
+                          className="rounded text-blue-600"
+                        />
+                        <label htmlFor="reschedule" className="text-sm text-gray-700">
+                          Reschedule
+                        </label>
+                      </div>
+
+                      {/* NEW FIELD: Water Test Day */}
+                      <div>
+                        <label className={labelClass}>Water Test Day</label>
+                        <select
+                          value={formData.waterTestDay}
+                          onChange={(e) => updateField('waterTestDay', e.target.value)}
+                          className={selectClass}
+                        >
+                          <option value="">Select day</option>
+                          {DAYS_OF_WEEK.map(day => (
+                            <option key={day} value={day}>{day}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className={getErrorLabelClass(formData.waterTestDate)}>Water Test Date *</label>
+                        <input
+                          type="date"
+                          value={formData.waterTestDate}
+                          onChange={(e) => updateField('waterTestDate', e.target.value)}
+                          className={getFieldClass(inputClass, formData.waterTestDate)}
+                        />
+                        {isFieldInvalid(formData.waterTestDate) && (
+                          <p className="text-red-600 text-sm mt-1">This field is required</p>
+                        )}
+                      </div>
+
+                      <div>
+                        <label className={getErrorLabelClass(formData.waterTestTime)}>Water Test Time *</label>
+                        <select
+                          value={formData.waterTestTime}
+                          onChange={(e) => updateField('waterTestTime', e.target.value)}
+                          className={getFieldClass(selectClass, formData.waterTestTime)}
+                        >
+                          <option value="">Select time</option>
+                          {WATER_TEST_TIMES.map(time => (
+                            <option key={time} value={time}>{time}</option>
+                          ))}
+                        </select>
+                        {isFieldInvalid(formData.waterTestTime) && (
+                          <p className="text-red-600 text-sm mt-1">This field is required</p>
+                        )}
+                      </div>
+
+                      {/* Partner Name - MOVED FROM PROPERTY INFO */}
+                      <div>
+                        <label className={labelClass}>Partner&apos;s Name</label>
                         <input
                           type="text"
                           value={formData.partnerName}
@@ -1039,17 +1224,52 @@ export default function DispositionForm() {
                           className={inputClass}
                         />
                       </div>
+
+                      {/* NEW FIELD: Available From */}
+                      <div>
+                        <label className={labelClass}>Available From</label>
+                        <select
+                          value={formData.availableFrom}
+                          onChange={(e) => updateField('availableFrom', e.target.value)}
+                          className={selectClass}
+                        >
+                          <option value="">Select time</option>
+                          {AVAILABLE_FROM_TIMES.map(time => (
+                            <option key={time} value={time}>{time}</option>
+                          ))}
+                        </select>
+                      </div>
                     </div>
                   </div>
 
                   {/* Referral Section */}
                   <div className="border-t border-gray-200 pt-4">
                     <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
-                      Referral Information
+                      Referral
                     </h4>
+
+                    {/* CONVERTED: How did you find us - Multi-select checkboxes */}
+                    <div className="mb-4">
+                      <label className={labelClass}>How did you hear about us?</label>
+                      <p className="text-xs text-gray-500 mb-2">Check all relevant</p>
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mt-2">
+                        {HOW_DID_YOU_FIND_US.map(source => (
+                          <label key={source} className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={formData.howDidYouFindUs.includes(source)}
+                              onChange={() => handleHowDidYouFindUsChange(source)}
+                              className="rounded text-blue-600"
+                            />
+                            <span className="text-sm text-gray-900">{source}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+
                     <div className="grid md:grid-cols-2 gap-4">
                       <div>
-                        <label className={labelClass}>Referred?</label>
+                        <label className={labelClass}>Has this person been referred?</label>
                         <div className="flex gap-4">
                           <label className="flex items-center gap-2">
                             <input
@@ -1077,7 +1297,7 @@ export default function DispositionForm() {
                       </div>
                       {formData.referred === 'yes' && (
                         <div>
-                          <label className={labelClass}>Referrer&apos;s Name</label>
+                          <label className={labelClass}>Who referred them?</label>
                           <input
                             type="text"
                             value={formData.referrersName}
@@ -1086,87 +1306,41 @@ export default function DispositionForm() {
                           />
                         </div>
                       )}
-                      <div>
-                        <label className={labelClass}>How did you find out about us?</label>
-                        <select
-                          value={formData.howDidYouFindUs}
-                          onChange={(e) => updateField('howDidYouFindUs', e.target.value)}
-                          className={selectClass}
-                        >
-                          <option value="">Select</option>
-                          {HOW_DID_YOU_FIND_US.map(source => (
-                            <option key={source} value={source}>{source}</option>
-                          ))}
-                        </select>
-                      </div>
                     </div>
                   </div>
 
-                  {/* Water Concerns Section */}
-                  <div className="border-t border-gray-200 pt-4">
-                    <label className={labelClass}>Water Concerns</label>
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mt-2">
-                      {WATER_CONCERNS.map(concern => (
-                        <label key={concern} className="flex items-center gap-2">
-                          <input
-                            type="checkbox"
-                            checked={formData.waterConcerns.includes(concern)}
-                            onChange={() => handleWaterConcernsChange(concern)}
-                            className="rounded text-blue-600"
-                          />
-                          <span className="text-sm text-gray-900">{concern}</span>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Appointment Details Section */}
+                  {/* Notes Section */}
                   <div className="border-t border-gray-200 pt-4">
                     <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
-                      Appointment Details
+                      Notes
                     </h4>
-                    <div className="grid md:grid-cols-2 gap-4">
+                    <div className="space-y-4">
                       <div>
-                        <label className={getErrorLabelClass(formData.waterTestDate)}>Water Test Date *</label>
-                        <input
-                          type="date"
-                          value={formData.waterTestDate}
-                          onChange={(e) => updateField('waterTestDate', e.target.value)}
-                          className={getFieldClass(inputClass, formData.waterTestDate)}
+                        <label className={labelClass}>Summarise Call</label>
+                        <textarea
+                          value={formData.notes}
+                          onChange={(e) => updateField('notes', e.target.value)}
+                          rows={3}
+                          placeholder="Additional notes..."
+                          className={`${inputClass} resize-none`}
                         />
-                        {isFieldInvalid(formData.waterTestDate) && (
-                          <p className="text-red-600 text-sm mt-1">This field is required</p>
-                        )}
                       </div>
+
+                      {/* NEW FIELD: Leads Rep */}
                       <div>
-                        <label className={getErrorLabelClass(formData.waterTestTime)}>Water Test Time *</label>
+                        <label className={labelClass}>Leads Rep</label>
                         <select
-                          value={formData.waterTestTime}
-                          onChange={(e) => updateField('waterTestTime', e.target.value)}
-                          className={getFieldClass(selectClass, formData.waterTestTime)}
+                          value={formData.leadsRep}
+                          onChange={(e) => updateField('leadsRep', e.target.value)}
+                          className={selectClass}
                         >
-                          <option value="">Select time</option>
-                          {WATER_TEST_TIMES.map(time => (
-                            <option key={time} value={time}>{time}</option>
+                          <option value="">Please Select</option>
+                          {LEADS_REP_TEAM.map(rep => (
+                            <option key={rep} value={rep}>{rep}</option>
                           ))}
                         </select>
-                        {isFieldInvalid(formData.waterTestTime) && (
-                          <p className="text-red-600 text-sm mt-1">This field is required</p>
-                        )}
                       </div>
                     </div>
-                  </div>
-
-                  {/* Common Notes */}
-                  <div className="border-t border-gray-200 pt-4">
-                    <label className={labelClass}>Notes</label>
-                    <textarea
-                      value={formData.notes}
-                      onChange={(e) => updateField('notes', e.target.value)}
-                      rows={3}
-                      placeholder="Additional notes..."
-                      className={`${inputClass} resize-none`}
-                    />
                   </div>
 
                   {/* Submit Button */}

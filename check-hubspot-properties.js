@@ -24,6 +24,13 @@ const PROPERTIES_TO_CHECK = [
   "hs_lead_status",
   "water_test_time",
   "water_test_date",
+  // NEW fields for HubSpot form alignment
+  "current_water_source",
+  "date_of_booking_call",
+  "reschedule",
+  "water_test_day",
+  "available_from",
+  "leads_rep",
 ];
 
 async function getPropertyDefinition(propertyName) {

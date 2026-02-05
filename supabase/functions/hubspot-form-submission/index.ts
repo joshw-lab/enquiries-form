@@ -59,7 +59,8 @@ interface FormData {
   waterTestTime: string;
   leadsRep: string;
   availableFrom: string;
-  howDidYouFindUs: string;
+  reschedule: "yes" | "no" | "";
+  howDidYouFindUs: string[];  // Changed to array for multi-select
 
   // Call Back fields
   callBackSubType: string;
@@ -125,6 +126,7 @@ const HUBSPOT_FIELD_MAPPINGS = {
   waterTestTime: "water_test_time",
   leadsRep: "leads_rep",
   availableFrom: "available_from",
+  reschedule: "reschedule",
   howDidYouFindUs: "n1__how_did_you_find_out_about_us_",
 
   // Call Back fields
@@ -233,7 +235,11 @@ function buildBookWaterTestProperties(
   const referredValue = toHubSpotBoolean(data.referred);
   if (referredValue !== null) properties[HUBSPOT_FIELD_MAPPINGS.referred] = referredValue;
   if (data.referrersName) properties[HUBSPOT_FIELD_MAPPINGS.referrersName] = data.referrersName;
-  if (data.howDidYouFindUs) properties[HUBSPOT_FIELD_MAPPINGS.howDidYouFindUs] = data.howDidYouFindUs;
+
+  // How did you find us - multi-select, join with semicolons
+  if (data.howDidYouFindUs && data.howDidYouFindUs.length > 0) {
+    properties[HUBSPOT_FIELD_MAPPINGS.howDidYouFindUs] = data.howDidYouFindUs.join(";");
+  }
 
   // Water concerns (multi-select - join as semicolon-separated)
   if (data.waterConcerns && data.waterConcerns.length > 0) {
@@ -263,8 +269,13 @@ function buildBookWaterTestProperties(
   if (data.waterTestTime) {
     properties[HUBSPOT_FIELD_MAPPINGS.waterTestTime] = data.waterTestTime;
   }
+
+  // New fields for HubSpot form alignment
   if (data.leadsRep) properties[HUBSPOT_FIELD_MAPPINGS.leadsRep] = data.leadsRep;
   if (data.availableFrom) properties[HUBSPOT_FIELD_MAPPINGS.availableFrom] = data.availableFrom;
+
+  const rescheduleValue = toHubSpotBoolean(data.reschedule);
+  if (rescheduleValue !== null) properties[HUBSPOT_FIELD_MAPPINGS.reschedule] = rescheduleValue;
 
   return properties;
 }
