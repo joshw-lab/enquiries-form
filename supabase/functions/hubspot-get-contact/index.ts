@@ -34,6 +34,12 @@ const CONTACT_PROPERTIES = [
   "referring_business",
   "contact_priority",
 
+  // RingCX Campaign IDs (state-based)
+  "ringcx_campaignid_new",
+  "ringcx_campaignid_newhitlist",
+  "ringcx_campaignid_old",
+  "ringcx_campaignid_oldhitlist",
+
   // Property Information
   "type_of_property",
   "n1__home_owner_",
@@ -103,6 +109,12 @@ const PROPERTY_LABELS: Record<string, string> = {
   lead_source: "Lead Source",
   referring_business: "Referring Business",
   contact_priority: "Contact Priority",
+
+  // RingCX Campaign IDs
+  ringcx_campaignid_new: "RingCX Campaign ID (New)",
+  ringcx_campaignid_newhitlist: "RingCX Campaign ID (NewHitlist)",
+  ringcx_campaignid_old: "RingCX Campaign ID (Old)",
+  ringcx_campaignid_oldhitlist: "RingCX Campaign ID (OldHitlist)",
 
   // Property Information
   type_of_property: "Type of Property",
@@ -230,7 +242,7 @@ function formatContactData(contact: Record<string, unknown>): Record<string, unk
   // Define which properties belong to which section
   const sectionMapping: Record<string, string[]> = {
     contact: ["firstname", "lastname", "phone", "email", "address", "city", "state", "zip", "hs_timezone"],
-    leadManagement: ["hs_lead_status", "lifecyclestage", "hubspot_owner_id", "leads_rep", "lead_source", "referring_business", "contact_priority"],
+    leadManagement: ["hs_lead_status", "lifecyclestage", "hubspot_owner_id", "leads_rep", "lead_source", "referring_business", "contact_priority", "ringcx_campaignid_new", "ringcx_campaignid_newhitlist", "ringcx_campaignid_old", "ringcx_campaignid_oldhitlist"],
     property: ["type_of_property", "n1__home_owner_", "n1__strata", "n1__number_of_people_in_the_house", "partners_name"],
     waterAssessment: ["n1__mains_water_", "water_source", "water_concerns", "water_test_date", "water_test_day", "water_test_time", "water_test_outcome", "send_eqt_email_campaign"],
     appointment: ["appointment_template", "met_", "met_notes", "confirmed_via", "cancelled_via", "follow_up_date", "wants_followed_up__call_back"],

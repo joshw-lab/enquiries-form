@@ -736,7 +736,7 @@ export default function DispositionForm() {
                 </span>
               )}
               {contactInfo.agent_id && (
-                <span className="text-green-600 text-xs bg-green-100 px-2 py-0.5 rounded">
+                <span className="text-green-600 font-semibold text-xs bg-green-100 px-2 py-0.5 rounded">
                   Agent: {contactInfo.agent_id}
                 </span>
               )}

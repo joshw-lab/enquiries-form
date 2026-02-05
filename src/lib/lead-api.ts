@@ -48,6 +48,12 @@ export interface RawLeadProperties {
   referring_business?: string
   contact_priority?: string
 
+  // RingCX Campaign IDs (state-based)
+  ringcx_campaignid_new?: string
+  ringcx_campaignid_newhitlist?: string
+  ringcx_campaignid_old?: string
+  ringcx_campaignid_oldhitlist?: string
+
   // Property Information
   type_of_property?: string
   n1__home_owner_?: string

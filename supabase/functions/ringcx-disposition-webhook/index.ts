@@ -196,29 +196,33 @@ async function getHubSpotOwnerInfo(
 /**
  * Get HubSpot owner ID from agent extern ID
  * Maps RingCX agent IDs to HubSpot user IDs via database lookup
- *
- * To implement full mapping:
- * 1. Create a Supabase table: agent_mappings (agent_extern_id, hubspot_owner_id)
- * 2. Query this table to get the HubSpot owner ID
- * 3. Return the owner ID to associate calls with the correct HubSpot user
  */
 async function getHubSpotOwnerId(
   agentExternId: string | undefined,
   supabaseClient: any
 ): Promise<string | null> {
-  if (!agentExternId) return null;
+  if (!agentExternId) {
+    console.log("No agent_extern_id provided, skipping owner mapping");
+    return null;
+  }
 
   try {
-    // TODO: Query agent_mappings table
-    // const { data } = await supabaseClient
-    //   .from('agent_mappings')
-    //   .select('hubspot_owner_id')
-    //   .eq('agent_extern_id', agentExternId)
-    //   .single();
-    //
-    // return data?.hubspot_owner_id || null;
+    const { data, error } = await supabaseClient
+      .from('agent_mappings')
+      .select('hubspot_owner_id, agent_name')
+      .eq('agent_extern_id', agentExternId)
+      .single();
 
-    console.log(`Agent extern ID: ${agentExternId} (HubSpot owner mapping not yet implemented)`);
+    if (error) {
+      console.log(`No mapping found for agent_extern_id: ${agentExternId}`);
+      return null;
+    }
+
+    if (data?.hubspot_owner_id) {
+      console.log(`Mapped agent ${agentExternId} (${data.agent_name || 'unknown'}) to HubSpot owner ${data.hubspot_owner_id}`);
+      return data.hubspot_owner_id;
+    }
+
     return null;
   } catch (error) {
     console.error("Error fetching HubSpot owner ID:", error);
@@ -235,55 +239,101 @@ function mapDispositionToHubSpot(disposition: string): string {
   const normalized = disposition.toLowerCase().replace(/\s+/g, "_").replace(/-/g, "_");
 
   const dispositionMap: Record<string, string> = {
-    // Book Water Test variants
-    "book_water_test": "f240bbac-87c9-4f6e-bf70-924b57d47db7",
-    "booked": "f240bbac-87c9-4f6e-bf70-924b57d47db7",
-    "booked_water_test": "f240bbac-87c9-4f6e-bf70-924b57d47db7",
+    // Connected
     "connected": "f240bbac-87c9-4f6e-bf70-924b57d47db7",
 
-    // Call Back variants
-    "call_back": "9d9162e7-6cf3-4944-bf63-4dff82258764",
-    "callback": "9d9162e7-6cf3-4944-bf63-4dff82258764",
-    "needs_call_back": "9d9162e7-6cf3-4944-bf63-4dff82258764",
+    // Booked Test
+    "booked_test": "f72848b8-6063-4591-9832-a4e4604864f5",
+    "booked": "f72848b8-6063-4591-9832-a4e4604864f5",
+    "book_water_test": "f72848b8-6063-4591-9832-a4e4604864f5",
+    "booked_water_test": "f72848b8-6063-4591-9832-a4e4604864f5",
 
-    // Not Interested variants
-    "not_interested": "a4c4c377-d246-4b32-a13b-75a56a4cd0ff",
-    "not_intrested": "a4c4c377-d246-4b32-a13b-75a56a4cd0ff", // common typo
-    "ni": "a4c4c377-d246-4b32-a13b-75a56a4cd0ff",
+    // Booked Test - Single Leg
+    "booked_test_single_leg": "0823d714-3974-4bb4-a65a-ecf3596f49ac",
+    "booked_single_leg": "0823d714-3974-4bb4-a65a-ecf3596f49ac",
+    "single_leg": "0823d714-3974-4bb4-a65a-ecf3596f49ac",
 
-    // Other Department
-    "other_department": "b2cf5968-551e-4856-9783-52b3da59a7d2",
-    "transfer": "b2cf5968-551e-4856-9783-52b3da59a7d2",
+    // No Answer
+    "no_answer": "73a0d17f-1163-4015-bdd5-ec830791da20",
+    "noanswer": "73a0d17f-1163-4015-bdd5-ec830791da20",
+    "na": "73a0d17f-1163-4015-bdd5-ec830791da20",
+    "no_response": "73a0d17f-1163-4015-bdd5-ec830791da20",
 
-    // Unable to Service
-    "unable_to_service": "73a0d17f-1163-4015-bdd5-ec830791da20",
-    "cannot_service": "73a0d17f-1163-4015-bdd5-ec830791da20",
-    "out_of_area": "73a0d17f-1163-4015-bdd5-ec830791da20",
+    // Wrong Number
+    "wrong_number": "17b47fee-58de-441e-a44c-c6300d46f273",
+    "wrongnumber": "17b47fee-58de-441e-a44c-c6300d46f273",
+    "wrong": "17b47fee-58de-441e-a44c-c6300d46f273",
+    "invalid_number": "17b47fee-58de-441e-a44c-c6300d46f273",
 
-    // No Answer variants
-    "no_answer": "17b47fee-58de-441e-a44c-c6300d46f273",
-    "noanswer": "17b47fee-58de-441e-a44c-c6300d46f273",
-    "na": "17b47fee-58de-441e-a44c-c6300d46f273",
-    "no_response": "17b47fee-58de-441e-a44c-c6300d46f273",
+    // Not Interested
+    "not_interested": "5e8c009f-db89-4e1a-9c9a-429b45faf0c0",
+    "not_intrested": "5e8c009f-db89-4e1a-9c9a-429b45faf0c0", // common typo
+    "ni": "5e8c009f-db89-4e1a-9c9a-429b45faf0c0",
 
-    // Wrong Number variants
-    "wrong_number": "2e93c5c2-e46a-4e3f-8402-2293e0b2c9ff",
-    "wrongnumber": "2e93c5c2-e46a-4e3f-8402-2293e0b2c9ff",
-    "wrong": "2e93c5c2-e46a-4e3f-8402-2293e0b2c9ff",
-    "invalid_number": "2e93c5c2-e46a-4e3f-8402-2293e0b2c9ff",
+    // RO Only
+    "ro_only": "ba63d1f1-e3ef-400a-a3c0-c6e1f1a5d6a4",
+    "ro": "ba63d1f1-e3ef-400a-a3c0-c6e1f1a5d6a4",
 
-    // Not Qualified variants
-    "not_qualified": "7cb0159d-1cc0-4f56-919e-e1231a7be7a",
-    "notqualified": "7cb0159d-1cc0-4f56-919e-e1231a7be7a",
-    "nq": "7cb0159d-1cc0-4f56-919e-e1231a7be7a",
+    // New Build
+    "new_build": "21467e3f-24c5-4b82-9e37-e918d77d2c48",
+    "newbuild": "21467e3f-24c5-4b82-9e37-e918d77d2c48",
 
-    // Voicemail variants
-    "voicemail": "b2cf5968-551e-4856-9783-52b3da59a7d0",
+    // Water Source
+    "water_source": "a8a9584b-366a-4a68-a185-21ce4181d78c",
+    "watersource": "a8a9584b-366a-4a68-a185-21ce4181d78c",
+
+    // Phone Pitch - CHF
+    "phone_pitch_chf": "6c20cc50-781f-4543-a773-d4698f649bcf",
+    "phone_pitch": "6c20cc50-781f-4543-a773-d4698f649bcf",
+    "phonepitch": "6c20cc50-781f-4543-a773-d4698f649bcf",
+
+    // Wants Follow Up
+    "wants_follow_up": "937b1e0e-ab79-49c8-9e8f-a5efd6966c3f",
+    "follow_up": "937b1e0e-ab79-49c8-9e8f-a5efd6966c3f",
+    "followup": "937b1e0e-ab79-49c8-9e8f-a5efd6966c3f",
+
+    // Internal - Closed Deal
+    "internal_closed_deal": "def5ec8d-b566-413c-b558-e4a39884ab8b",
+    "closed_deal": "def5ec8d-b566-413c-b558-e4a39884ab8b",
+
+    // Internal - Deposit Taken
+    "internal_deposit_taken": "5f7f3f43-e0d0-4c03-ba44-09894047c474",
+    "deposit_taken": "5f7f3f43-e0d0-4c03-ba44-09894047c474",
+    "deposit": "5f7f3f43-e0d0-4c03-ba44-09894047c474",
+
+    // Busy
+    "busy": "9d9162e7-6cf3-4944-bf63-4dff82258764",
+
+    // Left Live Message
+    "left_live_message": "a4c4c377-d246-4b32-a13b-75a56a4cd0ff",
+    "live_message": "a4c4c377-d246-4b32-a13b-75a56a4cd0ff",
+
+    // Left Voicemail
     "left_voicemail": "b2cf5968-551e-4856-9783-52b3da59a7d0",
+    "voicemail": "b2cf5968-551e-4856-9783-52b3da59a7d0",
     "leftvoicemail": "b2cf5968-551e-4856-9783-52b3da59a7d0",
     "vm": "b2cf5968-551e-4856-9783-52b3da59a7d0",
     "left_vm": "b2cf5968-551e-4856-9783-52b3da59a7d0",
-    "message_left": "b2cf5968-551e-4856-9783-52b3da59a7d0",
+
+    // Unable to Service
+    "unable_to_service": "109bdbfc-6552-40e0-8eb2-0e58c13208a1",
+    "cannot_service": "109bdbfc-6552-40e0-8eb2-0e58c13208a1",
+    "out_of_area": "109bdbfc-6552-40e0-8eb2-0e58c13208a1",
+
+    // Other Departments
+    "other_departments": "c5067c48-aaf1-4f67-9c56-6a749b666817",
+    "other_department": "c5067c48-aaf1-4f67-9c56-6a749b666817",
+    "transfer": "c5067c48-aaf1-4f67-9c56-6a749b666817",
+
+    // Needs Call Back
+    "needs_call_back": "4aa8b662-f76e-4557-8a24-ffae50519382",
+    "call_back": "4aa8b662-f76e-4557-8a24-ffae50519382",
+    "callback": "4aa8b662-f76e-4557-8a24-ffae50519382",
+
+    // Not Qualified
+    "not_qualified": "7cb0159d-1cc0-4f56-919e-e1231a7be7af",
+    "notqualified": "7cb0159d-1cc0-4f56-919e-e1231a7be7af",
+    "nq": "7cb0159d-1cc0-4f56-919e-e1231a7be7af",
   };
 
   const mapped = dispositionMap[normalized];
@@ -387,6 +437,7 @@ function parseCallStartTime(callStart: string, agentTimezone?: string): number {
 
   // RingCX sends datetime without timezone info
   // Format: "2026-01-29 13:39:00" or "2026-01-29T13:39:00"
+  // RingCX sends time in agent's local timezone (default AWST)
   const datetimeMatch = callStart.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})/);
   if (datetimeMatch) {
     const [_, year, month, day, hour, minute, second] = datetimeMatch;
@@ -400,7 +451,7 @@ function parseCallStartTime(callStart: string, agentTimezone?: string): number {
     const localTime = new Date(`${year}-${month}-${day}T${hour}:${minute}:${second}${timezoneOffset}`);
     const timestamp = localTime.getTime();
 
-    console.log(`  Parsed as ${agentTimezone || "AWST"} datetime: ${timestamp} (${new Date(timestamp).toISOString()})`);
+    console.log(`  Parsed as ${agentTimezone || "AWST (default)"} datetime: ${timestamp} (${new Date(timestamp).toISOString()})`);
     console.log(`  Local time: ${year}-${month}-${day} ${hour}:${minute}:${second} ${timezoneOffset}`);
 
     if (!isNaN(timestamp)) {
@@ -453,6 +504,13 @@ async function createCallEngagement(
     const aniFormatted = formatPhoneNumber(payload.ani);
     const dnisFormatted = formatPhoneNumber(payload.dnis);
 
+    console.log(`Call direction: ${callDirection}`);
+    console.log(`ANI (caller): ${payload.ani} -> ${aniFormatted}`);
+    console.log(`DNIS (called): ${payload.dnis} -> ${dnisFormatted}`);
+    console.log(`Agent name: ${agentName}`);
+    console.log(`Contact name: ${contactInfo?.firstname} ${contactInfo?.lastname}`);
+    console.log(`Disposition received: "${payload.disposition}"`);
+
     // Format disposition for title
     const dispositionLabel = payload.disposition.replace(/_/g, " ");
     const directionLabel = callDirection === "OUTBOUND" ? "Outbound" : "Inbound";
@@ -462,22 +520,19 @@ async function createCallEngagement(
       ? `${contactInfo.firstname} ${contactInfo.lastname}`
       : contactInfo?.firstname || contactInfo?.lastname || "Unknown Contact";
 
-    // Build call body header based on direction
-    // OUTBOUND: Agent (ANI) calls contact (DNIS), display as FROM agent TO contact
-    // INBOUND: Contact (ANI) calls agent (DNIS), display as FROM contact TO agent
+    // Build call body header - simple format without arrows or disposition
+    // OUTBOUND: Agent (DNIS=+613) calls contact (ANI=+614), display FROM agent TO contact
+    // INBOUND: Contact (ANI) calls agent (DNIS), display FROM contact TO agent
     let callBodyHeader: string;
     if (callDirection === "OUTBOUND") {
-      // Outbound: FROM agent (ANI) TO contact (DNIS)
-      callBodyHeader = `>>>>> [${directionLabel} - ${dispositionLabel}] Call from ${agentName} (${aniFormatted}) to ${contactName} (${dnisFormatted})`;
+      // Outbound: FROM agent (DNIS is the +613 company number) TO contact (ANI is customer mobile)
+      callBodyHeader = `Call from ${agentName} (${dnisFormatted}) to ${contactName} (${aniFormatted})`;
     } else {
       // Inbound: FROM contact (ANI) TO agent (DNIS)
-      callBodyHeader = `>>>>> [${directionLabel} - ${dispositionLabel}] Call from ${contactName} (${aniFormatted}) to ${agentName} (${dnisFormatted})`;
+      callBodyHeader = `Call from ${contactName} (${aniFormatted}) to ${agentName} (${dnisFormatted})`;
     }
 
-    const callBodyParts = [
-      callBodyHeader,
-      "<<<<<",
-    ];
+    const callBodyParts = [callBodyHeader];
 
     if (payload.summary) {
       callBodyParts.push(
@@ -577,10 +632,19 @@ serve(async (req) => {
     }
 
     // Normalize disposition field - RingCX sends "agent_disposition", we use "disposition"
+    console.log("Raw disposition fields:", {
+      agent_disposition: payload.agent_disposition,
+      disposition: payload.disposition
+    });
+
     const disposition = payload.agent_disposition || payload.disposition || "no_answer";
+
     if (!payload.agent_disposition && !payload.disposition) {
-      console.log("No disposition provided, defaulting to 'no_answer'");
+      console.warn("⚠️ No disposition provided in payload, defaulting to 'no_answer'");
+    } else {
+      console.log(`✓ Using disposition: "${disposition}" (from ${payload.agent_disposition ? 'agent_disposition' : 'disposition'} field)`);
     }
+
     // Set disposition on payload for use in createCallEngagement
     payload.disposition = disposition;
 
