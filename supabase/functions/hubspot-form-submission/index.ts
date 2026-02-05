@@ -375,13 +375,13 @@ function buildUnableToServiceProperties(
 
   // Water source (for water source sub-type)
   if (data.waterSource) {
-    properties[HUBSPOT_FIELD_MAPPINGS.mainsWater] = false;
+    properties[HUBSPOT_FIELD_MAPPINGS.mainsWater] = "No";
     // Water source will be included in the note engagement
   }
 
   // Home owner (for non-homeowner sub-type)
   if (data.unableToServiceSubType === "non_homeowner") {
-    properties[HUBSPOT_FIELD_MAPPINGS.homeOwner] = false;
+    properties[HUBSPOT_FIELD_MAPPINGS.homeOwner] = "No";
   }
 
   // Property type (for incompatible dwelling sub-type)
