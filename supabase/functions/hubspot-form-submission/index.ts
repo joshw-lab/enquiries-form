@@ -284,6 +284,15 @@ function buildCallBackProperties(
   const wantsFollowedUp = toHubSpotBoolean(data.wantsFollowedUp);
   if (wantsFollowedUp !== null) properties[HUBSPOT_FIELD_MAPPINGS.wantsFollowedUp] = wantsFollowedUp;
 
+  // List classification (amberlist for call backs)
+  if (data.listClassification === "amberlist") {
+    properties[HUBSPOT_FIELD_MAPPINGS.amberlist] = true;
+  }
+
+  // NOTE: Do NOT set advisedNotInterestedReason for Call Back
+  // That field is only for "Not Interested" disposition
+  // Amberlist reasons for Call Back are stored in notes only
+
   // Leads Rep
   if (data.leadsRep) properties[HUBSPOT_FIELD_MAPPINGS.leadsRep] = data.leadsRep;
 
@@ -573,6 +582,11 @@ function buildNoteContent(data: FormData): string {
         parts.push("Reason: Follow Up");
       }
       if (data.followUpDate) parts.push(`Follow Up Date: ${data.followUpDate}`);
+      if (data.listClassification === "amberlist") {
+        parts.push("List: Amberlist");
+        // Include amberlist reason in notes (not stored in HubSpot property for Call Back)
+        if (data.advisedNotInterestedReason) parts.push(`Amberlist Reason: ${data.advisedNotInterestedReason}`);
+      }
       break;
 
     case "not_interested":
