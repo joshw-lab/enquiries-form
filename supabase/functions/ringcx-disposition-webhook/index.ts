@@ -427,7 +427,8 @@ async function createCallEngagement(
   payload: RingCXWebhookPayload,
   contactId: string,
   accessToken: string,
-  contactInfo?: { firstname?: string; lastname?: string; phone?: string }
+  contactInfo?: { firstname?: string; lastname?: string; phone?: string },
+  agentTimezone?: string
 ): Promise<{ success: boolean; callId?: string; error?: string }> {
   try {
     // Parse call duration using the new parser (handles HH:MM:SS format)
@@ -437,8 +438,8 @@ async function createCallEngagement(
     // Map disposition
     const hubspotDisposition = mapDispositionToHubSpot(payload.disposition);
 
-    // Parse call start time with proper handling
-    const callStartTimestamp = parseCallStartTime(payload.call_start);
+    // Parse call start time with agent's timezone
+    const callStartTimestamp = parseCallStartTime(payload.call_start, agentTimezone);
 
     // Determine call direction
     const callDirection = determineCallDirection(payload);
@@ -645,12 +646,26 @@ serve(async (req) => {
       );
     }
 
-    // Create call engagement in HubSpot with contact info
+    // Get agent's timezone from HubSpot (if agent_extern_id is provided and mapped)
+    let agentTimezone: string | undefined;
+    if (payload.agent_extern_id) {
+      const ownerId = await getHubSpotOwnerId(payload.agent_extern_id, supabaseClient);
+      if (ownerId) {
+        const ownerInfo = await getHubSpotOwnerInfo(ownerId, hubspotAccessToken);
+        if (ownerInfo?.timezone) {
+          agentTimezone = ownerInfo.timezone;
+          console.log(`Using agent timezone: ${agentTimezone}`);
+        }
+      }
+    }
+
+    // Create call engagement in HubSpot with contact info and agent timezone
     const result = await createCallEngagement(
       payload,
       contactId,
       hubspotAccessToken,
-      contactVerification.contact
+      contactVerification.contact,
+      agentTimezone
     );
 
     if (!result.success) {
