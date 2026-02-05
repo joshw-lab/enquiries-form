@@ -180,6 +180,7 @@ function buildHubSpotProperties(
   if (data.emailAddress) properties[HUBSPOT_FIELD_MAPPINGS.emailAddress] = data.emailAddress;
 
   // Notes are handled separately via engagement API (notes_last_contacted is read-only)
+  // NEVER set properties[HUBSPOT_FIELD_MAPPINGS.notes] in any disposition builder
 
   switch (data.disposition) {
     case "book_water_test":
@@ -355,9 +356,7 @@ function buildUnableToServiceProperties(
   // Water source (for water source sub-type)
   if (data.waterSource) {
     properties[HUBSPOT_FIELD_MAPPINGS.mainsWater] = false;
-    // Store water source in notes
-    const existingNotes = (properties[HUBSPOT_FIELD_MAPPINGS.notes] as string) || "";
-    properties[HUBSPOT_FIELD_MAPPINGS.notes] = `${existingNotes} [Water Source: ${data.waterSource}]`.trim();
+    // Water source will be included in the note engagement
   }
 
   // Home owner (for non-homeowner sub-type)
@@ -383,11 +382,7 @@ function buildNoAnswerProperties(
   data: FormData,
   properties: Record<string, string | number | boolean>
 ): Record<string, string | number | boolean> {
-  // Log the call attempt type in notes
-  const attemptType = data.noAnswerSubType === "voicemail" ? "Voicemail left" : "No answer";
-  const existingNotes = (properties[HUBSPOT_FIELD_MAPPINGS.notes] as string) || "";
-  properties[HUBSPOT_FIELD_MAPPINGS.notes] = `${existingNotes} [Call Attempt: ${attemptType}]`.trim();
-
+  // No properties to set - call attempt details will be in the note engagement
   return properties;
 }
 
@@ -402,11 +397,7 @@ function buildWrongNumberProperties(
   properties[HUBSPOT_FIELD_MAPPINGS.greylist] = true;
   properties[HUBSPOT_FIELD_MAPPINGS.advisedNotInterestedReason] = "GREY- No response to Emails";
 
-  // Add note about wrong number type
-  const wrongNumberType = data.wrongNumberSubType === "wrong_person" ? "Wrong Person" : "Invalid Number";
-  const existingNotes = (properties[HUBSPOT_FIELD_MAPPINGS.notes] as string) || "";
-  properties[HUBSPOT_FIELD_MAPPINGS.notes] = `${existingNotes} [Unreachable: ${wrongNumberType}]`.trim();
-
+  // Wrong number type will be included in the note engagement
   return properties;
 }
 
@@ -557,6 +548,86 @@ async function createHubSpotContact(
     console.error("HubSpot create contact error:", error);
     return { success: false, error: error.message };
   }
+}
+
+/**
+ * Build comprehensive note content from form data
+ */
+function buildNoteContent(data: FormData): string {
+  const parts: string[] = [];
+
+  // Add disposition-specific details
+  switch (data.disposition) {
+    case "book_water_test":
+      parts.push("Disposition: Book Water Test");
+      if (data.leadStatus) parts.push(`Lead Status: ${data.leadStatus}`);
+      if (data.waterTestDate) parts.push(`Test Date: ${data.waterTestDate}`);
+      if (data.waterTestTime) parts.push(`Test Time: ${data.waterTestTime}`);
+      break;
+
+    case "call_back":
+      parts.push("Disposition: Call Back");
+      if (data.callBackSubType === "reschedule") {
+        parts.push("Reason: Reschedule");
+      } else if (data.callBackSubType === "follow_up") {
+        parts.push("Reason: Follow Up");
+      }
+      if (data.followUpDate) parts.push(`Follow Up Date: ${data.followUpDate}`);
+      break;
+
+    case "not_interested":
+      parts.push("Disposition: Not Interested");
+      if (data.advisedNotInterestedReason) parts.push(`Reason: ${data.advisedNotInterestedReason}`);
+      if (data.listClassification === "amberlist") parts.push("List: Amberlist");
+      else if (data.listClassification === "greylist") parts.push("List: Greylist");
+      else if (data.listClassification === "blacklist") parts.push("List: Blacklist");
+      break;
+
+    case "other_department":
+      parts.push("Disposition: Other Department");
+      const deptMap: Record<string, string> = {
+        is: "Internal Sales",
+        service: "Service",
+        filters: "Filters",
+        installs: "Installs",
+      };
+      if (data.otherDepartment) parts.push(`Transferred to: ${deptMap[data.otherDepartment] || data.otherDepartment}`);
+      if (data.notesForInternalSales) parts.push(`Notes: ${data.notesForInternalSales}`);
+      break;
+
+    case "unable_to_service":
+      parts.push("Disposition: Unable to Service");
+      if (data.unableToServiceSubType === "water_source") {
+        parts.push("Reason: Non-Mains Water");
+        if (data.waterSource) parts.push(`Water Source: ${data.waterSource}`);
+      } else if (data.unableToServiceSubType === "non_homeowner") {
+        parts.push("Reason: Non-Homeowner");
+      } else if (data.unableToServiceSubType === "incompatible_dwelling") {
+        parts.push("Reason: Incompatible Dwelling");
+        if (data.propertyType) parts.push(`Property Type: ${data.propertyType}`);
+      }
+      if (data.advisedNotInterestedReason) parts.push(`Classification: ${data.advisedNotInterestedReason}`);
+      break;
+
+    case "no_answer":
+      parts.push("Disposition: No Answer");
+      const attemptType = data.noAnswerSubType === "voicemail" ? "Voicemail Left" : "No Answer";
+      parts.push(`Call Attempt: ${attemptType}`);
+      break;
+
+    case "wrong_number":
+      parts.push("Disposition: Wrong Number");
+      const wrongNumberType = data.wrongNumberSubType === "wrong_person" ? "Wrong Person" : "Invalid Number";
+      parts.push(`Unreachable: ${wrongNumberType}`);
+      break;
+  }
+
+  // Add user notes if provided
+  if (data.notes) {
+    parts.push(`\nAgent Notes: ${data.notes}`);
+  }
+
+  return parts.join(" | ");
 }
 
 /**
@@ -725,8 +796,8 @@ serve(async (req) => {
       );
     }
 
-    // Create note engagement if notes were provided
-    if (payload.notes && contactId) {
+    // Always create note engagement for every disposition
+    if (contactId) {
       // Format note with readable timestamp
       const noteTimestamp = new Date(payload.timestamp).toLocaleString('en-AU', {
         timeZone: 'Australia/Perth',
@@ -738,11 +809,14 @@ serve(async (req) => {
         hour12: true
       });
 
+      // Build comprehensive note content from form data
+      const dispositionNote = buildNoteContent(payload);
+
       // Include agent ID in note if available
       const agentPrefix = payload.contactInfo?.agent_id
         ? `[Agent: ${payload.contactInfo.agent_id}] `
         : '';
-      const noteContent = `${agentPrefix}[${noteTimestamp}] ${payload.notes}`;
+      const noteContent = `${agentPrefix}[${noteTimestamp}] ${dispositionNote}`;
 
       const noteResult = await createNoteEngagement(
         contactId,

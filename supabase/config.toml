@@ -5,3 +5,9 @@ verify_jwt = false
 
 [functions.get-day-slots]
 verify_jwt = false
+
+[functions.ringcentral-auth-init]
+verify_jwt = false
+
+[functions.ringcentral-auth-callback]
+verify_jwt = false
