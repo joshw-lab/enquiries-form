@@ -239,98 +239,92 @@ function mapDispositionToHubSpot(disposition: string): string {
   const normalized = disposition.toLowerCase().replace(/\s+/g, "_").replace(/-/g, "_");
 
   const dispositionMap: Record<string, string> = {
-    // Connected
+    // Booked Test -> Connected
+    "booked_test": "f240bbac-87c9-4f6e-bf70-924b57d47db7",
+    "booked": "f240bbac-87c9-4f6e-bf70-924b57d47db7",
+    "book_water_test": "f240bbac-87c9-4f6e-bf70-924b57d47db7",
+    "booked_water_test": "f240bbac-87c9-4f6e-bf70-924b57d47db7",
     "connected": "f240bbac-87c9-4f6e-bf70-924b57d47db7",
 
-    // Booked Test
-    "booked_test": "f72848b8-6063-4591-9832-a4e4604864f5",
-    "booked": "f72848b8-6063-4591-9832-a4e4604864f5",
-    "book_water_test": "f72848b8-6063-4591-9832-a4e4604864f5",
-    "booked_water_test": "f72848b8-6063-4591-9832-a4e4604864f5",
-
-    // Booked Test - Single Leg
+    // Booked Test - Single Leg (keeping existing)
     "booked_test_single_leg": "0823d714-3974-4bb4-a65a-ecf3596f49ac",
     "booked_single_leg": "0823d714-3974-4bb4-a65a-ecf3596f49ac",
     "single_leg": "0823d714-3974-4bb4-a65a-ecf3596f49ac",
 
-    // No Answer
-    "no_answer": "73a0d17f-1163-4015-bdd5-ec830791da20",
-    "noanswer": "73a0d17f-1163-4015-bdd5-ec830791da20",
-    "na": "73a0d17f-1163-4015-bdd5-ec830791da20",
-    "no_response": "73a0d17f-1163-4015-bdd5-ec830791da20",
-
-    // Wrong Number
-    "wrong_number": "17b47fee-58de-441e-a44c-c6300d46f273",
-    "wrongnumber": "17b47fee-58de-441e-a44c-c6300d46f273",
-    "wrong": "17b47fee-58de-441e-a44c-c6300d46f273",
-    "invalid_number": "17b47fee-58de-441e-a44c-c6300d46f273",
-
-    // Not Interested
-    "not_interested": "5e8c009f-db89-4e1a-9c9a-429b45faf0c0",
-    "not_intrested": "5e8c009f-db89-4e1a-9c9a-429b45faf0c0", // common typo
-    "ni": "5e8c009f-db89-4e1a-9c9a-429b45faf0c0",
-
-    // RO Only
-    "ro_only": "ba63d1f1-e3ef-400a-a3c0-c6e1f1a5d6a4",
-    "ro": "ba63d1f1-e3ef-400a-a3c0-c6e1f1a5d6a4",
-
-    // New Build
-    "new_build": "21467e3f-24c5-4b82-9e37-e918d77d2c48",
-    "newbuild": "21467e3f-24c5-4b82-9e37-e918d77d2c48",
-
-    // Water Source
-    "water_source": "a8a9584b-366a-4a68-a185-21ce4181d78c",
-    "watersource": "a8a9584b-366a-4a68-a185-21ce4181d78c",
-
-    // Phone Pitch - CHF
-    "phone_pitch_chf": "6c20cc50-781f-4543-a773-d4698f649bcf",
-    "phone_pitch": "6c20cc50-781f-4543-a773-d4698f649bcf",
-    "phonepitch": "6c20cc50-781f-4543-a773-d4698f649bcf",
-
-    // Wants Follow Up
-    "wants_follow_up": "937b1e0e-ab79-49c8-9e8f-a5efd6966c3f",
-    "follow_up": "937b1e0e-ab79-49c8-9e8f-a5efd6966c3f",
-    "followup": "937b1e0e-ab79-49c8-9e8f-a5efd6966c3f",
-
-    // Internal - Closed Deal
-    "internal_closed_deal": "def5ec8d-b566-413c-b558-e4a39884ab8b",
-    "closed_deal": "def5ec8d-b566-413c-b558-e4a39884ab8b",
-
-    // Internal - Deposit Taken
-    "internal_deposit_taken": "5f7f3f43-e0d0-4c03-ba44-09894047c474",
-    "deposit_taken": "5f7f3f43-e0d0-4c03-ba44-09894047c474",
-    "deposit": "5f7f3f43-e0d0-4c03-ba44-09894047c474",
-
-    // Busy
+    // Call Back -> Busy
+    "call_back": "9d9162e7-6cf3-4944-bf63-4dff82258764",
+    "callback": "9d9162e7-6cf3-4944-bf63-4dff82258764",
+    "needs_call_back": "9d9162e7-6cf3-4944-bf63-4dff82258764",
     "busy": "9d9162e7-6cf3-4944-bf63-4dff82258764",
 
-    // Left Live Message
+    // Not Interested -> Left Live Message
+    "not_interested": "a4c4c377-d246-4b32-a13b-75a56a4cd0ff",
+    "not_intrested": "a4c4c377-d246-4b32-a13b-75a56a4cd0ff", // common typo
+    "ni": "a4c4c377-d246-4b32-a13b-75a56a4cd0ff",
     "left_live_message": "a4c4c377-d246-4b32-a13b-75a56a4cd0ff",
     "live_message": "a4c4c377-d246-4b32-a13b-75a56a4cd0ff",
 
-    // Left Voicemail
-    "left_voicemail": "b2cf5968-551e-4856-9783-52b3da59a7d0",
+    // Other Department -> Non existent Internal Value
+    "other_departments": "b2cf5968-551e-4856-9783-52b3da59a7d2",
+    "other_department": "b2cf5968-551e-4856-9783-52b3da59a7d2",
+    "transfer": "b2cf5968-551e-4856-9783-52b3da59a7d2",
+
+    // Unable to Service -> No Answer
+    "unable_to_service": "73a0d17f-1163-4015-bdd5-ec830791da20",
+    "cannot_service": "73a0d17f-1163-4015-bdd5-ec830791da20",
+    "out_of_area": "73a0d17f-1163-4015-bdd5-ec830791da20",
+
+    // No Answer -> Wrong Number
+    "no_answer": "17b47fee-58de-441e-a44c-c6300d46f273",
+    "noanswer": "17b47fee-58de-441e-a44c-c6300d46f273",
+    "na": "17b47fee-58de-441e-a44c-c6300d46f273",
+    "no_response": "17b47fee-58de-441e-a44c-c6300d46f273",
+
+    // Wrong Number -> Non existent Internal Value (same as Other Department)
+    "wrong_number": "2e93c5c2-e46a-4e3f-8402-2293e0b2c9ff",
+    "wrongnumber": "2e93c5c2-e46a-4e3f-8402-2293e0b2c9ff",
+    "wrong": "2e93c5c2-e46a-4e3f-8402-2293e0b2c9ff",
+    "invalid_number": "2e93c5c2-e46a-4e3f-8402-2293e0b2c9ff",
+
+    // Voicemail -> Voicemail
     "voicemail": "b2cf5968-551e-4856-9783-52b3da59a7d0",
+    "left_voicemail": "b2cf5968-551e-4856-9783-52b3da59a7d0",
     "leftvoicemail": "b2cf5968-551e-4856-9783-52b3da59a7d0",
     "vm": "b2cf5968-551e-4856-9783-52b3da59a7d0",
     "left_vm": "b2cf5968-551e-4856-9783-52b3da59a7d0",
 
-    // Unable to Service
-    "unable_to_service": "109bdbfc-6552-40e0-8eb2-0e58c13208a1",
-    "cannot_service": "109bdbfc-6552-40e0-8eb2-0e58c13208a1",
-    "out_of_area": "109bdbfc-6552-40e0-8eb2-0e58c13208a1",
+    // RO Only (keeping existing)
+    "ro_only": "ba63d1f1-e3ef-400a-a3c0-c6e1f1a5d6a4",
+    "ro": "ba63d1f1-e3ef-400a-a3c0-c6e1f1a5d6a4",
 
-    // Other Departments
-    "other_departments": "c5067c48-aaf1-4f67-9c56-6a749b666817",
-    "other_department": "c5067c48-aaf1-4f67-9c56-6a749b666817",
-    "transfer": "c5067c48-aaf1-4f67-9c56-6a749b666817",
+    // New Build (keeping existing)
+    "new_build": "21467e3f-24c5-4b82-9e37-e918d77d2c48",
+    "newbuild": "21467e3f-24c5-4b82-9e37-e918d77d2c48",
 
-    // Needs Call Back
-    "needs_call_back": "4aa8b662-f76e-4557-8a24-ffae50519382",
-    "call_back": "4aa8b662-f76e-4557-8a24-ffae50519382",
-    "callback": "4aa8b662-f76e-4557-8a24-ffae50519382",
+    // Water Source (keeping existing)
+    "water_source": "a8a9584b-366a-4a68-a185-21ce4181d78c",
+    "watersource": "a8a9584b-366a-4a68-a185-21ce4181d78c",
 
-    // Not Qualified
+    // Phone Pitch - CHF (keeping existing)
+    "phone_pitch_chf": "6c20cc50-781f-4543-a773-d4698f649bcf",
+    "phone_pitch": "6c20cc50-781f-4543-a773-d4698f649bcf",
+    "phonepitch": "6c20cc50-781f-4543-a773-d4698f649bcf",
+
+    // Wants Follow Up (keeping existing)
+    "wants_follow_up": "937b1e0e-ab79-49c8-9e8f-a5efd6966c3f",
+    "follow_up": "937b1e0e-ab79-49c8-9e8f-a5efd6966c3f",
+    "followup": "937b1e0e-ab79-49c8-9e8f-a5efd6966c3f",
+
+    // Internal - Closed Deal (keeping existing)
+    "internal_closed_deal": "def5ec8d-b566-413c-b558-e4a39884ab8b",
+    "closed_deal": "def5ec8d-b566-413c-b558-e4a39884ab8b",
+
+    // Internal - Deposit Taken (keeping existing)
+    "internal_deposit_taken": "5f7f3f43-e0d0-4c03-ba44-09894047c474",
+    "deposit_taken": "5f7f3f43-e0d0-4c03-ba44-09894047c474",
+    "deposit": "5f7f3f43-e0d0-4c03-ba44-09894047c474",
+
+    // Not Qualified (keeping existing)
     "not_qualified": "7cb0159d-1cc0-4f56-919e-e1231a7be7af",
     "notqualified": "7cb0159d-1cc0-4f56-919e-e1231a7be7af",
     "nq": "7cb0159d-1cc0-4f56-919e-e1231a7be7af",
