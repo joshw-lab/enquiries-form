@@ -14,3 +14,15 @@ verify_jwt = false
 
 [functions.ringcx-disposition-webhook]
 verify_jwt = false
+
+[functions.ringcx-lead-loader-new]
+verify_jwt = false
+
+[functions.ringcx-lead-loader-newhitlist]
+verify_jwt = false
+
+[functions.ringcx-lead-loader-old]
+verify_jwt = false
+
+[functions.ringcx-lead-loader-oldhitlist]
+verify_jwt = false

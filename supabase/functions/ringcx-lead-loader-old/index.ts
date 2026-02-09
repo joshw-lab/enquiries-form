@@ -7,11 +7,13 @@ import {
   getRingCentralAccessToken,
   getHubSpotContact,
   pushLeadToRingCX,
+  updateHubSpotContact,
   formatPhoneNumber,
 } from "../_shared/ringcx-lead-loader-base.ts";
 
 const CAMPAIGN_TYPE = "Old";
-const CAMPAIGN_ID_FIELD = "ringcx_campaignid_old";
+const CAMPAIGN_ID_FIELD = "n0_old_list_id";
+const LEAD_ID_FIELD = "old_rc_campaign_leadid";
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -20,17 +22,22 @@ serve(async (req) => {
 
   try {
     const payload: HubSpotListWebhookPayload = await req.json();
-    console.log(`[${CAMPAIGN_TYPE}] Received HubSpot list webhook:`, JSON.stringify(payload, null, 2));
+    console.log(`[${CAMPAIGN_TYPE}] Received HubSpot webhook:`, JSON.stringify(payload, null, 2));
+    console.log(`[${CAMPAIGN_TYPE}] Payload keys:`, Object.keys(payload));
 
-    if (!payload.objectId) {
-      throw new Error("objectId (contact ID) is required");
+    // Extract contact ID - HubSpot can send it in multiple formats
+    const contactIdRaw = payload.objectId || payload.contactId || payload.hubspotContactId || payload.externID;
+
+    if (!contactIdRaw) {
+      console.error(`[${CAMPAIGN_TYPE}] Missing contact ID in payload:`, payload);
+      throw new Error("Contact ID is required (objectId, contactId, hubspotContactId, or externID). Received: " + JSON.stringify(payload));
     }
 
-    const contactId = payload.objectId.toString();
+    const contactId = contactIdRaw.toString();
 
     const supabaseClient = createClient(
       Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
+      Deno.env.get("SB_SERVICE_ROLE_KEY") ?? ""
     );
 
     const hubspotAccessToken = Deno.env.get("HUBSPOT_ACCESS_TOKEN");
@@ -105,6 +112,19 @@ serve(async (req) => {
     }
 
     console.log(`[${CAMPAIGN_TYPE}] Successfully pushed contact ${contactId} to RingCX campaign ${campaignId}`);
+
+    // Write back the RingCX lead ID to HubSpot
+    if (result.leadId) {
+      console.log(`[${CAMPAIGN_TYPE}] Writing back lead ID ${result.leadId} to HubSpot field ${LEAD_ID_FIELD}`);
+      const writebackResult = await updateHubSpotContact(contactId, hubspotAccessToken, {
+        [LEAD_ID_FIELD]: result.leadId,
+      });
+      if (!writebackResult.success) {
+        console.error(`[${CAMPAIGN_TYPE}] Failed to write back lead ID to HubSpot:`, writebackResult.error);
+      }
+    } else {
+      console.warn(`[${CAMPAIGN_TYPE}] No lead ID returned from RingCX, skipping HubSpot writeback`);
+    }
 
     return new Response(
       JSON.stringify({

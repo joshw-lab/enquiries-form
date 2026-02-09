@@ -3,6 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 // RingCX API Configuration
 export const RINGCX_ACCOUNT_ID = "44510001";
 export const RINGCX_API_BASE = "https://ringcx.ringcentral.com/voice/api/v1";
+export const RINGCX_AUTH_BASE = "https://ringcx.ringcentral.com/api";
 
 export const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -11,18 +12,25 @@ export const corsHeaders = {
 };
 
 /**
- * HubSpot List Membership Webhook Payload
+ * HubSpot Webhook Payload (Property Change)
+ * HubSpot sends different formats, so we make fields optional
  */
 export interface HubSpotListWebhookPayload {
-  subscriptionType: string;
-  portalId: number;
-  objectId: number; // Contact ID
+  subscriptionType?: string;
+  portalId?: number;
+  objectId?: number; // Contact ID (standard property change webhooks)
+  contactId?: number; // Alternative contact ID field
+  hubspotContactId?: number; // Custom integration format
+  externID?: number; // External ID from custom workflow
+  campaignID?: number; // Campaign ID from payload (optional - we fetch from contact properties)
   propertyName?: string;
   propertyValue?: string;
   changeSource?: string;
-  eventId: number;
-  subscriptionId: number;
-  attemptNumber: number;
+  eventId?: number;
+  subscriptionId?: number;
+  attemptNumber?: number;
+  // Raw payload for debugging
+  [key: string]: any;
 }
 
 /**
@@ -45,7 +53,8 @@ export interface RingCXLeadData {
 }
 
 /**
- * Get RingCentral access token with automatic refresh
+ * Get RingCentral access token with automatic refresh,
+ * then exchange it for a RingCX access token.
  */
 export async function getRingCentralAccessToken(
   supabaseClient: ReturnType<typeof createClient>
@@ -66,8 +75,10 @@ export async function getRingCentralAccessToken(
     const timeUntilExpiry = expiresAt.getTime() - now.getTime();
     const fiveMinutes = 5 * 60 * 1000;
 
+    let rcAccessToken = authData.rc_access_token;
+
     if (timeUntilExpiry < fiveMinutes) {
-      console.log("Access token expired or expiring soon, refreshing...");
+      console.log("RC access token expired or expiring soon, refreshing...");
 
       const credentials = btoa(`${authData.rc_client_id}:${authData.rc_client_secret}`);
       const body = new URLSearchParams({
@@ -86,7 +97,7 @@ export async function getRingCentralAccessToken(
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error("Token refresh failed:", errorText);
+        console.error("RC token refresh failed:", errorText);
         return { token: null, error: "Failed to refresh RingCentral token" };
       }
 
@@ -103,13 +114,41 @@ export async function getRingCentralAccessToken(
         })
         .eq("id", authData.id);
 
-      console.log("Token refreshed successfully");
-      return { token: tokenData.access_token };
+      console.log("RC token refreshed successfully");
+      rcAccessToken = tokenData.access_token;
     }
 
-    return { token: authData.rc_access_token };
+    // Exchange RC access token for a RingCX access token
+    console.log("Exchanging RC token for RingCX token...");
+    const ringcxAuthResponse = await fetch(
+      `${RINGCX_AUTH_BASE}/auth/login/rc/accesstoken?includeRefresh=true`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: `rcAccessToken=${encodeURIComponent(rcAccessToken)}&rcTokenType=Bearer`,
+      }
+    );
+
+    if (!ringcxAuthResponse.ok) {
+      const errorText = await ringcxAuthResponse.text();
+      console.error("RingCX token exchange failed:", ringcxAuthResponse.status, errorText);
+      return { token: null, error: `RingCX token exchange failed (${ringcxAuthResponse.status}): ${errorText}` };
+    }
+
+    const ringcxAuthData = await ringcxAuthResponse.json();
+    const ringcxToken = ringcxAuthData.accessToken || ringcxAuthData.access_token;
+
+    if (!ringcxToken) {
+      console.error("RingCX token exchange returned no token:", JSON.stringify(ringcxAuthData));
+      return { token: null, error: "RingCX token exchange returned no access token" };
+    }
+
+    console.log(`RingCX token obtained (length=${ringcxToken.length}, dots=${(ringcxToken.match(/\./g) || []).length})`);
+    return { token: ringcxToken };
   } catch (error) {
-    console.error("Error getting RingCentral access token:", error);
+    console.error("Error getting RingCX access token:", error);
     return { token: null, error: error.message };
   }
 }
@@ -168,12 +207,33 @@ export async function pushLeadToRingCX(
   campaignId: string,
   leadData: RingCXLeadData,
   accessToken: string
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; leadId?: string; error?: string }> {
   try {
     const url = `${RINGCX_API_BASE}/admin/accounts/${RINGCX_ACCOUNT_ID}/campaigns/${campaignId}/leadLoader/direct`;
 
+    const requestBody = {
+      duplicateHandling: "REMOVE_ALL_EXISTING",
+      timeZoneOption: "NOT_APPLICABLE",
+      dialPriority: "IMMEDIATE",
+      uploadLeads: [
+        {
+          externId: leadData.externId,
+          leadPhone: leadData.phone1 || "",
+          firstName: leadData.firstName || "",
+          lastName: leadData.lastName || "",
+          address1: leadData.address1 || "",
+          city: leadData.city || "",
+          state: leadData.state || "",
+          zip: leadData.zip || "",
+          email: leadData.email || "",
+          auxPhone1: leadData.phone2 || "",
+          auxPhone2: leadData.phone3 || "",
+        },
+      ],
+    };
+
     console.log(`Pushing lead to RingCX: ${url}`);
-    console.log("Lead data:", JSON.stringify(leadData, null, 2));
+    console.log("Request body:", JSON.stringify(requestBody, null, 2));
 
     const response = await fetch(url, {
       method: "POST",
@@ -181,7 +241,7 @@ export async function pushLeadToRingCX(
         "Content-Type": "application/json",
         Authorization: `Bearer ${accessToken}`,
       },
-      body: JSON.stringify(leadData),
+      body: JSON.stringify(requestBody),
     });
 
     if (!response.ok) {
@@ -192,9 +252,45 @@ export async function pushLeadToRingCX(
 
     const result = await response.json();
     console.log("Lead pushed successfully:", result);
-    return { success: true };
+    const leadId = result?.leadId?.toString() || result?.id?.toString() || null;
+    return { success: true, leadId };
   } catch (error) {
     console.error("RingCX API error:", error);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Update a HubSpot contact property (used to write back the RingCX lead ID)
+ */
+export async function updateHubSpotContact(
+  contactId: string,
+  accessToken: string,
+  properties: Record<string, string>
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const response = await fetch(
+      `https://api.hubapi.com/crm/v3/objects/contacts/${contactId}`,
+      {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ properties }),
+      }
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("HubSpot update failed:", errorText);
+      return { success: false, error: errorText };
+    }
+
+    console.log(`HubSpot contact ${contactId} updated with properties:`, properties);
+    return { success: true };
+  } catch (error) {
+    console.error("HubSpot update error:", error);
     return { success: false, error: error.message };
   }
 }
