@@ -744,6 +744,7 @@ serve(async (req) => {
           name: `${payload.firstName} ${payload.lastName}`.trim(),
         },
         form_data: payload,
+        disposition: payload.disposition,
         metadata: {
           submittedAt: payload.timestamp,
           disposition: payload.disposition,
