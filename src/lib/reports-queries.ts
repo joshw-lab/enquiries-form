@@ -19,6 +19,27 @@ export interface FormSubmission {
   agent_name?: string
 }
 
+export interface CallRecording {
+  id: string
+  call_id: string
+  ringcx_recording_url: string | null
+  call_direction: string | null
+  call_duration_seconds: number | null
+  call_start: string
+  disposition: string | null
+  phone_number: string | null
+  agent_id: string | null
+  agent_name: string | null
+  hubspot_contact_id: string | null
+  hubspot_call_id: string | null
+  backup_status: string
+  gdrive_file_id: string | null
+  gdrive_file_url: string | null
+  gdrive_file_name: string | null
+  created_at: string
+  backed_up_at: string | null
+}
+
 export interface Filters {
   agent?: string
   startDate?: string
@@ -135,4 +156,50 @@ export function getDispositionColor(disposition: string): string {
     wrong_number: '#f97316',
   }
   return colors[disposition] || '#94a3b8'
+}
+
+/**
+ * Fetch call recordings with optional filters.
+ * Used by the recordings modal in the dashboard.
+ */
+export async function fetchCallRecordings(
+  supabase: SupabaseClient,
+  filters: Filters & { disposition?: string }
+): Promise<{ data: CallRecording[]; error: string | null }> {
+  let query = supabase
+    .from('call_recordings')
+    .select('*')
+    .order('call_start', { ascending: false })
+
+  if (filters.startDate) {
+    query = query.gte('call_start', filters.startDate + 'T00:00:00Z')
+  }
+  if (filters.endDate) {
+    query = query.lte('call_start', filters.endDate + 'T23:59:59Z')
+  }
+  if (filters.disposition) {
+    query = query.eq('disposition', filters.disposition)
+  }
+  if (filters.agent) {
+    query = query.eq('agent_name', filters.agent)
+  }
+
+  const { data, error } = await query
+
+  if (error) {
+    return { data: [], error: error.message }
+  }
+
+  return { data: (data || []) as CallRecording[], error: null }
+}
+
+/**
+ * Format seconds into a human-readable duration string
+ */
+export function formatDuration(seconds: number | null): string {
+  if (!seconds || seconds <= 0) return '0s'
+  const mins = Math.floor(seconds / 60)
+  const secs = seconds % 60
+  if (mins > 0) return `${mins}m ${secs}s`
+  return `${secs}s`
 }

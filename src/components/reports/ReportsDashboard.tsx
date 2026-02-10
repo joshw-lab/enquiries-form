@@ -11,9 +11,11 @@ import {
 } from '@/lib/reports-queries'
 import Filters from './Filters'
 import StatsCards from './StatsCards'
+import { type StatsCardFilter } from './StatsCards'
 import DispositionTable from './DispositionTable'
 import DispositionChart from './DispositionChart'
 import CallRecordsTable from './CallRecordsTable'
+import CallRecordingsModal from './CallRecordingsModal'
 
 export default function ReportsDashboard() {
   const [submissions, setSubmissions] = useState<FormSubmission[]>([])
@@ -26,6 +28,13 @@ export default function ReportsDashboard() {
   const [selectedAgent, setSelectedAgent] = useState('')
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
+
+  // Recordings modal state
+  const [recordingsModalOpen, setRecordingsModalOpen] = useState(false)
+  const [recordingsModalTitle, setRecordingsModalTitle] = useState('')
+  const [recordingsModalFilters, setRecordingsModalFilters] = useState<
+    FiltersType & { disposition?: string }
+  >({})
 
   // Set default to last 30 days on mount
   useEffect(() => {
@@ -94,6 +103,28 @@ export default function ReportsDashboard() {
     }
   }, [loadData, startDate, endDate])
 
+  function handleStatsCardClick(filter: StatsCardFilter) {
+    setRecordingsModalTitle(filter.label)
+    setRecordingsModalFilters({
+      startDate: startDate || undefined,
+      endDate: endDate || undefined,
+      agent: selectedAgent || undefined,
+      disposition: filter.disposition,
+    })
+    setRecordingsModalOpen(true)
+  }
+
+  function handleListenClick(disposition?: string, title?: string) {
+    setRecordingsModalTitle(title || 'Call Recording')
+    setRecordingsModalFilters({
+      startDate: startDate || undefined,
+      endDate: endDate || undefined,
+      agent: selectedAgent || undefined,
+      disposition,
+    })
+    setRecordingsModalOpen(true)
+  }
+
   async function handleLogout() {
     await fetch('/api/reports/auth', {
       method: 'POST',
@@ -149,6 +180,7 @@ export default function ReportsDashboard() {
             submissions={submissions}
             startDate={startDate}
             endDate={endDate}
+            onCardClick={handleStatsCardClick}
           />
 
           {/* Chart + Breakdown */}
@@ -162,9 +194,20 @@ export default function ReportsDashboard() {
           </div>
 
           {/* Call Records */}
-          <CallRecordsTable submissions={submissions} />
+          <CallRecordsTable
+            submissions={submissions}
+            onListenClick={handleListenClick}
+          />
         </div>
       )}
+
+      {/* Recordings Modal */}
+      <CallRecordingsModal
+        open={recordingsModalOpen}
+        onClose={() => setRecordingsModalOpen(false)}
+        title={recordingsModalTitle}
+        filters={recordingsModalFilters}
+      />
     </div>
   )
 }

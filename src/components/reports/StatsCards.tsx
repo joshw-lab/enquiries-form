@@ -2,13 +2,19 @@
 
 import { FormSubmission, getDispositionLabel } from '@/lib/reports-queries'
 
+export interface StatsCardFilter {
+  label: string
+  disposition?: string
+}
+
 interface StatsCardsProps {
   submissions: FormSubmission[]
   startDate: string
   endDate: string
+  onCardClick?: (filter: StatsCardFilter) => void
 }
 
-export default function StatsCards({ submissions, startDate, endDate }: StatsCardsProps) {
+export default function StatsCards({ submissions, startDate, endDate, onCardClick }: StatsCardsProps) {
   const total = submissions.length
 
   const bookings = submissions.filter(
@@ -40,23 +46,41 @@ export default function StatsCards({ submissions, startDate, endDate }: StatsCar
   }
   const topDisp = Object.entries(dispCounts).sort((a, b) => b[1] - a[1])[0]
 
-  const cards = [
-    { label: 'Total Calls', value: total, color: 'text-gray-900' },
-    { label: 'Booked Tests', value: bookings, color: 'text-green-600' },
-    { label: 'No Answer', value: noAnswer, color: 'text-blue-600' },
-    { label: 'Not Interested', value: notInterested, color: 'text-red-600' },
+  const cards: Array<{
+    label: string
+    value: string | number
+    color: string
+    clickFilter?: StatsCardFilter
+  }> = [
+    { label: 'Total Calls', value: total, color: 'text-gray-900', clickFilter: { label: 'All Calls' } },
+    { label: 'Booked Tests', value: bookings, color: 'text-green-600', clickFilter: { label: 'Booked Tests', disposition: 'book_water_test' } },
+    { label: 'No Answer', value: noAnswer, color: 'text-blue-600', clickFilter: { label: 'No Answer', disposition: 'no_answer' } },
+    { label: 'Not Interested', value: notInterested, color: 'text-red-600', clickFilter: { label: 'Not Interested', disposition: 'not_interested' } },
     ...(avgPerDay > 0
       ? [{ label: 'Avg / Day', value: avgPerDay, color: 'text-purple-600' }]
       : []),
     ...(topDisp
-      ? [{ label: 'Top Disposition', value: `${getDispositionLabel(topDisp[0])} (${topDisp[1]})`, color: 'text-amber-600' }]
+      ? [{
+          label: 'Top Disposition',
+          value: `${getDispositionLabel(topDisp[0])} (${topDisp[1]})`,
+          color: 'text-amber-600',
+          clickFilter: { label: getDispositionLabel(topDisp[0]), disposition: topDisp[0] },
+        }]
       : []),
   ]
 
   return (
     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
       {cards.map((card) => (
-        <div key={card.label} className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+        <div
+          key={card.label}
+          className={`bg-white rounded-lg shadow-sm border border-gray-200 p-4 transition-colors ${
+            card.clickFilter && onCardClick
+              ? 'cursor-pointer hover:border-blue-300 hover:shadow-md'
+              : ''
+          }`}
+          onClick={() => card.clickFilter && onCardClick?.(card.clickFilter)}
+        >
           <p className="text-xs font-medium text-gray-500">{card.label}</p>
           <p className={`text-2xl font-bold mt-1 ${card.color}`}>{card.value}</p>
         </div>
