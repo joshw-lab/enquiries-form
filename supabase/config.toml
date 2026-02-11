@@ -26,3 +26,6 @@ verify_jwt = false
 
 [functions.ringcx-lead-loader-oldhitlist]
 verify_jwt = false
+
+[functions.ringcentral-token-refresh]
+verify_jwt = false
