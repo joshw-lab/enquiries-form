@@ -74,6 +74,8 @@ interface FormData {
 
   // Other Department fields
   otherDepartment: string;
+  passthroughType: string;
+  passthroughReason: string;
   createIsDeal: "yes" | "no" | "";
   notesForInternalSales: string;
 
@@ -138,6 +140,12 @@ const HUBSPOT_FIELD_MAPPINGS = {
   greylist: "n1__greylist___advised_not_interested",
   blacklist: "n1__blacklist___do_not_contact",
   advisedNotInterestedReason: "new_advised_not_interested__classification_",
+
+  // Internal Sales passthrough fields
+  passthroughType: "passthrough_type",
+  passthroughReason: "passthrough_reason",
+  createIsDeal: "refer_to_internal_sales",
+  notesForInternalSales: "notes_for_internal_sales",
 
   // Contact owner mapping
   contactOwner: "hubspot_owner_id",
@@ -344,9 +352,20 @@ function buildOtherDepartmentProperties(
   data: FormData,
   properties: Record<string, string | number | boolean>
 ): Record<string, string | number | boolean> {
-  // Store notes for internal sales
-  if (data.notesForInternalSales) {
-    properties[HUBSPOT_FIELD_MAPPINGS.notes] = `[Internal Sales Notes] ${data.notesForInternalSales}`;
+  // Internal Sales specific fields
+  if (data.otherDepartment === "is") {
+    if (data.passthroughType) {
+      properties[HUBSPOT_FIELD_MAPPINGS.passthroughType] = data.passthroughType;
+    }
+    if (data.passthroughReason) {
+      properties[HUBSPOT_FIELD_MAPPINGS.passthroughReason] = data.passthroughReason;
+    }
+    if (data.createIsDeal) {
+      properties[HUBSPOT_FIELD_MAPPINGS.createIsDeal] = data.createIsDeal === "yes" ? "Yes" : "No";
+    }
+    if (data.notesForInternalSales) {
+      properties[HUBSPOT_FIELD_MAPPINGS.notesForInternalSales] = data.notesForInternalSales;
+    }
   }
 
   return properties;
@@ -615,9 +634,17 @@ function buildNoteContent(data: FormData): string {
         service: "Service",
         filters: "Filters",
         installs: "Installs",
+        hr: "HR",
+        accounts: "Accounts",
+        marketing: "Marketing",
+        it: "IT",
+        direct_sales: "Direct Sales",
       };
       if (data.otherDepartment) parts.push(`Transferred to: ${deptMap[data.otherDepartment] || data.otherDepartment}`);
-      if (data.notesForInternalSales) parts.push(`Notes: ${data.notesForInternalSales}`);
+      if (data.passthroughType) parts.push(`Passthrough Type: ${data.passthroughType}`);
+      if (data.passthroughReason) parts.push(`Passthrough Reason: ${data.passthroughReason}`);
+      if (data.createIsDeal) parts.push(`Create IS Deal: ${data.createIsDeal === "yes" ? "Yes" : "No"}`);
+      if (data.notesForInternalSales) parts.push(`IS Notes: ${data.notesForInternalSales}`);
       break;
 
     case "unable_to_service":

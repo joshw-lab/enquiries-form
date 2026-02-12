@@ -20,6 +20,8 @@ type DispositionType =
 type CallBackSubType = '6_months_new_build' | 'same_day' | '3_days_plus' | ''
 type NotInterestedSubType = 'refuse_dl' | 'price' | 'time_constraints' | 'needs_partner_check' | 'product_unnecessary' | 'consultation_unnecessary' | 'customer_complaint' | ''
 type OtherDepartmentType = 'is' | 'service' | 'filters' | 'installs' | 'hr' | 'accounts' | 'marketing' | 'it' | 'direct_sales' | ''
+type PassthroughType = 'Declined Consultation' | 'Not Compatible for Consultation' | 'Single Leg Pass Through' | 'Customer Requested Call back' | ''
+type PassthroughReason = 'Declined Consultation' | 'Not Compatible for Consultation' | 'Single Leg Pass Through' | 'Customer Requested Call back' | ''
 type UnableToServiceSubType = 'water_source' | 'non_homeowner' | 'incompatible_dwelling' | 'mistaken_enquiry' | ''
 type NoAnswerSubType = 'voicemail' | 'no_answer' | ''
 type WrongNumberSubType = 'wrong_person' | 'invalid_number' | ''
@@ -82,6 +84,8 @@ interface FormData {
 
   // Other Department (Transfer Call) fields
   otherDepartment: OtherDepartmentType
+  passthroughType: PassthroughType
+  passthroughReason: PassthroughReason
   createIsDeal: 'yes' | 'no' | ''
   notesForInternalSales: string
 
@@ -143,6 +147,8 @@ const initialFormData: FormData = {
 
   // Other Department
   otherDepartment: '',
+  passthroughType: '',
+  passthroughReason: '',
   createIsDeal: '',
   notesForInternalSales: '',
 
@@ -287,11 +293,11 @@ const WATER_SOURCES = [
 ]
 
 const AVAILABLE_FROM_TIMES = [
-  '9:00am',
+  '9am',
   '9:30am',
-  '10:00am',
+  '10am',
   '10:30am',
-  '11:00am',
+  '11am',
   '11:30am',
   '12:00pm',
   '12:30pm',
@@ -383,6 +389,13 @@ const OTHER_DEPARTMENTS: { value: OtherDepartmentType; label: string }[] = [
   { value: 'marketing', label: 'Marketing' },
   { value: 'it', label: 'IT' },
   { value: 'direct_sales', label: 'Direct Sales' },
+]
+
+const PASSTHROUGH_OPTIONS: { value: PassthroughType; label: string }[] = [
+  { value: 'Declined Consultation', label: 'Declined Consultation' },
+  { value: 'Not Compatible for Consultation', label: 'Not Compatible for Consultation' },
+  { value: 'Single Leg Pass Through', label: 'Single Leg Pass Through' },
+  { value: 'Customer Requested Call back', label: 'Customer Requested Call back' },
 ]
 
 export default function DispositionForm() {
@@ -662,6 +675,9 @@ export default function DispositionForm() {
       case 'not_interested':
         return formData.notInterestedSubType && formData.listClassification && formData.advisedNotInterestedReason
       case 'other_department':
+        if (formData.otherDepartment === 'is') {
+          return formData.passthroughType !== '' && formData.passthroughReason !== ''
+        }
         return formData.otherDepartment !== ''
       case 'unable_to_service':
         return formData.unableToServiceSubType && formData.listClassification
@@ -1526,46 +1542,85 @@ export default function DispositionForm() {
 
                   {formData.otherDepartment === 'is' && (
                     <>
-                      <div>
-                        <label className={labelClass}>Create Internal Sales Deal</label>
-                        <div className="flex gap-4 mt-2">
-                          <label className="flex items-center gap-2">
-                            <input
-                              type="radio"
-                              name="createIsDeal"
-                              value="yes"
-                              checked={formData.createIsDeal === 'yes'}
-                              onChange={() => updateField('createIsDeal', 'yes')}
-                              className="text-blue-600"
-                            />
-                            <span className="text-gray-900">Yes</span>
-                          </label>
-                          <label className="flex items-center gap-2">
-                            <input
-                              type="radio"
-                              name="createIsDeal"
-                              value="no"
-                              checked={formData.createIsDeal === 'no'}
-                              onChange={() => updateField('createIsDeal', 'no')}
-                              className="text-blue-600"
-                            />
-                            <span className="text-gray-900">No</span>
-                          </label>
+                      <div className="grid md:grid-cols-2 gap-4">
+                        <div>
+                          <label className={labelClass}>Passthrough Type *</label>
+                          <select
+                            value={formData.passthroughType}
+                            onChange={(e) => updateField('passthroughType', e.target.value as PassthroughType)}
+                            className={getFieldClass(selectClass, formData.passthroughType)}
+                          >
+                            <option value="">Select type</option>
+                            {PASSTHROUGH_OPTIONS.map(({ value, label }) => (
+                              <option key={value} value={value}>{label}</option>
+                            ))}
+                          </select>
+                          {isFieldInvalid(formData.passthroughType) && (
+                            <p className="text-red-600 text-sm mt-1">This field is required</p>
+                          )}
+                        </div>
+                        <div>
+                          <label className={labelClass}>Passthrough Reason *</label>
+                          <select
+                            value={formData.passthroughReason}
+                            onChange={(e) => updateField('passthroughReason', e.target.value as PassthroughReason)}
+                            className={getFieldClass(selectClass, formData.passthroughReason)}
+                          >
+                            <option value="">Select reason</option>
+                            {PASSTHROUGH_OPTIONS.map(({ value, label }) => (
+                              <option key={value} value={value}>{label}</option>
+                            ))}
+                          </select>
+                          {isFieldInvalid(formData.passthroughReason) && (
+                            <p className="text-red-600 text-sm mt-1">This field is required</p>
+                          )}
                         </div>
                       </div>
-                      <div>
-                        <label className={labelClass}>Notes for Internal Sales</label>
-                        <textarea
-                          value={formData.notesForInternalSales}
-                          onChange={(e) => updateField('notesForInternalSales', e.target.value)}
-                          rows={3}
-                          placeholder="Enter notes for Internal Sales team..."
-                          className={`${inputClass} resize-none`}
-                        />
-                      </div>
-                      <p className="text-sm text-gray-500 bg-blue-50 p-3 rounded-lg">
-                        <strong>HubSpot Action:</strong> Automation will create an Internal Sales deal.
-                      </p>
+
+                      {formData.passthroughReason && (
+                        <>
+                          <div>
+                            <label className={labelClass}>Create Internal Sales Deal</label>
+                            <div className="flex gap-4 mt-2">
+                              <label className="flex items-center gap-2">
+                                <input
+                                  type="radio"
+                                  name="createIsDeal"
+                                  value="yes"
+                                  checked={formData.createIsDeal === 'yes'}
+                                  onChange={() => updateField('createIsDeal', 'yes')}
+                                  className="text-blue-600"
+                                />
+                                <span className="text-gray-900">Yes</span>
+                              </label>
+                              <label className="flex items-center gap-2">
+                                <input
+                                  type="radio"
+                                  name="createIsDeal"
+                                  value="no"
+                                  checked={formData.createIsDeal === 'no'}
+                                  onChange={() => updateField('createIsDeal', 'no')}
+                                  className="text-blue-600"
+                                />
+                                <span className="text-gray-900">No</span>
+                              </label>
+                            </div>
+                          </div>
+                          <div>
+                            <label className={labelClass}>Notes for Internal Sales</label>
+                            <textarea
+                              value={formData.notesForInternalSales}
+                              onChange={(e) => updateField('notesForInternalSales', e.target.value)}
+                              rows={3}
+                              placeholder="Enter notes for Internal Sales team..."
+                              className={`${inputClass} resize-none`}
+                            />
+                          </div>
+                          <p className="text-sm text-gray-500 bg-blue-50 p-3 rounded-lg">
+                            <strong>HubSpot Action:</strong> Automation will create an Internal Sales deal.
+                          </p>
+                        </>
+                      )}
                     </>
                   )}
 
