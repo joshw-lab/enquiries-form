@@ -76,7 +76,7 @@ interface FormData {
   otherDepartment: string;
   passthroughType: string;
   passthroughReason: string;
-  createIsDeal: "yes" | "no" | "";
+  createIsDeal: string;
   notesForInternalSales: string;
 
   // Unable to Service fields
@@ -361,7 +361,7 @@ function buildOtherDepartmentProperties(
       properties[HUBSPOT_FIELD_MAPPINGS.passthroughReason] = data.passthroughReason;
     }
     if (data.createIsDeal) {
-      properties[HUBSPOT_FIELD_MAPPINGS.createIsDeal] = data.createIsDeal === "yes" ? "Yes" : "No";
+      properties[HUBSPOT_FIELD_MAPPINGS.createIsDeal] = data.createIsDeal;
     }
     if (data.notesForInternalSales) {
       properties[HUBSPOT_FIELD_MAPPINGS.notesForInternalSales] = data.notesForInternalSales;
@@ -643,7 +643,7 @@ function buildNoteContent(data: FormData): string {
       if (data.otherDepartment) parts.push(`Transferred to: ${deptMap[data.otherDepartment] || data.otherDepartment}`);
       if (data.passthroughType) parts.push(`Passthrough Type: ${data.passthroughType}`);
       if (data.passthroughReason) parts.push(`Passthrough Reason: ${data.passthroughReason}`);
-      if (data.createIsDeal) parts.push(`Create IS Deal: ${data.createIsDeal === "yes" ? "Yes" : "No"}`);
+      if (data.createIsDeal) parts.push(`IS Deal Type: ${data.createIsDeal}`);
       if (data.notesForInternalSales) parts.push(`IS Notes: ${data.notesForInternalSales}`);
       break;
 

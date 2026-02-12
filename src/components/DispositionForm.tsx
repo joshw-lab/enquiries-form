@@ -86,7 +86,7 @@ interface FormData {
   otherDepartment: OtherDepartmentType
   passthroughType: PassthroughType
   passthroughReason: PassthroughReason
-  createIsDeal: 'yes' | 'no' | ''
+  createIsDeal: 'Reverse Osmosis' | 'Regional' | 'New Build' | 'Complete Home' | 'Rainwater' | 'Referral' | 'Builder Lead' | ''
   notesForInternalSales: string
 
   // Unable to Service fields
@@ -401,6 +401,16 @@ const PASSTHROUGH_REASON_OPTIONS: { value: PassthroughReason; label: string }[] 
   { value: 'Not Compatible for Consultation', label: 'Not Compatible for Consultation' },
   { value: 'Single Leg Pass Through', label: 'Single Leg Pass Through' },
   { value: 'Customer Requested Call back', label: 'Customer Requested Call back' },
+]
+
+const CREATE_IS_DEAL_OPTIONS: { value: string; label: string }[] = [
+  { value: 'Reverse Osmosis', label: 'Reverse Osmosis' },
+  { value: 'Regional', label: 'Regional' },
+  { value: 'New Build', label: 'New Build' },
+  { value: 'Complete Home', label: 'Complete Home' },
+  { value: 'Rainwater', label: 'Rainwater' },
+  { value: 'Referral', label: 'Referral' },
+  { value: 'Builder Lead', label: 'Builder Lead - Assign to Mel' },
 ]
 
 export default function DispositionForm() {
@@ -1592,30 +1602,16 @@ export default function DispositionForm() {
                         <>
                           <div>
                             <label className={getErrorLabelClass(formData.createIsDeal)}>Create Internal Sales Deal *</label>
-                            <div className={`flex gap-4 mt-2 ${isFieldInvalid(formData.createIsDeal) ? 'p-2 border-2 border-red-500 rounded-lg' : ''}`}>
-                              <label className="flex items-center gap-2">
-                                <input
-                                  type="radio"
-                                  name="createIsDeal"
-                                  value="yes"
-                                  checked={formData.createIsDeal === 'yes'}
-                                  onChange={() => updateField('createIsDeal', 'yes')}
-                                  className="text-blue-600"
-                                />
-                                <span className="text-gray-900">Yes</span>
-                              </label>
-                              <label className="flex items-center gap-2">
-                                <input
-                                  type="radio"
-                                  name="createIsDeal"
-                                  value="no"
-                                  checked={formData.createIsDeal === 'no'}
-                                  onChange={() => updateField('createIsDeal', 'no')}
-                                  className="text-blue-600"
-                                />
-                                <span className="text-gray-900">No</span>
-                              </label>
-                            </div>
+                            <select
+                              value={formData.createIsDeal}
+                              onChange={(e) => updateField('createIsDeal', e.target.value as FormData['createIsDeal'])}
+                              className={getFieldClass(selectClass, formData.createIsDeal)}
+                            >
+                              <option value="">Select deal type</option>
+                              {CREATE_IS_DEAL_OPTIONS.map(({ value, label }) => (
+                                <option key={value} value={value}>{label}</option>
+                              ))}
+                            </select>
                             {isFieldInvalid(formData.createIsDeal) && (
                               <p className="text-red-600 text-sm mt-1">This field is required</p>
                             )}
