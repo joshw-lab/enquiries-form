@@ -20,7 +20,7 @@ type DispositionType =
 type CallBackSubType = '6_months_new_build' | 'same_day' | '3_days_plus' | ''
 type NotInterestedSubType = 'refuse_dl' | 'price' | 'time_constraints' | 'needs_partner_check' | 'product_unnecessary' | 'consultation_unnecessary' | 'customer_complaint' | ''
 type OtherDepartmentType = 'is' | 'service' | 'filters' | 'installs' | 'hr' | 'accounts' | 'marketing' | 'it' | 'direct_sales' | ''
-type PassthroughType = 'Declined Consultation' | 'Not Compatible for Consultation' | 'Single Leg Pass Through' | 'Customer Requested Call back' | ''
+type PassthroughType = 'Warm Transfer' | 'Cold Transfer (No IS team available)' | ''
 type PassthroughReason = 'Declined Consultation' | 'Not Compatible for Consultation' | 'Single Leg Pass Through' | 'Customer Requested Call back' | ''
 type UnableToServiceSubType = 'water_source' | 'non_homeowner' | 'incompatible_dwelling' | 'mistaken_enquiry' | ''
 type NoAnswerSubType = 'voicemail' | 'no_answer' | ''
@@ -391,7 +391,12 @@ const OTHER_DEPARTMENTS: { value: OtherDepartmentType; label: string }[] = [
   { value: 'direct_sales', label: 'Direct Sales' },
 ]
 
-const PASSTHROUGH_OPTIONS: { value: PassthroughType; label: string }[] = [
+const PASSTHROUGH_TYPE_OPTIONS: { value: PassthroughType; label: string }[] = [
+  { value: 'Warm Transfer', label: 'Warm Transfer' },
+  { value: 'Cold Transfer (No IS team available)', label: 'Cold Transfer (No IS team available)' },
+]
+
+const PASSTHROUGH_REASON_OPTIONS: { value: PassthroughReason; label: string }[] = [
   { value: 'Declined Consultation', label: 'Declined Consultation' },
   { value: 'Not Compatible for Consultation', label: 'Not Compatible for Consultation' },
   { value: 'Single Leg Pass Through', label: 'Single Leg Pass Through' },
@@ -1555,7 +1560,7 @@ export default function DispositionForm() {
                           className={getFieldClass(selectClass, formData.passthroughType)}
                         >
                           <option value="">Select type</option>
-                          {PASSTHROUGH_OPTIONS.map(({ value, label }) => (
+                          {PASSTHROUGH_TYPE_OPTIONS.map(({ value, label }) => (
                             <option key={value} value={value}>{label}</option>
                           ))}
                         </select>
@@ -1573,7 +1578,7 @@ export default function DispositionForm() {
                             className={getFieldClass(selectClass, formData.passthroughReason)}
                           >
                             <option value="">Select reason</option>
-                            {PASSTHROUGH_OPTIONS.map(({ value, label }) => (
+                            {PASSTHROUGH_REASON_OPTIONS.map(({ value, label }) => (
                               <option key={value} value={value}>{label}</option>
                             ))}
                           </select>
