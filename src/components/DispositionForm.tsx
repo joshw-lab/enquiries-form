@@ -676,7 +676,12 @@ export default function DispositionForm() {
         return formData.notInterestedSubType && formData.listClassification && formData.advisedNotInterestedReason
       case 'other_department':
         if (formData.otherDepartment === 'is') {
-          return formData.passthroughType !== '' && formData.passthroughReason !== ''
+          return (
+            formData.passthroughType !== '' &&
+            formData.passthroughReason !== '' &&
+            formData.createIsDeal !== '' &&
+            formData.notesForInternalSales.trim() !== ''
+          )
         }
         return formData.otherDepartment !== ''
       case 'unable_to_service':
@@ -1581,8 +1586,8 @@ export default function DispositionForm() {
                       {formData.passthroughReason && (
                         <>
                           <div>
-                            <label className={labelClass}>Create Internal Sales Deal</label>
-                            <div className="flex gap-4 mt-2">
+                            <label className={getErrorLabelClass(formData.createIsDeal)}>Create Internal Sales Deal *</label>
+                            <div className={`flex gap-4 mt-2 ${isFieldInvalid(formData.createIsDeal) ? 'p-2 border-2 border-red-500 rounded-lg' : ''}`}>
                               <label className="flex items-center gap-2">
                                 <input
                                   type="radio"
@@ -1606,16 +1611,22 @@ export default function DispositionForm() {
                                 <span className="text-gray-900">No</span>
                               </label>
                             </div>
+                            {isFieldInvalid(formData.createIsDeal) && (
+                              <p className="text-red-600 text-sm mt-1">This field is required</p>
+                            )}
                           </div>
                           <div>
-                            <label className={labelClass}>Notes for Internal Sales</label>
+                            <label className={getErrorLabelClass(formData.notesForInternalSales)}>Notes for Internal Sales *</label>
                             <textarea
                               value={formData.notesForInternalSales}
                               onChange={(e) => updateField('notesForInternalSales', e.target.value)}
                               rows={3}
                               placeholder="Enter notes for Internal Sales team..."
-                              className={`${inputClass} resize-none`}
+                              className={`${getFieldClass(inputClass, formData.notesForInternalSales)} resize-none`}
                             />
+                            {isFieldInvalid(formData.notesForInternalSales) && (
+                              <p className="text-red-600 text-sm mt-1">This field is required</p>
+                            )}
                           </div>
                           <p className="text-sm text-gray-500 bg-blue-50 p-3 rounded-lg">
                             <strong>HubSpot Action:</strong> Automation will create an Internal Sales deal.
