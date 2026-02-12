@@ -1542,23 +1542,24 @@ export default function DispositionForm() {
 
                   {formData.otherDepartment === 'is' && (
                     <>
-                      <div className="grid md:grid-cols-2 gap-4">
-                        <div>
-                          <label className={labelClass}>Passthrough Type *</label>
-                          <select
-                            value={formData.passthroughType}
-                            onChange={(e) => updateField('passthroughType', e.target.value as PassthroughType)}
-                            className={getFieldClass(selectClass, formData.passthroughType)}
-                          >
-                            <option value="">Select type</option>
-                            {PASSTHROUGH_OPTIONS.map(({ value, label }) => (
-                              <option key={value} value={value}>{label}</option>
-                            ))}
-                          </select>
-                          {isFieldInvalid(formData.passthroughType) && (
-                            <p className="text-red-600 text-sm mt-1">This field is required</p>
-                          )}
-                        </div>
+                      <div>
+                        <label className={labelClass}>Passthrough Type *</label>
+                        <select
+                          value={formData.passthroughType}
+                          onChange={(e) => updateField('passthroughType', e.target.value as PassthroughType)}
+                          className={getFieldClass(selectClass, formData.passthroughType)}
+                        >
+                          <option value="">Select type</option>
+                          {PASSTHROUGH_OPTIONS.map(({ value, label }) => (
+                            <option key={value} value={value}>{label}</option>
+                          ))}
+                        </select>
+                        {isFieldInvalid(formData.passthroughType) && (
+                          <p className="text-red-600 text-sm mt-1">This field is required</p>
+                        )}
+                      </div>
+
+                      {formData.passthroughType && (
                         <div>
                           <label className={labelClass}>Passthrough Reason *</label>
                           <select
@@ -1575,7 +1576,7 @@ export default function DispositionForm() {
                             <p className="text-red-600 text-sm mt-1">This field is required</p>
                           )}
                         </div>
-                      </div>
+                      )}
 
                       {formData.passthroughReason && (
                         <>
@@ -1629,18 +1630,6 @@ export default function DispositionForm() {
                       Transfer call to {OTHER_DEPARTMENTS.find(d => d.value === formData.otherDepartment)?.label} department.
                     </p>
                   )}
-
-                  {/* Notes */}
-                  <div className="border-t border-gray-200 pt-4">
-                    <label className={labelClass}>Notes</label>
-                    <textarea
-                      value={formData.notes}
-                      onChange={(e) => updateField('notes', e.target.value)}
-                      rows={3}
-                      placeholder="Additional notes..."
-                      className={`${inputClass} resize-none`}
-                    />
-                  </div>
 
                   {/* Submit */}
                   <div className="pt-4">
