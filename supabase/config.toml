@@ -29,3 +29,6 @@ verify_jwt = false
 
 [functions.ringcentral-token-refresh]
 verify_jwt = false
+
+[functions.thank-you]
+verify_jwt = false
