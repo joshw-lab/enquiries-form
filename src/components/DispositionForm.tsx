@@ -647,12 +647,12 @@ export default function DispositionForm() {
 
       if (result.success) {
         setShowValidation(false)
-        // Redirect to thank-you page with contactId for compiled notes
-        if (result.contactId) {
+        // Only redirect to thank-you page for Book Water Test disposition (compiled notes)
+        if (formData.disposition === 'book_water_test' && result.contactId) {
           window.location.href = `/thank-you?contactId=${result.contactId}`
           return
         }
-        // Fallback if no contactId returned
+        // All other dispositions: show toast and reset form
         setToast({ message: 'Form submitted successfully to HubSpot!', type: 'success' })
         setFormData(prev => ({
           ...initialFormData,
