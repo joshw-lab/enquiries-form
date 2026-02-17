@@ -646,9 +646,14 @@ export default function DispositionForm() {
       const result = await response.json()
 
       if (result.success) {
-        setToast({ message: 'Form submitted successfully to HubSpot!', type: 'success' })
         setShowValidation(false)
-        // Reset form after successful submission
+        // Redirect to thank-you page with contactId for compiled notes
+        if (result.contactId) {
+          window.location.href = `/thank-you?contactId=${result.contactId}`
+          return
+        }
+        // Fallback if no contactId returned
+        setToast({ message: 'Form submitted successfully to HubSpot!', type: 'success' })
         setFormData(prev => ({
           ...initialFormData,
           postcode: prev.postcode,
@@ -1179,17 +1184,7 @@ export default function DispositionForm() {
                         )}
                       </div>
 
-                      {/* NEW FIELD: Date of booking call */}
-                      <div>
-                        <label className={labelClass}>Date of booking call</label>
-                        <input
-                          type="date"
-                          value={formData.dateOfBookingCall}
-                          onChange={(e) => updateField('dateOfBookingCall', e.target.value)}
-                          className={inputClass}
-                          placeholder="Today"
-                        />
-                      </div>
+                      {/* Date of booking call — auto-set from submission timestamp in backend */}
 
                       {/* NEW FIELD: Reschedule checkbox */}
                       <div className="flex items-center gap-2">

@@ -152,6 +152,7 @@ const HUBSPOT_FIELD_MAPPINGS = {
 
   // Notes
   notes: "notes_last_contacted",
+  formNotes: "n0__form_notes",
 } as const;
 
 /**
@@ -191,6 +192,11 @@ function buildHubSpotProperties(
 
   // Notes are handled separately via engagement API (notes_last_contacted is read-only)
   // NEVER set properties[HUBSPOT_FIELD_MAPPINGS.notes] in any disposition builder
+
+  // Form notes — written to n0__form_notes for all dispositions
+  if (data.notes) {
+    properties[HUBSPOT_FIELD_MAPPINGS.formNotes] = data.notes;
+  }
 
   switch (data.disposition) {
     case "book_water_test":
@@ -264,8 +270,8 @@ function buildBookWaterTestProperties(
     }
   }
 
-  // Booking details
-  const bookingCallDate = toHubSpotDate(data.dateOfBookingCall);
+  // Booking details — auto-set date of booking call from submission timestamp
+  const bookingCallDate = toHubSpotDate(data.dateOfBookingCall) || toHubSpotDate(data.timestamp);
   if (bookingCallDate) properties[HUBSPOT_FIELD_MAPPINGS.dateOfBookingCall] = bookingCallDate;
 
   if (data.waterTestDay) properties[HUBSPOT_FIELD_MAPPINGS.waterTestDay] = data.waterTestDay;
@@ -882,6 +888,53 @@ serve(async (req) => {
       if (!noteResult.success) {
         console.warn("Failed to create note engagement:", noteResult.error);
         // Don't fail the entire request if note creation fails
+      }
+
+      // Trigger compiled_notes workflow by toggling n0_ringcx_call_notes
+      // Must clear first then set to "Yes" — HubSpot workflows only fire on value change
+      try {
+        // Step 1: Clear the field
+        await fetch(
+          `${HUBSPOT_API_BASE}/crm/v3/objects/contacts/${contactId}`,
+          {
+            method: "PATCH",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${hubspotAccessToken}`,
+            },
+            body: JSON.stringify({
+              properties: {
+                n0_ringcx_call_notes: "",
+              },
+            }),
+          }
+        );
+        console.log(`Cleared n0_ringcx_call_notes for contact ${contactId}`);
+
+        // Step 2: Set to "Yes" to trigger the workflow
+        const triggerResponse = await fetch(
+          `${HUBSPOT_API_BASE}/crm/v3/objects/contacts/${contactId}`,
+          {
+            method: "PATCH",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${hubspotAccessToken}`,
+            },
+            body: JSON.stringify({
+              properties: {
+                n0_ringcx_call_notes: "Yes",
+              },
+            }),
+          }
+        );
+        if (!triggerResponse.ok) {
+          console.error(`Failed to set n0_ringcx_call_notes: ${triggerResponse.status} ${await triggerResponse.text()}`);
+        } else {
+          console.log(`Set n0_ringcx_call_notes=Yes for contact ${contactId}`);
+        }
+      } catch (err) {
+        console.error("Error setting n0_ringcx_call_notes:", err);
+        // Non-fatal — don't fail the entire request
       }
     }
 
