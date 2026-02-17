@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { getRingCentralAccessToken } from "../_shared/ringcx-lead-loader-base.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -104,7 +105,7 @@ async function uploadToGoogleDrive(
   };
 
   const initResponse = await fetch(
-    "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id,webViewLink",
+    "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&supportsAllDrives=true&fields=id,webViewLink",
     {
       method: "POST",
       headers: {
@@ -148,6 +149,28 @@ async function uploadToGoogleDrive(
 }
 
 /**
+ * Clean up agent name for use in filenames.
+ * If the name looks like an email, extract and title-case the local part.
+ */
+function cleanAgentName(name: string): string {
+  if (!name) return "Unknown";
+
+  // If it looks like an email, extract the local part
+  if (name.includes("@")) {
+    let local = name.split("@")[0];
+    // Strip +suffix (e.g. josh.w+12345 -> josh.w)
+    local = local.replace(/\+.*$/, "");
+    // Split on . or _ and title-case each part
+    return local
+      .split(/[._]/)
+      .map((p) => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase())
+      .join("-");
+  }
+
+  return name;
+}
+
+/**
  * Build file name from recording metadata.
  * Format: YYYY-MM-DD_HHMM_AgentName_Disposition_Phone.wav
  */
@@ -169,7 +192,7 @@ function buildFileName(recording: {
       .replace(/\s+/g, "-")
       .trim();
 
-  const agent = sanitize(recording.agent_name);
+  const agent = sanitize(cleanAgentName(recording.agent_name));
   const disposition = sanitize(recording.disposition);
   const phone = (recording.phone_number || "").replace(/[^0-9+]/g, "");
 
@@ -233,6 +256,13 @@ serve(async (req) => {
     // Get Google Drive access token (reuse for entire batch)
     const googleAccessToken = await getGoogleAccessToken(serviceAccountKey);
 
+    // Get RingCX access token for downloading recordings (requires auth)
+    const { token: ringcxToken, error: ringcxAuthError } =
+      await getRingCentralAccessToken(supabaseClient);
+    if (!ringcxToken) {
+      throw new Error(`RingCX auth failed: ${ringcxAuthError}`);
+    }
+
     let processed = 0;
     let succeeded = 0;
     let failed = 0;
@@ -262,17 +292,27 @@ serve(async (req) => {
           continue;
         }
 
-        // Download the WAV from RingCX
+        // Download the WAV from RingCX (requires authenticated session)
         console.log(`  Downloading from RingCX...`);
-        const downloadResponse = await fetch(recording.ringcx_recording_url);
+        const downloadResponse = await fetch(recording.ringcx_recording_url, {
+          headers: {
+            Authorization: `Bearer ${ringcxToken}`,
+          },
+        });
 
         if (!downloadResponse.ok) {
           throw new Error(`Download failed: ${downloadResponse.status} ${downloadResponse.statusText}`);
         }
 
+        // Verify we got audio, not an HTML login page
+        const contentType = downloadResponse.headers.get("content-type") || "";
+        if (contentType.includes("text/html")) {
+          throw new Error("RingCX returned HTML instead of audio — auth may have expired");
+        }
+
         const audioData = await downloadResponse.arrayBuffer();
         const fileSizeMB = (audioData.byteLength / 1024 / 1024).toFixed(2);
-        console.log(`  Downloaded ${fileSizeMB} MB`);
+        console.log(`  Downloaded ${fileSizeMB} MB (${contentType})`);
 
         // Build filename
         const fileName = buildFileName(recording);
@@ -291,7 +331,7 @@ serve(async (req) => {
 
         // Set file-level permission: anyone with the link can view
         const permResponse = await fetch(
-          `https://www.googleapis.com/drive/v3/files/${uploadResult.fileId}/permissions`,
+          `https://www.googleapis.com/drive/v3/files/${uploadResult.fileId}/permissions?supportsAllDrives=true`,
           {
             method: "POST",
             headers: {
@@ -323,9 +363,10 @@ serve(async (req) => {
           })
           .eq("id", recording.id);
 
-        // Update HubSpot call recording URL with permanent Google Drive link
+        // Update HubSpot call recording URL with streaming proxy (supports Range/206 for native player)
         if (recording.hubspot_call_id && hubspotAccessToken) {
-          const driveDownloadUrl = `https://drive.google.com/uc?export=download&id=${uploadResult.fileId}`;
+          const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+          const streamingUrl = `${supabaseUrl}/functions/v1/recording-stream?id=${uploadResult.fileId}`;
           try {
             const hsResponse = await fetch(
               `https://api.hubapi.com/crm/v3/objects/calls/${recording.hubspot_call_id}`,
@@ -337,7 +378,7 @@ serve(async (req) => {
                 },
                 body: JSON.stringify({
                   properties: {
-                    hs_call_recording_url: driveDownloadUrl,
+                    hs_call_recording_url: streamingUrl,
                   },
                 }),
               }

@@ -92,6 +92,7 @@ export interface RawLeadProperties {
   compiled_notes?: string
   createdate?: string
   date_water_test_booked?: string
+  num_contacted_notes?: string
 
   // Status Flags
   n1__amberlist___not_ready_now?: string

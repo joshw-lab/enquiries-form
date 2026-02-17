@@ -63,24 +63,30 @@ function SectionHeader({
 }
 
 // Field display component
-function FieldDisplay({ field, compact = false }: { field: LeadField; compact?: boolean }) {
+function FieldDisplay({ field, compact = false, highlight = false }: { field: LeadField; compact?: boolean; highlight?: boolean }) {
   const displayValue = field.value || '—'
   const isEmpty = !field.value
 
   return (
-    <div className={compact ? "py-1" : "py-2"}>
-      <dt className={`font-medium text-gray-500 uppercase tracking-wide ${compact ? 'text-[10px]' : 'text-xs'}`}>
+    <div className={`${compact ? "py-1" : "py-2"} ${highlight ? 'bg-green-50 px-2 rounded border border-green-200' : ''}`}>
+      <dt className={`font-medium uppercase tracking-wide ${compact ? 'text-[10px]' : 'text-xs'} ${highlight ? 'text-green-700' : 'text-gray-500'}`}>
         {field.label}
       </dt>
-      <dd className={`mt-0.5 ${compact ? 'text-xs' : 'text-sm'} ${isEmpty ? 'text-gray-400 italic' : 'text-gray-900'}`}>
+      <dd className={`mt-0.5 ${compact ? 'text-xs' : 'text-sm'} ${isEmpty ? 'text-gray-400 italic' : highlight ? 'text-green-800 font-medium' : 'text-gray-900'}`}>
         {displayValue}
       </dd>
     </div>
   )
 }
 
+// Check if a timestamp (in milliseconds) is less than 24 hours old
+function isTimestampLessThan24HoursOld(rawTimestamp: string | undefined): boolean {
+  if (!rawTimestamp || isNaN(Number(rawTimestamp))) return false
+  return (Date.now() - Number(rawTimestamp)) < 24 * 60 * 60 * 1000
+}
+
 // Section content component
-function SectionContent({ section, compact = false }: { section: LeadSection; compact?: boolean }) {
+function SectionContent({ section, compact = false, rawCreateDate }: { section: LeadSection; compact?: boolean; rawCreateDate?: string }) {
   const fields = Object.entries(section.fields)
   const populatedFields = fields.filter(([, field]) => field.value)
   const emptyFields = fields.filter(([, field]) => !field.value)
@@ -90,7 +96,12 @@ function SectionContent({ section, compact = false }: { section: LeadSection; co
       {populatedFields.length > 0 && (
         <dl className={`grid gap-x-3 gap-y-0.5 ${compact ? 'grid-cols-1' : 'grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-x-4 gap-y-1'}`}>
           {populatedFields.map(([key, field]) => (
-            <FieldDisplay key={key} field={field} compact={compact} />
+            <FieldDisplay
+              key={key}
+              field={field}
+              compact={compact}
+              highlight={key === 'createdate' && isTimestampLessThan24HoursOld(rawCreateDate)}
+            />
           ))}
         </dl>
       )}
@@ -149,12 +160,14 @@ function AccordionSection({
   isExpanded,
   onToggle,
   compact = false,
+  rawCreateDate,
 }: {
   sectionKey: string
   section: LeadSection
   isExpanded: boolean
   onToggle: () => void
   compact?: boolean
+  rawCreateDate?: string
 }) {
   const fieldCount = Object.values(section.fields).filter(f => f.value).length
 
@@ -167,7 +180,7 @@ function AccordionSection({
         fieldCount={fieldCount}
         compact={compact}
       />
-      {isExpanded && <SectionContent section={section} compact={compact} />}
+      {isExpanded && <SectionContent section={section} compact={compact} rawCreateDate={rawCreateDate} />}
     </div>
   )
 }
@@ -311,6 +324,7 @@ export default function LeadInfoAccordion({
               isExpanded={expandedSections.has(sectionKey)}
               onToggle={() => toggleSection(sectionKey)}
               compact={compact}
+              rawCreateDate={sectionKey === 'contact' ? leadData.rawProperties?.createdate : undefined}
             />
           )
         })}

@@ -772,9 +772,17 @@ export default function DispositionForm() {
             )}
             <div className="flex items-center gap-2">
               {contactInfo.contact_id && (
-                <span className="text-blue-600 text-xs bg-blue-100 px-2 py-0.5 rounded">
+                <a
+                  href={`https://app.hubspot.com/contacts/5877625/record/0-1/${contactInfo.contact_id}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-600 text-xs bg-blue-100 px-2 py-0.5 rounded hover:bg-blue-200 hover:text-blue-800 transition-colors inline-flex items-center gap-1"
+                >
                   ID: {contactInfo.contact_id}
-                </span>
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                  </svg>
+                </a>
               )}
               {contactInfo.agent_id && (
                 <span className="text-green-600 font-semibold text-xs bg-green-100 px-2 py-0.5 rounded">
@@ -1633,9 +1641,23 @@ export default function DispositionForm() {
                   )}
 
                   {formData.otherDepartment && formData.otherDepartment !== 'is' && (
-                    <p className="text-sm text-gray-500 bg-gray-50 p-3 rounded-lg">
-                      Transfer call to {OTHER_DEPARTMENTS.find(d => d.value === formData.otherDepartment)?.label} department.
-                    </p>
+                    <>
+                      <p className="text-sm text-gray-500 bg-gray-50 p-3 rounded-lg">
+                        Transfer call to {OTHER_DEPARTMENTS.find(d => d.value === formData.otherDepartment)?.label} department.
+                      </p>
+
+                      {/* Notes for Other Departments */}
+                      <div className="border-t border-gray-200 pt-4">
+                        <label className={labelClass}>Notes</label>
+                        <textarea
+                          value={formData.notes}
+                          onChange={(e) => updateField('notes', e.target.value)}
+                          rows={3}
+                          placeholder="Additional notes for the department..."
+                          className={`${inputClass} resize-none`}
+                        />
+                      </div>
+                    </>
                   )}
 
                   {/* Submit */}

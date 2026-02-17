@@ -78,6 +78,7 @@ const CONTACT_PROPERTIES = [
   "compiled_notes",
   "createdate",
   "date_water_test_booked",
+  "num_contacted_notes",
 
   // Status Flags
   "n1__amberlist___not_ready_now",
@@ -154,6 +155,7 @@ const PROPERTY_LABELS: Record<string, string> = {
   compiled_notes: "Compiled Notes",
   createdate: "Create Date",
   date_water_test_booked: "Lead Date",
+  num_contacted_notes: "Number of Contacted Notes",
 
   // Status Flags
   n1__amberlist___not_ready_now: "Amberlist",
@@ -241,13 +243,13 @@ function formatContactData(contact: Record<string, unknown>): Record<string, unk
 
   // Define which properties belong to which section
   const sectionMapping: Record<string, string[]> = {
-    contact: ["firstname", "lastname", "phone", "email", "address", "city", "state", "zip", "hs_timezone"],
+    contact: ["firstname", "lastname", "phone", "email", "address", "city", "state", "zip", "hs_timezone", "num_contacted_notes", "createdate"],
     leadManagement: ["hs_lead_status", "lifecyclestage", "hubspot_owner_id", "leads_rep", "lead_source", "referring_business", "contact_priority", "ringcx_campaignid_new", "ringcx_campaignid_newhitlist", "ringcx_campaignid_old", "ringcx_campaignid_oldhitlist"],
     property: ["type_of_property", "n1__home_owner_", "n1__strata", "n1__number_of_people_in_the_house", "partners_name"],
     waterAssessment: ["n1__mains_water_", "water_source", "water_concerns", "water_test_date", "water_test_day", "water_test_time", "water_test_outcome", "send_eqt_email_campaign"],
     appointment: ["appointment_template", "met_", "met_notes", "confirmed_via", "cancelled_via", "follow_up_date", "wants_followed_up__call_back"],
     referrals: ["n1__referred_", "n1__referrers_name", "n1__how_did_you_find_out_about_us_"],
-    salesNotes: ["create_internal_sales_deal", "notes_for_internal_sales", "notes_last_contacted", "compiled_notes", "createdate", "date_water_test_booked"],
+    salesNotes: ["create_internal_sales_deal", "notes_for_internal_sales", "notes_last_contacted", "compiled_notes", "date_water_test_booked"],
     statusFlags: ["n1__amberlist___not_ready_now", "n1__greylist___advised_not_interested", "n1__blacklist___do_not_contact", "new_advised_not_interested__classification_"],
   };
 

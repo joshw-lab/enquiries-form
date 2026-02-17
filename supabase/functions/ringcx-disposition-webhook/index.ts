@@ -364,6 +364,12 @@ function mapDispositionToHubSpot(disposition: string): string {
     "not_qualified": "7cb0159d-1cc0-4f56-919e-e1231a7be7af",
     "notqualified": "7cb0159d-1cc0-4f56-919e-e1231a7be7af",
     "nq": "7cb0159d-1cc0-4f56-919e-e1231a7be7af",
+
+    // Do Not Call (df11c246-3ff0-45da-b77b-35baaf3e7238)
+    "do_not_call": "df11c246-3ff0-45da-b77b-35baaf3e7238",
+    "donotcall": "df11c246-3ff0-45da-b77b-35baaf3e7238",
+    "dnc": "df11c246-3ff0-45da-b77b-35baaf3e7238",
+    "do_not_register": "df11c246-3ff0-45da-b77b-35baaf3e7238",
   };
 
   const mapped = dispositionMap[normalized];
@@ -615,7 +621,7 @@ async function createCallEngagement(
 
     const callPayload = {
       properties: {
-        hs_timestamp: callStartTimestamp,
+        hs_timestamp: Date.now(), // Use disposition completion time (when webhook fires) to match RingCX agent view
         hs_activity_type: "Verification & Test Appointment Booking",
         hs_call_title: `${directionLabel} Call - ${dispositionLabel}`,
         hs_call_body: callBodyParts.join("<br>"),
@@ -823,6 +829,33 @@ serve(async (req) => {
           status: 500,
         }
       );
+    }
+
+    // Update contact property to flag that call notes exist
+    try {
+      const contactUpdateResponse = await fetch(
+        `${HUBSPOT_API_BASE}/crm/v3/objects/contacts/${contactId}`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${hubspotAccessToken}`,
+          },
+          body: JSON.stringify({
+            properties: {
+              n0_ringcx_call_notes: "Yes",
+            },
+          }),
+        }
+      );
+      if (!contactUpdateResponse.ok) {
+        console.error(`Failed to set n0_ringcx_call_notes: ${contactUpdateResponse.status} ${await contactUpdateResponse.text()}`);
+      } else {
+        console.log(`✅ Set n0_ringcx_call_notes=Yes for contact ${contactId}`);
+      }
+    } catch (err) {
+      console.error("Error setting n0_ringcx_call_notes:", err);
+      // Non-fatal — don't fail the webhook response
     }
 
     // Insert into call_recordings table for the recordings backup pipeline
