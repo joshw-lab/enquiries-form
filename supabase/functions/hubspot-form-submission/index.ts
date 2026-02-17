@@ -150,6 +150,9 @@ const HUBSPOT_FIELD_MAPPINGS = {
   // Contact owner mapping
   contactOwner: "hubspot_owner_id",
 
+  // Other Department routing
+  forOtherDepartment: "for_other_department",
+
   // Notes
   notes: "notes_last_contacted",
   formNotes: "n0__form_notes",
@@ -358,6 +361,22 @@ function buildOtherDepartmentProperties(
   data: FormData,
   properties: Record<string, string | number | boolean>
 ): Record<string, string | number | boolean> {
+  // Set for_other_department for all Other Department dispositions
+  if (data.otherDepartment) {
+    const deptLabels: Record<string, string> = {
+      is: "Internal Sales",
+      service: "Service",
+      filters: "Filters",
+      installs: "Installs",
+      hr: "HR",
+      accounts: "Accounts",
+      marketing: "Marketing",
+      it: "IT",
+      direct_sales: "Direct Sales",
+    };
+    properties[HUBSPOT_FIELD_MAPPINGS.forOtherDepartment] = deptLabels[data.otherDepartment] || data.otherDepartment;
+  }
+
   // Internal Sales specific fields
   if (data.otherDepartment === "is") {
     if (data.passthroughType) {
@@ -910,6 +929,9 @@ serve(async (req) => {
           }
         );
         console.log(`Cleared n0_ringcx_call_notes for contact ${contactId}`);
+
+        // Wait 20 seconds for HubSpot to register the clear before setting "Yes"
+        await new Promise((resolve) => setTimeout(resolve, 20000));
 
         // Step 2: Set to "Yes" to trigger the workflow
         const triggerResponse = await fetch(
