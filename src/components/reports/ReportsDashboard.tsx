@@ -5,8 +5,10 @@ import { getSupabase } from '@/lib/supabase'
 import {
   fetchSubmissions,
   fetchUserLookup,
+  fetchDialStats,
   extractAgentList,
   type FormSubmission,
+  type DialStats,
   type Filters as FiltersType,
 } from '@/lib/reports-queries'
 import Filters from './Filters'
@@ -19,6 +21,7 @@ import CallRecordingsModal from './CallRecordingsModal'
 
 export default function ReportsDashboard() {
   const [submissions, setSubmissions] = useState<FormSubmission[]>([])
+  const [dialStats, setDialStats] = useState<DialStats | null>(null)
   const [agents, setAgents] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -76,7 +79,20 @@ export default function ReportsDashboard() {
     if (startDate) filters.startDate = startDate
     if (endDate) filters.endDate = endDate
 
-    const result = await fetchSubmissions(supabase, filters, userLookupRef.current)
+    // Fetch submissions and dial stats in parallel
+    const [result, dialStatsResult, allResult] = await Promise.all([
+      fetchSubmissions(supabase, filters, userLookupRef.current),
+      fetchDialStats({
+        startDate: startDate || undefined,
+        endDate: endDate || undefined,
+        agent: selectedAgent || undefined,
+      }),
+      // Also fetch all (unfiltered by agent) for the agent list
+      fetchSubmissions(supabase, {
+        startDate: startDate || undefined,
+        endDate: endDate || undefined,
+      }, userLookupRef.current),
+    ])
 
     if (result.error) {
       setError(result.error)
@@ -84,11 +100,12 @@ export default function ReportsDashboard() {
       setSubmissions(result.data)
     }
 
-    // Also fetch all (unfiltered by agent) for the agent list
-    const allResult = await fetchSubmissions(supabase, {
-      startDate: startDate || undefined,
-      endDate: endDate || undefined,
-    }, userLookupRef.current)
+    if (!dialStatsResult.error) {
+      setDialStats(dialStatsResult.data)
+    } else {
+      console.warn('Failed to load dial stats:', dialStatsResult.error)
+    }
+
     if (!allResult.error) {
       setAgents(extractAgentList(allResult.data))
     }
@@ -180,6 +197,7 @@ export default function ReportsDashboard() {
             submissions={submissions}
             startDate={startDate}
             endDate={endDate}
+            dialStats={dialStats}
             onCardClick={handleStatsCardClick}
           />
 

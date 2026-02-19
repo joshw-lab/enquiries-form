@@ -1,6 +1,6 @@
 'use client'
 
-import { FormSubmission, getDispositionLabel } from '@/lib/reports-queries'
+import { FormSubmission, getDispositionLabel, type DialStats } from '@/lib/reports-queries'
 
 export interface StatsCardFilter {
   label: string
@@ -11,10 +11,11 @@ interface StatsCardsProps {
   submissions: FormSubmission[]
   startDate: string
   endDate: string
+  dialStats?: DialStats | null
   onCardClick?: (filter: StatsCardFilter) => void
 }
 
-export default function StatsCards({ submissions, startDate, endDate, onCardClick }: StatsCardsProps) {
+export default function StatsCards({ submissions, startDate, endDate, dialStats, onCardClick }: StatsCardsProps) {
   const total = submissions.length
 
   const bookings = submissions.filter(
@@ -52,7 +53,10 @@ export default function StatsCards({ submissions, startDate, endDate, onCardClic
     color: string
     clickFilter?: StatsCardFilter
   }> = [
-    { label: 'Total Calls', value: total, color: 'text-gray-900', clickFilter: { label: 'All Calls' } },
+    ...(dialStats
+      ? [{ label: 'Outbound Dials', value: dialStats.totalOutboundDials, color: 'text-indigo-600' }]
+      : []),
+    { label: 'Dispositions', value: total, color: 'text-gray-900', clickFilter: { label: 'All Calls' } },
     { label: 'Booked Tests', value: bookings, color: 'text-green-600', clickFilter: { label: 'Booked Tests', disposition: 'book_water_test' } },
     { label: 'No Answer', value: noAnswer, color: 'text-blue-600', clickFilter: { label: 'No Answer', disposition: 'no_answer' } },
     { label: 'Not Interested', value: notInterested, color: 'text-red-600', clickFilter: { label: 'Not Interested', disposition: 'not_interested' } },
@@ -70,7 +74,7 @@ export default function StatsCards({ submissions, startDate, endDate, onCardClic
   ]
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+    <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
       {cards.map((card) => (
         <div
           key={card.label}

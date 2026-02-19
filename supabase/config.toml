@@ -30,5 +30,8 @@ verify_jwt = false
 [functions.ringcentral-token-refresh]
 verify_jwt = false
 
+[functions.ringcx-dial-stats]
+verify_jwt = false
+
 [functions.thank-you]
 verify_jwt = false

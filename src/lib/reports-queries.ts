@@ -193,6 +193,52 @@ export async function fetchCallRecordings(
   return { data: (data || []) as CallRecording[], error: null }
 }
 
+export interface DialStats {
+  totalOutboundDials: number
+  dialsByAgent: Record<string, number>
+}
+
+/**
+ * Fetch outbound dial stats from the ringcx-dial-stats edge function.
+ * Queries ringcx_webhook_logs for unique call_ids in the date range.
+ */
+export async function fetchDialStats(
+  filters: Filters
+): Promise<{ data: DialStats | null; error: string | null }> {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+
+  if (!supabaseUrl) {
+    return { data: null, error: 'Supabase not configured' }
+  }
+
+  try {
+    const response = await fetch(`${supabaseUrl}/functions/v1/ringcx-dial-stats`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        startDate: filters.startDate,
+        endDate: filters.endDate,
+        agent: filters.agent || undefined,
+      }),
+    })
+
+    if (!response.ok) {
+      const errBody = await response.text()
+      console.error('Dial stats fetch failed:', response.status, errBody)
+      return { data: null, error: `Failed to fetch dial stats (${response.status})` }
+    }
+
+    const data: DialStats = await response.json()
+    return { data, error: null }
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown error'
+    console.error('Dial stats fetch error:', error)
+    return { data: null, error: message }
+  }
+}
+
 /**
  * Format seconds into a human-readable duration string
  */
