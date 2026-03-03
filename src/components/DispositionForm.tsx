@@ -20,7 +20,7 @@ type DispositionType =
 type CallBackSubType = '6_months_new_build' | 'same_day' | '3_days_plus' | ''
 type NotInterestedSubType = 'refuse_dl' | 'price' | 'time_constraints' | 'needs_partner_check' | 'product_unnecessary' | 'consultation_unnecessary' | 'customer_complaint' | ''
 type OtherDepartmentType = 'is' | 'service' | 'filters' | 'installs' | 'hr' | 'accounts' | 'marketing' | 'it' | 'direct_sales' | ''
-type PassthroughType = 'Warm Transfer' | 'Cold Transfer (No IS team available)' | ''
+type PassthroughType = 'Warm Transfer' | 'Cold Transfer' | ''
 type PassthroughReason = 'Declined Consultation' | 'Not Compatible for Consultation' | 'Single Leg Pass Through' | 'Customer Requested Call back' | ''
 type UnableToServiceSubType = 'water_source' | 'non_homeowner' | 'incompatible_dwelling' | 'mistaken_enquiry' | ''
 type NoAnswerSubType = 'voicemail' | 'no_answer' | ''
@@ -393,7 +393,7 @@ const OTHER_DEPARTMENTS: { value: OtherDepartmentType; label: string }[] = [
 
 const PASSTHROUGH_TYPE_OPTIONS: { value: PassthroughType; label: string }[] = [
   { value: 'Warm Transfer', label: 'Warm Transfer' },
-  { value: 'Cold Transfer (No IS team available)', label: 'Cold Transfer (No IS team available)' },
+  { value: 'Cold Transfer', label: 'Cold Transfer (No IS team available)' },
 ]
 
 const PASSTHROUGH_REASON_OPTIONS: { value: PassthroughReason; label: string }[] = [
@@ -816,7 +816,7 @@ export default function DispositionForm() {
           {/* Disposition Buttons */}
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
             <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
-              Call Disposition
+              Log Your Call Outcome Here
             </h2>
             <div className="flex flex-wrap gap-2">
               <button
