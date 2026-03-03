@@ -45,6 +45,7 @@ export interface RawLeadProperties {
   hubspot_owner_id?: string
   leads_rep?: string
   lead_source?: string
+  lead_date?: string
   referring_business?: string
   contact_priority?: string
 

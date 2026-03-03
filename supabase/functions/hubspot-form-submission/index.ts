@@ -53,6 +53,7 @@ interface FormData {
   strata: "yes" | "no" | "";
   waterConcerns: string[];
   leadStatus: "SL" | "DL" | "";
+  singleLegReason: string;
   dateOfBookingCall: string;
   waterTestDay: string;
   waterTestDate: string;
@@ -122,6 +123,7 @@ const HUBSPOT_FIELD_MAPPINGS = {
   strata: "n1__strata",
   waterConcerns: "water_concerns",
   leadStatus: "hs_lead_status",
+  singleLegReason: "n1__lead_status_reason",
   dateOfBookingCall: "date_water_test_booked",
   waterTestDay: "water_test_day",
   waterTestDate: "water_test_date",
@@ -273,6 +275,11 @@ function buildBookWaterTestProperties(
     }
   }
 
+  // Single leg reason
+  if (data.singleLegReason) {
+    properties[HUBSPOT_FIELD_MAPPINGS.singleLegReason] = data.singleLegReason;
+  }
+
   // Booking details — auto-set date of booking call from submission timestamp
   const bookingCallDate = toHubSpotDate(data.dateOfBookingCall) || toHubSpotDate(data.timestamp);
   if (bookingCallDate) properties[HUBSPOT_FIELD_MAPPINGS.dateOfBookingCall] = bookingCallDate;
@@ -380,7 +387,14 @@ function buildOtherDepartmentProperties(
   // Internal Sales specific fields
   if (data.otherDepartment === "is") {
     if (data.passthroughType) {
-      properties[HUBSPOT_FIELD_MAPPINGS.passthroughType] = data.passthroughType;
+      // Normalize to HubSpot internal values — form may send label instead of value
+      const passthroughTypeMap: Record<string, string> = {
+        "Warm Transfer": "Warm Transfer",
+        "Cold Transfer": "Cold Transfer",
+        "Cold Transfer (No IS team available)": "Cold Transfer",
+      };
+      const normalizedType = passthroughTypeMap[data.passthroughType] || data.passthroughType;
+      properties[HUBSPOT_FIELD_MAPPINGS.passthroughType] = normalizedType;
     }
     if (data.passthroughReason) {
       properties[HUBSPOT_FIELD_MAPPINGS.passthroughReason] = data.passthroughReason;
@@ -625,6 +639,7 @@ function buildNoteContent(data: FormData): string {
     case "book_water_test":
       parts.push("Disposition: Book Water Test");
       if (data.leadStatus) parts.push(`Lead Status: ${data.leadStatus}`);
+      if (data.singleLegReason) parts.push(`Single Leg Reason: ${data.singleLegReason}`);
       if (data.waterTestDate) parts.push(`Test Date: ${data.waterTestDate}`);
       if (data.waterTestTime) parts.push(`Test Time: ${data.waterTestTime}`);
       break;
@@ -909,9 +924,9 @@ serve(async (req) => {
         // Don't fail the entire request if note creation fails
       }
 
-      // Trigger compiled_notes workflow by toggling n0_ringcx_call_notes
+      // Trigger compiled_notes workflow ONLY for Book Water Test disposition
       // Must clear first then set to "Yes" — HubSpot workflows only fire on value change
-      try {
+      if (payload.disposition === "book_water_test") try {
         // Step 1: Clear the field
         await fetch(
           `${HUBSPOT_API_BASE}/crm/v3/objects/contacts/${contactId}`,
