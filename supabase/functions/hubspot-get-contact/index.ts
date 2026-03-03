@@ -245,8 +245,8 @@ function formatContactData(contact: Record<string, unknown>): Record<string, unk
 
   // Define which properties belong to which section
   const sectionMapping: Record<string, string[]> = {
-    contact: ["firstname", "lastname", "phone", "email", "address", "city", "state", "zip", "hs_timezone", "num_contacted_notes", "createdate"],
-    leadManagement: ["hs_lead_status", "lifecyclestage", "hubspot_owner_id", "leads_rep", "lead_source", "lead_date", "referring_business", "contact_priority", "ringcx_campaignid_new", "ringcx_campaignid_newhitlist", "ringcx_campaignid_old", "ringcx_campaignid_oldhitlist"],
+    contact: ["firstname", "lastname", "phone", "email", "address", "city", "state", "zip", "hs_timezone", "num_contacted_notes", "lead_date", "lead_source"],
+    leadManagement: ["hs_lead_status", "lifecyclestage", "hubspot_owner_id", "leads_rep", "referring_business", "contact_priority", "ringcx_campaignid_new", "ringcx_campaignid_newhitlist", "ringcx_campaignid_old", "ringcx_campaignid_oldhitlist"],
     property: ["type_of_property", "n1__home_owner_", "n1__strata", "n1__number_of_people_in_the_house", "partners_name"],
     waterAssessment: ["n1__mains_water_", "water_source", "water_concerns", "water_test_date", "water_test_day", "water_test_time", "water_test_outcome", "send_eqt_email_campaign"],
     appointment: ["appointment_template", "met_", "met_notes", "confirmed_via", "cancelled_via", "follow_up_date", "wants_followed_up__call_back"],

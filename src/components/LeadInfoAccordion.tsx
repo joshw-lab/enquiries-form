@@ -86,7 +86,7 @@ function isTimestampLessThan24HoursOld(rawTimestamp: string | undefined): boolea
 }
 
 // Section content component
-function SectionContent({ section, compact = false, rawCreateDate }: { section: LeadSection; compact?: boolean; rawCreateDate?: string }) {
+function SectionContent({ section, compact = false, rawLeadDate }: { section: LeadSection; compact?: boolean; rawLeadDate?: string }) {
   const fields = Object.entries(section.fields)
   const populatedFields = fields.filter(([, field]) => field.value)
   const emptyFields = fields.filter(([, field]) => !field.value)
@@ -100,7 +100,7 @@ function SectionContent({ section, compact = false, rawCreateDate }: { section: 
               key={key}
               field={field}
               compact={compact}
-              highlight={key === 'createdate' && isTimestampLessThan24HoursOld(rawCreateDate)}
+              highlight={key === 'lead_date' && isTimestampLessThan24HoursOld(rawLeadDate)}
             />
           ))}
         </dl>
@@ -160,14 +160,14 @@ function AccordionSection({
   isExpanded,
   onToggle,
   compact = false,
-  rawCreateDate,
+  rawLeadDate,
 }: {
   sectionKey: string
   section: LeadSection
   isExpanded: boolean
   onToggle: () => void
   compact?: boolean
-  rawCreateDate?: string
+  rawLeadDate?: string
 }) {
   const fieldCount = Object.values(section.fields).filter(f => f.value).length
 
@@ -180,7 +180,7 @@ function AccordionSection({
         fieldCount={fieldCount}
         compact={compact}
       />
-      {isExpanded && <SectionContent section={section} compact={compact} rawCreateDate={rawCreateDate} />}
+      {isExpanded && <SectionContent section={section} compact={compact} rawLeadDate={rawLeadDate} />}
     </div>
   )
 }
@@ -324,7 +324,7 @@ export default function LeadInfoAccordion({
               isExpanded={expandedSections.has(sectionKey)}
               onToggle={() => toggleSection(sectionKey)}
               compact={compact}
-              rawCreateDate={sectionKey === 'contact' ? leadData.rawProperties?.createdate : undefined}
+              rawLeadDate={sectionKey === 'contact' ? leadData.rawProperties?.lead_date : undefined}
             />
           )
         })}
