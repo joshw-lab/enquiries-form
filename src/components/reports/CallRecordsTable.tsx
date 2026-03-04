@@ -1,14 +1,15 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { getSupabase } from '@/lib/supabase'
 import {
   FormSubmission,
   getDispositionLabel,
   getDispositionColor,
-  formatDuration,
   type CallRecording,
 } from '@/lib/reports-queries'
+
+const HUBSPOT_PORTAL_ID = '5877625'
 
 interface CallRecordsTableProps {
   submissions: FormSubmission[]
@@ -21,39 +22,33 @@ export default function CallRecordsTable({ submissions, onListenClick }: CallRec
   const [page, setPage] = useState(0)
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [recordingsMap, setRecordingsMap] = useState<Record<string, CallRecording>>({})
-  const [playingId, setPlayingId] = useState<string | null>(null)
-  const audioRef = useRef<HTMLAudioElement | null>(null)
 
   const totalPages = Math.ceil(submissions.length / PAGE_SIZE)
   const pageData = submissions.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
 
-  // Fetch call recordings matching current page contacts by phone + time window
+  // Fetch call recordings matching current page contacts by contact ID + time window
   useEffect(() => {
     async function loadRecordings() {
       const supabase = getSupabase()
       if (!supabase || pageData.length === 0) return
 
-      // Get the time range for current page
+      // Widen to ±10 min since the RingCX webhook fires before the form submission
       const timestamps = pageData.map((s) => new Date(s.created_at).getTime())
-      const minTime = new Date(Math.min(...timestamps) - 120000).toISOString() // 2 min before
-      const maxTime = new Date(Math.max(...timestamps) + 120000).toISOString() // 2 min after
+      const minTime = new Date(Math.min(...timestamps) - 600000).toISOString()
+      const maxTime = new Date(Math.max(...timestamps) + 600000).toISOString()
 
       const { data, error } = await supabase
         .from('call_recordings')
         .select('*')
         .gte('call_start', minTime)
         .lte('call_start', maxTime)
-        .in('backup_status', ['uploaded', 'pending', 'downloading'])
 
       if (error || !data) return
 
-      // Build lookup by hubspot_contact_id + approximate timestamp
       const map: Record<string, CallRecording> = {}
       for (const rec of data as CallRecording[]) {
         if (rec.hubspot_contact_id) {
-          // Key: contactId (match within 5 min window in the component)
           const key = rec.hubspot_contact_id
-          // Store the most recent one per contact (in case of duplicates)
           if (!map[key] || new Date(rec.call_start) > new Date(map[key].call_start)) {
             map[key] = rec
           }
@@ -72,59 +67,13 @@ export default function CallRecordsTable({ submissions, onListenClick }: CallRec
     const rec = recordingsMap[contactId]
     if (!rec) return null
 
-    // Verify timestamp is close (within 5 minutes)
+    // Verify timestamp is close (within 10 minutes)
     const subTime = new Date(submission.created_at).getTime()
     const recTime = new Date(rec.call_start).getTime()
-    if (Math.abs(subTime - recTime) > 5 * 60 * 1000) return null
+    if (Math.abs(subTime - recTime) > 10 * 60 * 1000) return null
 
     return rec
   }
-
-  function handlePlay(recording: CallRecording) {
-    const url = recording.gdrive_file_url
-      ? `https://drive.google.com/uc?export=download&id=${recording.gdrive_file_id}`
-      : recording.ringcx_recording_url
-
-    if (!url) return
-
-    if (playingId === recording.id) {
-      if (audioRef.current) {
-        if (audioRef.current.paused) {
-          audioRef.current.play()
-        } else {
-          audioRef.current.pause()
-        }
-      }
-      return
-    }
-
-    if (audioRef.current) {
-      audioRef.current.pause()
-    }
-
-    const audio = new Audio(url)
-    audio.onended = () => setPlayingId(null)
-    audio.play()
-    audioRef.current = audio
-    setPlayingId(recording.id)
-  }
-
-  function handleStop() {
-    if (audioRef.current) {
-      audioRef.current.pause()
-      audioRef.current.currentTime = 0
-    }
-    setPlayingId(null)
-  }
-
-  // Cleanup audio on unmount
-  useEffect(() => {
-    return () => {
-      if (audioRef.current) {
-        audioRef.current.pause()
-      }
-    }
-  }, [])
 
   if (submissions.length === 0) {
     return (
@@ -141,18 +90,10 @@ export default function CallRecordsTable({ submissions, onListenClick }: CallRec
           Call Records ({submissions.length})
         </h3>
         <div className="flex items-center gap-3">
-          {playingId && (
-            <button
-              onClick={handleStop}
-              className="text-xs text-red-600 hover:text-red-700 font-medium"
-            >
-              Stop Playing
-            </button>
-          )}
           {totalPages > 1 && (
             <div className="flex items-center gap-2 text-xs">
               <button
-                onClick={() => { handleStop(); setPage(Math.max(0, page - 1)) }}
+                onClick={() => setPage(Math.max(0, page - 1))}
                 disabled={page === 0}
                 className="px-2 py-1 rounded border border-gray-300 disabled:opacity-30 hover:bg-gray-50"
               >
@@ -162,7 +103,7 @@ export default function CallRecordsTable({ submissions, onListenClick }: CallRec
                 {page + 1} / {totalPages}
               </span>
               <button
-                onClick={() => { handleStop(); setPage(Math.min(totalPages - 1, page + 1)) }}
+                onClick={() => setPage(Math.min(totalPages - 1, page + 1))}
                 disabled={page >= totalPages - 1}
                 className="px-2 py-1 rounded border border-gray-300 disabled:opacity-30 hover:bg-gray-50"
               >
@@ -183,13 +124,15 @@ export default function CallRecordsTable({ submissions, onListenClick }: CallRec
               <th className="text-left px-4 py-2 text-xs font-medium text-gray-500">Phone</th>
               <th className="text-left px-4 py-2 text-xs font-medium text-gray-500">Disposition</th>
               <th className="text-left px-4 py-2 text-xs font-medium text-gray-500">Notes</th>
-              <th className="text-center px-4 py-2 text-xs font-medium text-gray-500 w-20">Recording</th>
+              <th className="text-center px-4 py-2 text-xs font-medium text-gray-500">HubSpot</th>
+              <th className="text-center px-4 py-2 text-xs font-medium text-gray-500">GDrive</th>
             </tr>
           </thead>
           <tbody>
             {pageData.map((s) => {
               const fd = s.form_data || {}
-              const agent = s.agent_name || '-'
+              const recording = findRecording(s)
+              const agent = s.agent_name && s.agent_name !== 'Unknown' ? s.agent_name : recording?.agent_name || s.agent_name || '-'
               const contactName = s.contact?.name || `${(fd.firstName as string) || ''} ${(fd.lastName as string) || ''}`.trim() || '-'
               const phone = s.contact?.phone || (fd.phoneNumber as string) || '-'
               const disposition = s.disposition || (fd.disposition as string) || 'unknown'
@@ -204,16 +147,27 @@ export default function CallRecordsTable({ submissions, onListenClick }: CallRec
                 hour12: true,
               })
               const isExpanded = expandedId === s.id
-              const recording = findRecording(s)
-              const isPlaying = recording && playingId === recording.id
-              const hasUploadedRecording = recording?.backup_status === 'uploaded' && recording?.gdrive_file_url
+
+              // HubSpot sync status
+              const hubspotCallId = recording?.hubspot_call_id
+              const hubspotUrl = hubspotCallId
+                ? `https://app.hubspot.com/contacts/${HUBSPOT_PORTAL_ID}/record/0-48/${hubspotCallId}`
+                : null
+
+              // GDrive backup status
+              const hasGDrive = recording?.backup_status === 'uploaded' && recording?.gdrive_file_url
+              const gdriveUrl = recording?.gdrive_file_url
+              const gdriveStatus = recording
+                ? recording.backup_status === 'uploaded' ? 'uploaded'
+                : recording.backup_status === 'pending' || recording.backup_status === 'downloading' ? 'pending'
+                : recording.backup_status === 'failed' ? 'failed'
+                : 'none'
+                : null
 
               return (
                 <tr
                   key={s.id}
-                  className={`border-b border-gray-50 hover:bg-gray-50 cursor-pointer ${
-                    isPlaying ? 'bg-blue-50' : ''
-                  }`}
+                  className="border-b border-gray-50 hover:bg-gray-50 cursor-pointer"
                   onClick={() => setExpandedId(isExpanded ? null : s.id)}
                 >
                   <td className="px-4 py-2 text-gray-600 whitespace-nowrap">{timestamp}</td>
@@ -228,51 +182,55 @@ export default function CallRecordsTable({ submissions, onListenClick }: CallRec
                       {getDispositionLabel(disposition)}
                     </span>
                   </td>
-                  <td className="px-4 py-2 text-gray-500 max-w-xs truncate">
+                  <td className="px-4 py-2 text-gray-500 max-w-xs truncate" title={notes || undefined}>
                     {notes || '-'}
                   </td>
+
+                  {/* HubSpot sync status */}
                   <td className="px-4 py-2 text-center">
-                    {hasUploadedRecording ? (
-                      <div className="flex items-center justify-center gap-1">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            handlePlay(recording!)
-                          }}
-                          className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors ${
-                            isPlaying
-                              ? 'bg-blue-600 text-white'
-                              : 'bg-gray-100 text-gray-700 hover:bg-blue-50 hover:text-blue-700'
-                          }`}
-                          title={isPlaying ? 'Pause' : 'Listen'}
-                        >
-                          {isPlaying ? (
-                            <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
-                              <rect x="6" y="4" width="4" height="16" />
-                              <rect x="14" y="4" width="4" height="16" />
-                            </svg>
-                          ) : (
-                            <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
-                              <path d="M8 5v14l11-7z" />
-                            </svg>
-                          )}
-                          {isPlaying ? 'Playing' : 'Listen'}
-                        </button>
-                        <a
-                          href={recording!.gdrive_file_url!}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          onClick={(e) => e.stopPropagation()}
-                          className="p-1 text-gray-400 hover:text-blue-600 transition-colors"
-                          title="Open in Google Drive"
-                        >
-                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                          </svg>
-                        </a>
-                      </div>
+                    {hubspotUrl ? (
+                      <a
+                        href={hubspotUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="inline-flex items-center gap-1 text-xs font-medium text-green-600 hover:text-green-700"
+                        title="View call in HubSpot"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                        Synced
+                      </a>
                     ) : recording ? (
-                      <span className="text-[10px] text-amber-500">Pending</span>
+                      <span className="text-[10px] text-amber-500" title="Webhook received but no HubSpot call ID">Pending</span>
+                    ) : (
+                      <span className="text-[10px] text-red-400" title="No matching call record found">Missing</span>
+                    )}
+                  </td>
+
+                  {/* GDrive backup status */}
+                  <td className="px-4 py-2 text-center">
+                    {hasGDrive && gdriveUrl ? (
+                      <a
+                        href={gdriveUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="inline-flex items-center gap-1 text-xs font-medium text-green-600 hover:text-green-700"
+                        title="View recording in Google Drive"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                        Backed up
+                      </a>
+                    ) : gdriveStatus === 'pending' ? (
+                      <span className="text-[10px] text-amber-500" title="Recording backup in progress">Pending</span>
+                    ) : gdriveStatus === 'failed' ? (
+                      <span className="text-[10px] text-red-400" title="Recording backup failed">Failed</span>
+                    ) : gdriveStatus === 'none' ? (
+                      <span className="text-[10px] text-gray-400" title="No recording available for this call">No file</span>
                     ) : (
                       <span className="text-gray-300">-</span>
                     )}
