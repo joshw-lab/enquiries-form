@@ -7,6 +7,7 @@ import {
   fetchUserLookup,
   fetchDialStats,
   extractAgentList,
+  REPORT_TIMEZONE,
   type FormSubmission,
   type DialStats,
   type Filters as FiltersType,
@@ -39,13 +40,14 @@ export default function ReportsDashboard() {
     FiltersType & { disposition?: string }
   >({})
 
-  // Set default to last 30 days on mount
+  // Set default to last 30 days on mount (Perth timezone)
   useEffect(() => {
     const end = new Date()
     const start = new Date()
     start.setDate(end.getDate() - 30)
-    setStartDate(start.toISOString().split('T')[0])
-    setEndDate(end.toISOString().split('T')[0])
+    const fmt = (d: Date) => d.toLocaleDateString('en-CA', { timeZone: REPORT_TIMEZONE })
+    setStartDate(fmt(start))
+    setEndDate(fmt(end))
   }, [])
 
   // Load user lookup once on mount

@@ -11,7 +11,7 @@ import {
   Legend,
   ResponsiveContainer,
 } from 'recharts'
-import { FormSubmission, getDispositionLabel, getDispositionColor } from '@/lib/reports-queries'
+import { FormSubmission, getDispositionLabel, getDispositionColor, REPORT_TIMEZONE } from '@/lib/reports-queries'
 
 interface DispositionChartProps {
   submissions: FormSubmission[]
@@ -26,7 +26,7 @@ export default function DispositionChart({ submissions }: DispositionChartProps)
     const allDispositions = new Set<string>()
 
     for (const s of submissions) {
-      const date = new Date(s.created_at).toISOString().split('T')[0]
+      const date = new Date(s.created_at).toLocaleDateString('en-CA', { timeZone: REPORT_TIMEZONE })
       const disp = s.disposition || 'unknown'
       allDispositions.add(disp)
 

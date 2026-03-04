@@ -1,5 +1,12 @@
 'use client'
 
+import { REPORT_TIMEZONE } from '@/lib/reports-queries'
+
+/** Get YYYY-MM-DD in Perth timezone */
+function perthDate(d: Date): string {
+  return d.toLocaleDateString('en-CA', { timeZone: REPORT_TIMEZONE })
+}
+
 interface FiltersProps {
   agents: string[]
   selectedAgent: string
@@ -23,12 +30,12 @@ export default function Filters({
     const end = new Date()
     const start = new Date()
     start.setDate(end.getDate() - days)
-    onStartDateChange(start.toISOString().split('T')[0])
-    onEndDateChange(end.toISOString().split('T')[0])
+    onStartDateChange(perthDate(start))
+    onEndDateChange(perthDate(end))
   }
 
   function setToday() {
-    const today = new Date().toISOString().split('T')[0]
+    const today = perthDate(new Date())
     onStartDateChange(today)
     onEndDateChange(today)
   }

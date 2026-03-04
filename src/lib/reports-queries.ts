@@ -1,5 +1,24 @@
 import { SupabaseClient } from '@supabase/supabase-js'
 
+/** AWST (Australia/Perth) timezone used for all report date filtering */
+export const REPORT_TIMEZONE = 'Australia/Perth'
+const AWST_OFFSET = '+08:00'
+
+/** Get today's date string (YYYY-MM-DD) in Perth timezone */
+export function getTodayPerth(): string {
+  return new Date().toLocaleDateString('en-CA', { timeZone: REPORT_TIMEZONE })
+}
+
+/** Convert a YYYY-MM-DD date to start-of-day in AWST as ISO string */
+export function startOfDayAWST(date: string): string {
+  return `${date}T00:00:00${AWST_OFFSET}`
+}
+
+/** Convert a YYYY-MM-DD date to end-of-day in AWST as ISO string */
+export function endOfDayAWST(date: string): string {
+  return `${date}T23:59:59${AWST_OFFSET}`
+}
+
 export interface HubSpotUser {
   user_id: string
   first_name: string | null
@@ -93,10 +112,10 @@ export async function fetchSubmissions(
     .order('created_at', { ascending: false })
 
   if (filters.startDate) {
-    query = query.gte('created_at', filters.startDate + 'T00:00:00Z')
+    query = query.gte('created_at', startOfDayAWST(filters.startDate))
   }
   if (filters.endDate) {
-    query = query.lte('created_at', filters.endDate + 'T23:59:59Z')
+    query = query.lte('created_at', endOfDayAWST(filters.endDate))
   }
 
   const { data, error } = await query
@@ -172,10 +191,10 @@ export async function fetchCallRecordings(
     .order('call_start', { ascending: false })
 
   if (filters.startDate) {
-    query = query.gte('call_start', filters.startDate + 'T00:00:00Z')
+    query = query.gte('call_start', startOfDayAWST(filters.startDate))
   }
   if (filters.endDate) {
-    query = query.lte('call_start', filters.endDate + 'T23:59:59Z')
+    query = query.lte('call_start', endOfDayAWST(filters.endDate))
   }
   if (filters.disposition) {
     query = query.eq('disposition', filters.disposition)
