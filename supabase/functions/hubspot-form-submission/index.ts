@@ -885,6 +885,17 @@ serve(async (req) => {
       );
     }
 
+    // Update form submission with HubSpot contact ID for sync tracking
+    if (contactId && submission?.id) {
+      const { error: updateError } = await supabaseClient
+        .from("hubspot_form_submissions")
+        .update({ hubspot_contact_id: contactId })
+        .eq("id", submission.id);
+      if (updateError) {
+        console.warn("Failed to update submission with hubspot_contact_id:", updateError);
+      }
+    }
+
     // Always create note engagement for every disposition
     if (contactId) {
       // Format note with readable timestamp

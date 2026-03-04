@@ -34,6 +34,7 @@ export interface FormSubmission {
   disposition: string | null
   metadata: { submittedAt?: string; disposition?: string } | null
   created_at: string
+  hubspot_contact_id: string | null
   // Resolved agent name (populated after join with hubspot_users)
   agent_name?: string
 }
@@ -123,8 +124,9 @@ function deduplicateSubmissions(submissions: FormSubmission[]): FormSubmission[]
 
     if (existing) {
       const existingTs = new Date(existing.created_at).getTime()
-      // If within 60 seconds of the existing one, skip this duplicate
-      if (Math.abs(ts - existingTs) < 60_000) continue
+      // If within 5 minutes of the existing one, skip this duplicate
+      // (covers retries from form validation errors like missing HubSpot properties)
+      if (Math.abs(ts - existingTs) < 300_000) continue
     }
 
     seen.set(key, s)

@@ -165,11 +165,15 @@ export default function CallRecordsTable({ submissions, onListenClick }: CallRec
               })
               const isExpanded = expandedId === s.id
 
-              // HubSpot sync status
+              // HubSpot sync status — check both recording (call engagement) and form submission (contact update)
               const hubspotCallId = recording?.hubspot_call_id
+              const hubspotContactId = s.hubspot_contact_id || recording?.hubspot_contact_id || s.submitted_by?.contact_id
+              // Link to call engagement if available, otherwise link to contact record
               const hubspotUrl = hubspotCallId
                 ? `https://app.hubspot.com/contacts/${HUBSPOT_PORTAL_ID}/record/0-48/${hubspotCallId}`
-                : null
+                : hubspotContactId
+                  ? `https://app.hubspot.com/contacts/${HUBSPOT_PORTAL_ID}/record/0-1/${hubspotContactId}`
+                  : null
 
               // GDrive backup status
               const hasGDrive = recording?.backup_status === 'uploaded' && recording?.gdrive_file_url
@@ -212,7 +216,7 @@ export default function CallRecordsTable({ submissions, onListenClick }: CallRec
                         rel="noopener noreferrer"
                         onClick={(e) => e.stopPropagation()}
                         className="inline-flex items-center gap-1 text-xs font-medium text-green-600 hover:text-green-700"
-                        title="View call in HubSpot"
+                        title={hubspotCallId ? "View call in HubSpot" : "View contact in HubSpot"}
                       >
                         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
