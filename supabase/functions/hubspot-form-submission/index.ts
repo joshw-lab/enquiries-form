@@ -980,36 +980,35 @@ serve(async (req) => {
       );
     }
 
-    let hubspotResult;
-
     if (contactId) {
-      // Update existing contact
-      hubspotResult = await updateHubSpotContact(
+      // Update existing contact — don't fail the whole submission if properties are rejected
+      const updateResult = await updateHubSpotContact(
         contactId,
         hubspotProperties,
         hubspotAccessToken
       );
+      if (!updateResult.success) {
+        console.warn("Contact property update failed (continuing with engagements):", updateResult.error);
+      }
     } else {
-      // Create new contact
+      // Create new contact — must succeed to have a contactId for engagements
       const createResult = await createHubSpotContact(
         hubspotProperties,
         hubspotAccessToken
       );
+      if (!createResult.success || !createResult.contactId) {
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: createResult.error || "Failed to create HubSpot contact",
+          }),
+          {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+            status: 500,
+          }
+        );
+      }
       contactId = createResult.contactId;
-      hubspotResult = createResult;
-    }
-
-    if (!hubspotResult.success) {
-      return new Response(
-        JSON.stringify({
-          success: false,
-          error: hubspotResult.error || "Failed to update HubSpot",
-        }),
-        {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-          status: 500,
-        }
-      );
     }
 
     // Update form submission with HubSpot contact ID for sync tracking

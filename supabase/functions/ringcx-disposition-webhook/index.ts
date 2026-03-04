@@ -159,25 +159,39 @@ function formatPhoneNumber(phone: string): string {
 /**
  * Get agent display name from payload
  */
+/**
+ * Clean an email-format string into a display name.
+ * e.g., "haley.b+44510001_8051@completehomefiltration.com.au" → "Haley B"
+ */
+function cleanEmailToName(email: string): string {
+  const namePart = email.split("@")[0];
+  // Remove any + suffix (e.g., haley.b+12345 -> haley.b)
+  const cleanName = namePart.split("+")[0];
+  // Convert haley.b or josh_w to Haley B or Josh W
+  return cleanName
+    .split(/[._]/)
+    .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
 function getAgentDisplayName(payload: RingCXWebhookPayload): string {
-  // Prefer first/last name if available
-  if (payload.agent_first_name || payload.agent_last_name) {
-    return `${payload.agent_first_name || ""} ${payload.agent_last_name || ""}`.trim();
+  // Prefer first/last name if available AND not an email
+  const firstName = payload.agent_first_name?.trim();
+  const lastName = payload.agent_last_name?.trim();
+
+  if (firstName || lastName) {
+    // RingCX sometimes puts the email in agent_first_name — clean it
+    const cleanFirst = firstName && firstName.includes("@") ? cleanEmailToName(firstName) : (firstName || "");
+    const cleanLast = lastName && lastName.includes("@") ? "" : (lastName || "");
+    const name = `${cleanFirst} ${cleanLast}`.trim();
+    if (name) return name;
   }
 
   // Fall back to username, but clean it up if it's an email
   const username = payload.agent_username || "Unknown Agent";
 
-  // If username looks like an email, extract the name part
   if (username.includes("@")) {
-    const namePart = username.split("@")[0];
-    // Remove any + suffix (e.g., josh.w+12345 -> josh.w)
-    const cleanName = namePart.split("+")[0];
-    // Convert josh.w or josh_w to Josh W
-    return cleanName
-      .split(/[._]/)
-      .map(part => part.charAt(0).toUpperCase() + part.slice(1))
-      .join(" ");
+    return cleanEmailToName(username);
   }
 
   return username;

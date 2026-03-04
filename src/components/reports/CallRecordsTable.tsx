@@ -165,15 +165,14 @@ export default function CallRecordsTable({ submissions, onListenClick }: CallRec
               })
               const isExpanded = expandedId === s.id
 
-              // HubSpot sync status — prioritize call engagement ID from form submission or recording
+              // HubSpot sync status — check for call engagement or contact ID
               const hubspotCallId = s.hubspot_call_id || recording?.hubspot_call_id
               const hubspotContactId = s.hubspot_contact_id || recording?.hubspot_contact_id || s.submitted_by?.contact_id
-              // Link to call engagement if available, otherwise link to contact record
-              const hubspotUrl = hubspotCallId
-                ? `https://app.hubspot.com/contacts/${HUBSPOT_PORTAL_ID}/record/0-48/${hubspotCallId}`
-                : hubspotContactId
-                  ? `https://app.hubspot.com/contacts/${HUBSPOT_PORTAL_ID}/record/0-1/${hubspotContactId}`
-                  : null
+              // Always link to contact record (reliable) — call engagement is visible in contact's Calls tab
+              const hubspotUrl = hubspotContactId
+                ? `https://app.hubspot.com/contacts/${HUBSPOT_PORTAL_ID}/record/0-1/${hubspotContactId}`
+                : null
+              const hasSynced = hubspotCallId || hubspotContactId
 
               // GDrive backup status
               const hasGDrive = recording?.backup_status === 'uploaded' && recording?.gdrive_file_url
@@ -209,20 +208,27 @@ export default function CallRecordsTable({ submissions, onListenClick }: CallRec
 
                   {/* HubSpot sync status */}
                   <td className="px-4 py-2 text-center">
-                    {hubspotUrl ? (
+                    {hasSynced && hubspotUrl ? (
                       <a
                         href={hubspotUrl}
                         target="_blank"
                         rel="noopener noreferrer"
                         onClick={(e) => e.stopPropagation()}
                         className="inline-flex items-center gap-1 text-xs font-medium text-green-600 hover:text-green-700"
-                        title={hubspotCallId ? "View call in HubSpot" : "View contact in HubSpot"}
+                        title={hubspotCallId ? "Call logged — view contact in HubSpot" : "Contact synced — view in HubSpot"}
                       >
                         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                         </svg>
-                        Synced
+                        {hubspotCallId ? 'Call Logged' : 'Synced'}
                       </a>
+                    ) : hasSynced ? (
+                      <span className="inline-flex items-center gap-1 text-xs font-medium text-green-600">
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                        {hubspotCallId ? 'Call Logged' : 'Synced'}
+                      </span>
                     ) : recording ? (
                       <span className="text-[10px] text-amber-500" title="Webhook received but no HubSpot call ID">Pending</span>
                     ) : (
