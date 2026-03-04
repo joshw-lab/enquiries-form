@@ -70,7 +70,6 @@ interface FormData {
   waterTestTime: string
   leadsRep: string
   availableFrom: string
-  reschedule: 'yes' | 'no' | ''
   howDidYouFindUs: string[]  // Changed to array for multi-select checkboxes
 
   // Call Back fields
@@ -134,7 +133,6 @@ const initialFormData: FormData = {
   waterTestTime: '',
   leadsRep: '',
   availableFrom: '',
-  reschedule: '',
   howDidYouFindUs: [],  // Changed to empty array
 
   // Call Back
@@ -1225,20 +1223,6 @@ export default function DispositionForm() {
                       )}
 
                       {/* Date of booking call — auto-set from submission timestamp in backend */}
-
-                      {/* NEW FIELD: Reschedule checkbox */}
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          id="reschedule"
-                          checked={formData.reschedule === 'yes'}
-                          onChange={(e) => updateField('reschedule', e.target.checked ? 'yes' : 'no')}
-                          className="rounded text-blue-600"
-                        />
-                        <label htmlFor="reschedule" className="text-sm text-gray-700">
-                          Reschedule
-                        </label>
-                      </div>
 
                       {/* NEW FIELD: Water Test Day */}
                       <div>

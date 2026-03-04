@@ -60,7 +60,6 @@ interface FormData {
   waterTestTime: string;
   leadsRep: string;
   availableFrom: string;
-  reschedule: "yes" | "no" | "";
   howDidYouFindUs: string[];  // Changed to array for multi-select
 
   // Call Back fields
@@ -130,7 +129,7 @@ const HUBSPOT_FIELD_MAPPINGS = {
   waterTestTime: "water_test_time",
   leadsRep: "leads_rep",
   availableFrom: "available_from",
-  reschedule: "reschedule",
+
   howDidYouFindUs: "n1__how_did_you_find_out_about_us_",
 
   // Call Back fields
@@ -297,9 +296,6 @@ function buildBookWaterTestProperties(
   // New fields for HubSpot form alignment
   if (data.leadsRep) properties[HUBSPOT_FIELD_MAPPINGS.leadsRep] = data.leadsRep;
   if (data.availableFrom) properties[HUBSPOT_FIELD_MAPPINGS.availableFrom] = data.availableFrom;
-
-  const rescheduleValue = toHubSpotBoolean(data.reschedule);
-  if (rescheduleValue !== null) properties[HUBSPOT_FIELD_MAPPINGS.reschedule] = rescheduleValue;
 
   return properties;
 }
