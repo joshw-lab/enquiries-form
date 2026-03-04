@@ -47,10 +47,18 @@ export default function CallRecordsTable({ submissions, onListenClick }: CallRec
 
       const map: Record<string, CallRecording> = {}
       for (const rec of data as CallRecording[]) {
+        // Index by hubspot_contact_id (primary key for matching)
         if (rec.hubspot_contact_id) {
           const key = rec.hubspot_contact_id
           if (!map[key] || new Date(rec.call_start) > new Date(map[key].call_start)) {
             map[key] = rec
+          }
+        }
+        // Also index by phone_number as fallback for submissions without contact_id
+        if (rec.phone_number) {
+          const phoneKey = rec.phone_number
+          if (!map[phoneKey] || new Date(rec.call_start) > new Date(map[phoneKey].call_start)) {
+            map[phoneKey] = rec
           }
         }
       }
@@ -61,18 +69,25 @@ export default function CallRecordsTable({ submissions, onListenClick }: CallRec
   }, [page, submissions])
 
   function findRecording(submission: FormSubmission): CallRecording | null {
-    const contactId = submission.submitted_by?.contact_id || submission.contact?.phone
-    if (!contactId) return null
+    // Try matching by HubSpot contact ID first, then fall back to phone number
+    const candidates = [
+      submission.submitted_by?.contact_id,
+      submission.contact?.phone,
+    ].filter(Boolean) as string[]
 
-    const rec = recordingsMap[contactId]
-    if (!rec) return null
+    for (const key of candidates) {
+      const rec = recordingsMap[key]
+      if (!rec) continue
 
-    // Verify timestamp is close (within 10 minutes)
-    const subTime = new Date(submission.created_at).getTime()
-    const recTime = new Date(rec.call_start).getTime()
-    if (Math.abs(subTime - recTime) > 10 * 60 * 1000) return null
+      // Verify timestamp is close (within 10 minutes)
+      const subTime = new Date(submission.created_at).getTime()
+      const recTime = new Date(rec.call_start).getTime()
+      if (Math.abs(subTime - recTime) > 10 * 60 * 1000) continue
 
-    return rec
+      return rec
+    }
+
+    return null
   }
 
   if (submissions.length === 0) {

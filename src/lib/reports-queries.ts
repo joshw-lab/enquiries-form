@@ -101,6 +101,39 @@ export function resolveAgentName(
   return agentId || 'Unknown'
 }
 
+/**
+ * Remove duplicate submissions: same phone + disposition within 60 seconds.
+ * Keeps the earliest submission (lowest created_at) from each group.
+ */
+function deduplicateSubmissions(submissions: FormSubmission[]): FormSubmission[] {
+  const seen = new Map<string, FormSubmission>()
+  const result: FormSubmission[] = []
+
+  for (const s of submissions) {
+    const phone = s.contact?.phone || (s.form_data?.phoneNumber as string) || ''
+    const disp = s.disposition || ''
+    if (!phone) {
+      result.push(s)
+      continue
+    }
+
+    const ts = new Date(s.created_at).getTime()
+    const key = `${phone}|${disp}`
+    const existing = seen.get(key)
+
+    if (existing) {
+      const existingTs = new Date(existing.created_at).getTime()
+      // If within 60 seconds of the existing one, skip this duplicate
+      if (Math.abs(ts - existingTs) < 60_000) continue
+    }
+
+    seen.set(key, s)
+    result.push(s)
+  }
+
+  return result
+}
+
 export async function fetchSubmissions(
   supabase: SupabaseClient,
   filters: Filters,
@@ -130,6 +163,9 @@ export async function fetchSubmissions(
   for (const s of submissions) {
     s.agent_name = resolveAgentName(s, userLookup)
   }
+
+  // Deduplicate submissions: same contact phone + disposition within 60 seconds = duplicate
+  submissions = deduplicateSubmissions(submissions)
 
   // Client-side agent filter (by resolved name)
   if (filters.agent) {
