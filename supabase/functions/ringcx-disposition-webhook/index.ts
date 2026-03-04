@@ -259,11 +259,51 @@ async function getHubSpotOwnerId(
   }
 }
 
+// Not Interested disposition GUID — used to conditionally update leads_rep
+const NOT_INTERESTED_DISPOSITION_ID = "5e8c009f-db89-4e1a-9c9a-429b45faf0c0";
+
+/**
+ * Map RingCX agent display name → HubSpot "leads_rep" property value.
+ * Most agents have identical names in both systems. This map contains
+ * only the exceptions where the RingCX display name differs from the
+ * HubSpot leads_rep value.
+ */
+const AGENT_LEADS_REP_OVERRIDES: Record<string, string> = {
+  "Amani Neate": "Amani Neates",
+  "Belinda": "Ben",
+  "JC Guillemain": "Jean Claude Guilllemain",
+  "Jason": "Bao",
+  "Jono Ngo": "Jono N",
+  "Larissa James": "Larissa",
+  "Michael Ivory": "Michael",
+  "Nick M": "Nick",
+  "Nicole Lovell": "Nicolle Lovell",
+  "Rebecca Johnson": "Rebecca",
+  "Simon Birsa": "Simon",
+  "Szon Tomkiewicz": "Szon",
+  "Timothy Rowley-Evans": "Tim Rowley-Evans",
+};
+
+/**
+ * Get the HubSpot "leads_rep" value for a RingCX agent.
+ * Uses override map for agents whose names differ between systems,
+ * otherwise returns the agent display name as-is.
+ */
+function getLeadsRepValue(agentDisplayName: string): string {
+  const trimmed = agentDisplayName.trim();
+  return AGENT_LEADS_REP_OVERRIDES[trimmed] || trimmed;
+}
+
 /**
  * Map RingCX disposition to HubSpot call disposition
  * Handles various naming conventions and aliases
  */
 function mapDispositionToHubSpot(disposition: string): string {
+  // Guard: reject unresolved template variables
+  if (isUnresolvedTemplateVar(disposition)) {
+    throw new Error(`Disposition is an unresolved RingCX template variable: "${disposition}". This webhook should have been skipped.`);
+  }
+
   // Normalize disposition: lowercase, replace spaces with underscores
   const normalized = disposition.toLowerCase().replace(/\s+/g, "_").replace(/-/g, "_");
 
@@ -370,6 +410,11 @@ function mapDispositionToHubSpot(disposition: string): string {
     "donotcall": "df11c246-3ff0-45da-b77b-35baaf3e7238",
     "dnc": "df11c246-3ff0-45da-b77b-35baaf3e7238",
     "do_not_register": "df11c246-3ff0-45da-b77b-35baaf3e7238",
+
+    // Hangup (1bbfa758-eef2-4475-8717-2cebb16270db)
+    "hangup": "1bbfa758-eef2-4475-8717-2cebb16270db",
+    "hang_up": "1bbfa758-eef2-4475-8717-2cebb16270db",
+    "hung_up": "1bbfa758-eef2-4475-8717-2cebb16270db",
   };
 
   const mapped = dispositionMap[normalized];
@@ -712,13 +757,35 @@ serve(async (req) => {
       disposition: payload.disposition
     });
 
-    if (!payload.agent_disposition) {
-      console.log("⏭️ Skipping auto-fire webhook (no agent_disposition) — waiting for disposition webhook");
+    if (!payload.agent_disposition || isUnresolvedTemplateVar(payload.agent_disposition)) {
+      const reason = !payload.agent_disposition
+        ? "no agent_disposition"
+        : `unresolved template var: "${payload.agent_disposition}"`;
+      console.log(`⏭️ Skipping auto-fire webhook (${reason}) — waiting for disposition webhook`);
+
+      // Log skipped webhooks for audit trail
+      try {
+        const skipClient = createClient(
+          Deno.env.get("SUPABASE_URL") ?? "",
+          Deno.env.get("SB_SERVICE_ROLE_KEY") ?? ""
+        );
+        await skipClient.from("ringcx_webhook_logs").insert({
+          call_id: payload.call_id,
+          contact_id: payload.extern_id,
+          payload: payload,
+          processed_at: new Date().toISOString(),
+          status: "skipped",
+          error_message: `Auto-fire webhook skipped: ${reason}`,
+        });
+      } catch (logErr) {
+        console.error("Failed to log skipped webhook:", logErr);
+      }
+
       return new Response(
         JSON.stringify({
           success: true,
           skipped: true,
-          message: "Auto-fire webhook ignored — will process disposition webhook instead",
+          message: `Auto-fire webhook ignored (${reason}) — will process disposition webhook instead`,
           call_id: payload.call_id,
         }),
         {
@@ -748,14 +815,19 @@ serve(async (req) => {
     );
 
     // Log the webhook for audit trail
-    const { error: insertError } = await supabaseClient
+    const { data: logRow, error: insertError } = await supabaseClient
       .from("ringcx_webhook_logs")
       .insert({
         call_id: payload.call_id,
         contact_id: contactId,
         payload: payload,
         processed_at: new Date().toISOString(),
-      });
+        status: "processing",
+      })
+      .select("id")
+      .single();
+
+    const webhookLogId = logRow?.id;
 
     if (insertError) {
       console.error("Failed to log webhook:", insertError);
@@ -784,6 +856,12 @@ serve(async (req) => {
 
     if (!contactVerification.exists) {
       console.error("HubSpot contact not found:", contactId);
+      if (webhookLogId) {
+        await supabaseClient
+          .from("ringcx_webhook_logs")
+          .update({ status: "failed", error_message: `Contact not found: ${contactId}` })
+          .eq("id", webhookLogId);
+      }
       return new Response(
         JSON.stringify({
           success: false,
@@ -809,56 +887,7 @@ serve(async (req) => {
       }
     }
 
-    // Create call engagement in HubSpot with contact info and agent timezone
-    const result = await createCallEngagement(
-      payload,
-      contactId,
-      hubspotAccessToken,
-      contactVerification.contact,
-      agentTimezone
-    );
-
-    if (!result.success) {
-      return new Response(
-        JSON.stringify({
-          success: false,
-          error: result.error || "Failed to create call engagement",
-        }),
-        {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-          status: 500,
-        }
-      );
-    }
-
-    // Update contact property to flag that call notes exist
-    try {
-      const contactUpdateResponse = await fetch(
-        `${HUBSPOT_API_BASE}/crm/v3/objects/contacts/${contactId}`,
-        {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${hubspotAccessToken}`,
-          },
-          body: JSON.stringify({
-            properties: {
-              n0_ringcx_call_notes: "Yes",
-            },
-          }),
-        }
-      );
-      if (!contactUpdateResponse.ok) {
-        console.error(`Failed to set n0_ringcx_call_notes: ${contactUpdateResponse.status} ${await contactUpdateResponse.text()}`);
-      } else {
-        console.log(`✅ Set n0_ringcx_call_notes=Yes for contact ${contactId}`);
-      }
-    } catch (err) {
-      console.error("Error setting n0_ringcx_call_notes:", err);
-      // Non-fatal — don't fail the webhook response
-    }
-
-    // Insert into call_recordings table for the recordings backup pipeline
+    // Insert into call_recordings FIRST — always track the call regardless of HubSpot outcome
     const recordingUrl = resolveField(payload.recording_url);
     const agentName = getAgentDisplayName(payload);
     const callDirection = determineCallDirection(payload);
@@ -868,6 +897,7 @@ serve(async (req) => {
       ? formatPhoneNumber(payload.ani)
       : formatPhoneNumber(payload.ani);
 
+    // We'll update hubspot_call_id after the engagement is created
     const { error: recordingInsertError } = await supabaseClient
       .from("call_recordings")
       .upsert({
@@ -881,15 +911,104 @@ serve(async (req) => {
         agent_id: payload.agent_id,
         agent_name: agentName,
         hubspot_contact_id: contactId,
-        hubspot_call_id: result.callId,
+        hubspot_call_id: null,
         backup_status: recordingUrl ? "pending" : "no_recording",
       }, { onConflict: "call_id" });
 
     if (recordingInsertError) {
       console.error("Failed to insert call_recordings row:", recordingInsertError);
-      // Non-fatal — don't fail the webhook response
     } else {
-      console.log(`📼 Call recording queued for backup: ${payload.call_id} (${recordingUrl ? "has recording" : "no recording"})`);
+      console.log(`📼 Call recording tracked: ${payload.call_id} (${recordingUrl ? "has recording" : "no recording"})`);
+    }
+
+    // Create call engagement in HubSpot with contact info and agent timezone
+    const result = await createCallEngagement(
+      payload,
+      contactId,
+      hubspotAccessToken,
+      contactVerification.contact,
+      agentTimezone
+    );
+
+    if (!result.success) {
+      if (webhookLogId) {
+        await supabaseClient
+          .from("ringcx_webhook_logs")
+          .update({ status: "failed", error_message: result.error || "Failed to create call engagement" })
+          .eq("id", webhookLogId);
+      }
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: result.error || "Failed to create call engagement",
+        }),
+        {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          status: 500,
+        }
+      );
+    }
+
+    // HubSpot engagement succeeded — update call_recordings with the HubSpot call ID
+    await supabaseClient
+      .from("call_recordings")
+      .update({ hubspot_call_id: result.callId })
+      .eq("call_id", payload.call_id);
+
+    // Update contact properties: always set call notes flag,
+    // and conditionally set leads_rep when disposition is "Not Interested"
+    try {
+      const contactProperties: Record<string, string> = {
+        n0_ringcx_call_notes: "Yes",
+      };
+
+      // Check if disposition is "Not Interested" — if so, set leads_rep to the agent's name
+      try {
+        const dispositionGuid = mapDispositionToHubSpot(disposition);
+        if (dispositionGuid === NOT_INTERESTED_DISPOSITION_ID) {
+          const agentNameForRep = getAgentDisplayName(payload);
+          const leadsRepValue = getLeadsRepValue(agentNameForRep);
+          contactProperties.leads_rep = leadsRepValue;
+          console.log(`📋 Will update leads_rep="${leadsRepValue}" (agent: "${agentNameForRep}", disposition: not_interested)`);
+        }
+      } catch {
+        // mapDispositionToHubSpot may throw for unmapped dispositions — ignore here
+      }
+
+      const contactUpdateResponse = await fetch(
+        `${HUBSPOT_API_BASE}/crm/v3/objects/contacts/${contactId}`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${hubspotAccessToken}`,
+          },
+          body: JSON.stringify({
+            properties: contactProperties,
+          }),
+        }
+      );
+      if (!contactUpdateResponse.ok) {
+        console.error(`Failed to update contact properties: ${contactUpdateResponse.status} ${await contactUpdateResponse.text()}`);
+      } else {
+        const propsUpdated = Object.keys(contactProperties).join(", ");
+        console.log(`✅ Updated contact ${contactId}: ${propsUpdated}`);
+      }
+    } catch (err) {
+      console.error("Error updating contact properties:", err);
+      // Non-fatal — don't fail the webhook response
+    }
+
+    // Update webhook log status to processed
+    if (webhookLogId) {
+      await supabaseClient
+        .from("ringcx_webhook_logs")
+        .update({
+          status: "processed",
+          hubspot_call_id: result.callId,
+          hubspot_contact_id: contactId,
+        })
+        .eq("id", webhookLogId);
     }
 
     return new Response(
@@ -906,6 +1025,35 @@ serve(async (req) => {
     );
   } catch (error) {
     console.error("Error processing webhook:", error);
+
+    // Attempt to update webhook log with failure status
+    try {
+      const failClient = createClient(
+        Deno.env.get("SUPABASE_URL") ?? "",
+        Deno.env.get("SB_SERVICE_ROLE_KEY") ?? ""
+      );
+      // If we have a log row ID, update it; otherwise insert a new failure record
+      if (typeof webhookLogId !== "undefined" && webhookLogId) {
+        await failClient
+          .from("ringcx_webhook_logs")
+          .update({
+            status: "failed",
+            error_message: error.message || "Unknown error",
+          })
+          .eq("id", webhookLogId);
+      } else {
+        // Try to extract call_id from the request body for traceability
+        await failClient.from("ringcx_webhook_logs").insert({
+          call_id: "unknown",
+          payload: { error_context: "Failed before log row created" },
+          processed_at: new Date().toISOString(),
+          status: "failed",
+          error_message: error.message || "Unknown error",
+        });
+      }
+    } catch (logErr) {
+      console.error("Failed to log error status:", logErr);
+    }
 
     return new Response(
       JSON.stringify({
