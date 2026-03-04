@@ -165,8 +165,8 @@ export default function CallRecordsTable({ submissions, onListenClick }: CallRec
               })
               const isExpanded = expandedId === s.id
 
-              // HubSpot sync status — check both recording (call engagement) and form submission (contact update)
-              const hubspotCallId = recording?.hubspot_call_id
+              // HubSpot sync status — prioritize call engagement ID from form submission or recording
+              const hubspotCallId = s.hubspot_call_id || recording?.hubspot_call_id
               const hubspotContactId = s.hubspot_contact_id || recording?.hubspot_contact_id || s.submitted_by?.contact_id
               // Link to call engagement if available, otherwise link to contact record
               const hubspotUrl = hubspotCallId

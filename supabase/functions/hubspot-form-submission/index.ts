@@ -719,6 +719,133 @@ function buildNoteContent(data: FormData): string {
 }
 
 /**
+ * Map form disposition to HubSpot call disposition GUID
+ * GUIDs sourced from /hubspot call disposition IDs.csv
+ */
+function mapFormDispositionToHubSpot(disposition: DispositionType, leadStatus?: string): string {
+  // Book Water Test with Single Leg gets its own GUID
+  if (disposition === "book_water_test" && leadStatus === "SL") {
+    return "0823d714-3974-4bb4-a65a-ecf3596f49ac"; // Booked Test - Single Leg
+  }
+
+  const dispositionMap: Record<DispositionType, string> = {
+    book_water_test: "f72848b8-6063-4591-9832-a4e4604864f5",   // Booked Test
+    call_back: "4aa8b662-f76e-4557-8a24-ffae50519382",          // Needs Call Back
+    not_interested: "5e8c009f-db89-4e1a-9c9a-429b45faf0c0",     // Not interested
+    other_department: "c5067c48-aaf1-4f67-9c56-6a749b666817",   // Other Departments
+    unable_to_service: "109bdbfc-6552-40e0-8eb2-0e58c13208a1",  // Unable to Service
+    no_answer: "73a0d17f-1163-4015-bdd5-ec830791da20",          // No answer
+    wrong_number: "17b47fee-58de-441e-a44c-c6300d46f273",       // Wrong number
+  };
+
+  return dispositionMap[disposition] || "f240bbac-87c9-4f6e-bf70-924b57d47db7"; // fallback: Connected
+}
+
+/**
+ * Get human-readable disposition label
+ */
+function getDispositionLabel(disposition: DispositionType): string {
+  const labels: Record<DispositionType, string> = {
+    book_water_test: "Booked Test",
+    call_back: "Call Back",
+    not_interested: "Not Interested",
+    other_department: "Other Department",
+    unable_to_service: "Unable to Service",
+    no_answer: "No Answer",
+    wrong_number: "Wrong Number",
+  };
+  return labels[disposition] || disposition;
+}
+
+/**
+ * Create a call engagement in HubSpot for the form submission.
+ * This creates a proper call record (hs_calls object) so every disposition
+ * has a trackable call engagement in HubSpot for reporting.
+ */
+async function createCallEngagement(
+  contactId: string,
+  data: FormData,
+  noteContent: string,
+  accessToken: string
+): Promise<{ success: boolean; callId?: string; error?: string }> {
+  try {
+    const timestampMs = new Date(data.timestamp).getTime();
+    const hubspotDisposition = mapFormDispositionToHubSpot(data.disposition, data.leadStatus);
+    const dispositionLabel = getDispositionLabel(data.disposition);
+
+    // Format contact name
+    const contactName = [data.firstName, data.lastName].filter(Boolean).join(" ") || "Unknown Contact";
+    const phone = data.phoneNumber || "";
+
+    // Build call body from the note content
+    const callBodyParts = [
+      `Outbound call to ${contactName}${phone ? ` (${phone})` : ""}`,
+      `<b>Disposition:</b> ${dispositionLabel}`,
+    ];
+
+    // Add disposition-specific details
+    if (data.disposition === "book_water_test") {
+      if (data.waterTestDate) callBodyParts.push(`<b>Test Date:</b> ${data.waterTestDate}`);
+      if (data.waterTestTime) callBodyParts.push(`<b>Test Time:</b> ${data.waterTestTime}`);
+      if (data.leadStatus) callBodyParts.push(`<b>Lead Status:</b> ${data.leadStatus === "SL" ? "Single Leg" : "Double Leg"}`);
+    }
+
+    if (data.notes) {
+      callBodyParts.push("", `<b>Agent Notes:</b> ${data.notes}`);
+    }
+
+    const callPayload = {
+      properties: {
+        hs_timestamp: timestampMs,
+        hs_activity_type: "Verification & Test Appointment Booking",
+        hs_call_title: `Outbound Call - ${dispositionLabel}`,
+        hs_call_body: callBodyParts.join("<br>"),
+        hs_call_direction: "OUTBOUND",
+        hs_call_disposition: hubspotDisposition,
+        hs_call_duration: 0,
+        ...(phone && { hs_call_to_number: phone }),
+        hs_call_status: "COMPLETED",
+      },
+      associations: [
+        {
+          to: { id: contactId },
+          types: [
+            {
+              associationCategory: "HUBSPOT_DEFINED",
+              associationTypeId: 194, // Call to Contact association
+            },
+          ],
+        },
+      ],
+    };
+
+    console.log("Creating HubSpot call engagement from form submission:", JSON.stringify(callPayload, null, 2));
+
+    const response = await fetch(`${HUBSPOT_API_BASE}/crm/v3/objects/calls`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify(callPayload),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("HubSpot create call engagement failed:", errorText);
+      return { success: false, error: errorText };
+    }
+
+    const result = await response.json();
+    console.log("HubSpot call engagement created:", result.id);
+    return { success: true, callId: result.id };
+  } catch (error) {
+    console.error("HubSpot create call engagement error:", error);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
  * Create a note engagement for a contact
  */
 async function createNoteEngagement(
@@ -929,6 +1056,30 @@ serve(async (req) => {
       if (!noteResult.success) {
         console.warn("Failed to create note engagement:", noteResult.error);
         // Don't fail the entire request if note creation fails
+      }
+
+      // Create call engagement (hs_calls object) for reporting
+      const callResult = await createCallEngagement(
+        contactId,
+        payload,
+        dispositionNote,
+        hubspotAccessToken
+      );
+
+      if (callResult.success && callResult.callId) {
+        console.log("Call engagement created:", callResult.callId);
+        // Store the call engagement ID on the form submission
+        if (submission?.id) {
+          const { error: callIdUpdateError } = await supabaseClient
+            .from("hubspot_form_submissions")
+            .update({ hubspot_call_id: callResult.callId })
+            .eq("id", submission.id);
+          if (callIdUpdateError) {
+            console.warn("Failed to update submission with hubspot_call_id:", callIdUpdateError);
+          }
+        }
+      } else {
+        console.warn("Failed to create call engagement:", callResult.error);
       }
 
       // Trigger compiled_notes workflow ONLY for Book Water Test disposition

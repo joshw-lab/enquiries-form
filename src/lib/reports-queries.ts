@@ -35,6 +35,7 @@ export interface FormSubmission {
   metadata: { submittedAt?: string; disposition?: string } | null
   created_at: string
   hubspot_contact_id: string | null
+  hubspot_call_id: string | null
   // Resolved agent name (populated after join with hubspot_users)
   agent_name?: string
 }
