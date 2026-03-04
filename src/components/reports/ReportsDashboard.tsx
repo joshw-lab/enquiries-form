@@ -27,6 +27,7 @@ export default function ReportsDashboard() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const userLookupRef = useRef<Record<string, string>>({})
+  const requestIdRef = useRef(0)
 
   // Filter state
   const [selectedAgent, setSelectedAgent] = useState('')
@@ -68,6 +69,9 @@ export default function ReportsDashboard() {
       return
     }
 
+    // Increment request ID so stale fetches are ignored
+    const thisRequest = ++requestIdRef.current
+
     setLoading(true)
     setError('')
 
@@ -95,6 +99,9 @@ export default function ReportsDashboard() {
         endDate: endDate || undefined,
       }, userLookupRef.current),
     ])
+
+    // Ignore results if a newer request has been started
+    if (thisRequest !== requestIdRef.current) return
 
     if (result.error) {
       setError(result.error)
