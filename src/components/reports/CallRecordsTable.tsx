@@ -32,9 +32,10 @@ export default function CallRecordsTable({ submissions, onListenClick }: CallRec
       const supabase = getSupabase()
       if (!supabase || pageData.length === 0) return
 
-      // Widen to ±10 min since the RingCX webhook fires before the form submission
+      // Widen to ±60 min: call_start can be well before form submission
+      // (agent talks to contact, then fills out booking details)
       const timestamps = pageData.map((s) => new Date(s.created_at).getTime())
-      const minTime = new Date(Math.min(...timestamps) - 600000).toISOString()
+      const minTime = new Date(Math.min(...timestamps) - 3600000).toISOString()
       const maxTime = new Date(Math.max(...timestamps) + 600000).toISOString()
 
       const { data, error } = await supabase
@@ -79,10 +80,11 @@ export default function CallRecordsTable({ submissions, onListenClick }: CallRec
       const rec = recordingsMap[key]
       if (!rec) continue
 
-      // Verify timestamp is close (within 10 minutes)
+      // Verify call started within 30 min before submission (or 5 min after)
       const subTime = new Date(submission.created_at).getTime()
       const recTime = new Date(rec.call_start).getTime()
-      if (Math.abs(subTime - recTime) > 10 * 60 * 1000) continue
+      const diff = subTime - recTime // positive = call started before submission (expected)
+      if (diff < -5 * 60 * 1000 || diff > 30 * 60 * 1000) continue
 
       return rec
     }
