@@ -777,9 +777,15 @@ async function createCallEngagement(
     const contactName = [data.firstName, data.lastName].filter(Boolean).join(" ") || "Unknown Contact";
     const phone = data.phoneNumber || "";
 
-    // Build call body from the note content
+    // Get agent name from leadsRep field (set by agents for booked tests)
+    // or fall back to contactInfo.agent_id (URL param from RingCX)
+    const agentName = data.leadsRep || data.contactInfo?.agent_id || "";
+
+    // Build call body — include agent name when available (matches webhook format)
     const callBodyParts = [
-      `Outbound call to ${contactName}${phone ? ` (${phone})` : ""}`,
+      agentName
+        ? `Call from ${agentName} to ${contactName}${phone ? ` (${phone})` : ""}`
+        : `Outbound call to ${contactName}${phone ? ` (${phone})` : ""}`,
       `<b>Disposition:</b> ${dispositionLabel}`,
     ];
 
@@ -798,7 +804,9 @@ async function createCallEngagement(
       properties: {
         hs_timestamp: timestampMs,
         hs_activity_type: "Verification & Test Appointment Booking",
-        hs_call_title: `Outbound Call - ${dispositionLabel}`,
+        hs_call_title: agentName
+          ? `Outbound Call - ${dispositionLabel} (${agentName})`
+          : `Outbound Call - ${dispositionLabel}`,
         hs_call_body: callBodyParts.join("<br>"),
         hs_call_direction: "OUTBOUND",
         hs_call_disposition: hubspotDisposition,
@@ -1057,28 +1065,65 @@ serve(async (req) => {
         // Don't fail the entire request if note creation fails
       }
 
-      // Create call engagement (hs_calls object) for reporting
-      const callResult = await createCallEngagement(
-        contactId,
-        payload,
-        dispositionNote,
-        hubspotAccessToken
-      );
+      // Deduplication: Check if the RingCX webhook already created a call recording
+      // for this contact within the last 15 minutes. If so, reuse that call ID
+      // instead of creating a duplicate call engagement.
+      let existingCallId: string | null = null;
+      try {
+        const windowStart = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+        const { data: recentRecording } = await supabaseClient
+          .from("call_recordings")
+          .select("hubspot_call_id")
+          .eq("hubspot_contact_id", contactId)
+          .not("hubspot_call_id", "is", null)
+          .gte("call_start", windowStart)
+          .order("call_start", { ascending: false })
+          .limit(1)
+          .maybeSingle();
 
-      if (callResult.success && callResult.callId) {
-        console.log("Call engagement created:", callResult.callId);
-        // Store the call engagement ID on the form submission
+        if (recentRecording?.hubspot_call_id) {
+          existingCallId = recentRecording.hubspot_call_id;
+          console.log(`🔄 Found recent RingCX call ${existingCallId} for contact ${contactId}. Skipping form call creation.`);
+        }
+      } catch (err) {
+        console.warn("Error checking for recent call recordings:", err);
+      }
+
+      if (existingCallId) {
+        // RingCX webhook already created a call — link it to this form submission
         if (submission?.id) {
           const { error: callIdUpdateError } = await supabaseClient
             .from("hubspot_form_submissions")
-            .update({ hubspot_call_id: callResult.callId })
+            .update({ hubspot_call_id: existingCallId })
             .eq("id", submission.id);
           if (callIdUpdateError) {
-            console.warn("Failed to update submission with hubspot_call_id:", callIdUpdateError);
+            console.warn("Failed to link existing call to submission:", callIdUpdateError);
           }
         }
       } else {
-        console.warn("Failed to create call engagement:", callResult.error);
+        // No existing RingCX call — create call engagement from form data
+        const callResult = await createCallEngagement(
+          contactId,
+          payload,
+          dispositionNote,
+          hubspotAccessToken
+        );
+
+        if (callResult.success && callResult.callId) {
+          console.log("Call engagement created:", callResult.callId);
+          // Store the call engagement ID on the form submission
+          if (submission?.id) {
+            const { error: callIdUpdateError } = await supabaseClient
+              .from("hubspot_form_submissions")
+              .update({ hubspot_call_id: callResult.callId })
+              .eq("id", submission.id);
+            if (callIdUpdateError) {
+              console.warn("Failed to update submission with hubspot_call_id:", callIdUpdateError);
+            }
+          }
+        } else {
+          console.warn("Failed to create call engagement:", callResult.error);
+        }
       }
 
       // Trigger compiled_notes workflow ONLY for Book Water Test disposition

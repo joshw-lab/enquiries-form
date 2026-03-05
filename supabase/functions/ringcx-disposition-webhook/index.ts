@@ -578,6 +578,146 @@ function parseCallStartTime(callStart: string, agentTimezone?: string): number {
 }
 
 /**
+ * Check if a form submission recently created a call engagement for this contact.
+ * Used to avoid duplicate call records when both the form and RingCX webhook fire.
+ * The form typically fires first (agent submits form) then the webhook fires
+ * (agent dispositions in RingCX), so we check for recent form submissions.
+ */
+async function findRecentFormSubmissionCall(
+  contactId: string,
+  supabaseClient: any,
+  windowMinutes: number = 15
+): Promise<{ hubspot_call_id: string; id: string } | null> {
+  try {
+    const windowStart = new Date(Date.now() - windowMinutes * 60 * 1000).toISOString();
+
+    const { data, error } = await supabaseClient
+      .from("hubspot_form_submissions")
+      .select("id, hubspot_call_id")
+      .eq("hubspot_contact_id", contactId)
+      .not("hubspot_call_id", "is", null)
+      .gte("created_at", windowStart)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      console.warn("Error checking for recent form submission call:", error);
+      return null;
+    }
+
+    return data;
+  } catch (err) {
+    console.warn("Exception checking for recent form submission call:", err);
+    return null;
+  }
+}
+
+/**
+ * Update an existing HubSpot call engagement with richer data from the RingCX webhook.
+ * Used when the form submission already created a call and the webhook has
+ * additional data (actual duration, recording URL, agent name, summary, etc.)
+ */
+async function updateExistingCallEngagement(
+  callId: string,
+  payload: RingCXWebhookPayload,
+  contactId: string,
+  accessToken: string,
+  contactInfo?: { firstname?: string; lastname?: string; phone?: string },
+  agentTimezone?: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const durationSeconds = parseCallDuration(payload.call_duration);
+    const durationMs = durationSeconds * 1000;
+    const callDirection = determineCallDirection(payload);
+    const agentName = getAgentDisplayName(payload);
+
+    // Resolve fields
+    const callSummary = resolveField(payload.summary);
+    const agentNotes = resolveField(payload.notes);
+    const recordingUrl = resolveField(payload.recording_url);
+
+    // Format disposition for title
+    const dispositionLabel = payload.disposition
+      .replace(/_/g, " ")
+      .replace(/\b\w/g, (c: string) => c.toUpperCase());
+    const directionLabel = callDirection === "OUTBOUND" ? "Outbound" : "Inbound";
+
+    // Build contact name
+    const contactName = contactInfo?.firstname && contactInfo?.lastname
+      ? `${contactInfo.firstname} ${contactInfo.lastname}`
+      : contactInfo?.firstname || contactInfo?.lastname || "Unknown Contact";
+
+    // Format phone numbers
+    const aniFormatted = formatPhoneNumber(payload.ani);
+    const dnisFormatted = formatPhoneNumber(payload.dnis);
+
+    // Build call body header (matches createCallEngagement format)
+    let callBodyHeader: string;
+    if (callDirection === "OUTBOUND") {
+      callBodyHeader = `Call from ${agentName} (${dnisFormatted}) to ${contactName} (${aniFormatted})`;
+    } else {
+      callBodyHeader = `Call from ${contactName} (${aniFormatted}) to ${agentName} (${dnisFormatted})`;
+    }
+
+    // Format duration display
+    const durationMins = Math.floor(durationSeconds / 60);
+    const durationSecs = durationSeconds % 60;
+    const durationDisplay = durationMins > 0
+      ? `${durationMins}m ${durationSecs}s`
+      : `${durationSecs}s`;
+
+    const callBodyParts = [
+      callBodyHeader,
+      `<b>Duration:</b> ${durationDisplay} | <b>Disposition:</b> ${dispositionLabel}`,
+    ];
+
+    if (callSummary) {
+      callBodyParts.push("", "<b>Call Summary</b>", callSummary);
+    }
+    if (agentNotes) {
+      callBodyParts.push("", "<b>Agent Notes</b>", agentNotes);
+    }
+
+    const updateProperties: Record<string, any> = {
+      hs_call_title: `${directionLabel} Call - ${dispositionLabel}`,
+      hs_call_body: callBodyParts.join("<br>"),
+      hs_call_direction: callDirection,
+      hs_call_duration: durationMs,
+      hs_call_from_number: callDirection === "OUTBOUND" ? dnisFormatted : aniFormatted,
+      hs_call_to_number: callDirection === "OUTBOUND" ? aniFormatted : dnisFormatted,
+    };
+
+    if (recordingUrl) {
+      updateProperties.hs_call_recording_url = recordingUrl;
+    }
+
+    console.log(`Updating existing HubSpot call ${callId} with webhook data:`, JSON.stringify(updateProperties, null, 2));
+
+    const response = await fetch(`${HUBSPOT_API_BASE}/crm/v3/objects/calls/${callId}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({ properties: updateProperties }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("HubSpot update call failed:", errorText);
+      return { success: false, error: errorText };
+    }
+
+    console.log(`✅ Updated existing call engagement ${callId} with RingCX webhook data`);
+    return { success: true };
+  } catch (error) {
+    console.error("HubSpot update call error:", error);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
  * Create a call engagement in HubSpot
  */
 async function createCallEngagement(
@@ -935,26 +1075,46 @@ serve(async (req) => {
       console.log(`📼 Call recording tracked: ${payload.call_id} (${recordingUrl ? "has recording" : "no recording"})`);
     }
 
-    // Create call engagement in HubSpot with contact info and agent timezone
-    const result = await createCallEngagement(
-      payload,
-      contactId,
-      hubspotAccessToken,
-      contactVerification.contact,
-      agentTimezone
-    );
+    // Deduplication: Check if the form submission already created a call engagement
+    // for this contact within the last 15 minutes. If so, UPDATE that call instead
+    // of creating a new one (the webhook has richer data: duration, recording, agent).
+    const recentFormCall = await findRecentFormSubmissionCall(contactId, supabaseClient);
+    let result: { success: boolean; callId?: string; error?: string };
+
+    if (recentFormCall?.hubspot_call_id) {
+      console.log(`🔄 Found recent form submission call ${recentFormCall.hubspot_call_id} for contact ${contactId}. Updating instead of creating new.`);
+      const updateResult = await updateExistingCallEngagement(
+        recentFormCall.hubspot_call_id,
+        payload,
+        contactId,
+        hubspotAccessToken,
+        contactVerification.contact,
+        agentTimezone
+      );
+      // Reuse the existing call ID
+      result = { success: updateResult.success, callId: recentFormCall.hubspot_call_id, error: updateResult.error };
+    } else {
+      // No recent form call found — create a new call engagement as usual
+      result = await createCallEngagement(
+        payload,
+        contactId,
+        hubspotAccessToken,
+        contactVerification.contact,
+        agentTimezone
+      );
+    }
 
     if (!result.success) {
       if (webhookLogId) {
         await supabaseClient
           .from("ringcx_webhook_logs")
-          .update({ status: "failed", error_message: result.error || "Failed to create call engagement" })
+          .update({ status: "failed", error_message: result.error || "Failed to create/update call engagement" })
           .eq("id", webhookLogId);
       }
       return new Response(
         JSON.stringify({
           success: false,
-          error: result.error || "Failed to create call engagement",
+          error: result.error || "Failed to create/update call engagement",
         }),
         {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
