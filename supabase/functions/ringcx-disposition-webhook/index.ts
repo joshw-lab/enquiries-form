@@ -586,7 +586,7 @@ function parseCallStartTime(callStart: string, agentTimezone?: string): number {
 async function findRecentFormSubmissionCall(
   contactId: string,
   supabaseClient: any,
-  windowMinutes: number = 15
+  windowMinutes: number = 60
 ): Promise<{ hubspot_call_id: string; id: string } | null> {
   try {
     const windowStart = new Date(Date.now() - windowMinutes * 60 * 1000).toISOString();

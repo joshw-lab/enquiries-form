@@ -1070,7 +1070,7 @@ serve(async (req) => {
       // instead of creating a duplicate call engagement.
       let existingCallId: string | null = null;
       try {
-        const windowStart = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+        const windowStart = new Date(Date.now() - 60 * 60 * 1000).toISOString();
         const { data: recentRecording } = await supabaseClient
           .from("call_recordings")
           .select("hubspot_call_id")
