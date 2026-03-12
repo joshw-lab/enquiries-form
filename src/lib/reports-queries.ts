@@ -142,25 +142,37 @@ export async function fetchSubmissions(
   filters: Filters,
   userLookup: Record<string, string>
 ): Promise<{ data: FormSubmission[]; error: string | null }> {
-  let query = supabase
-    .from('hubspot_form_submissions')
-    .select('*')
-    .order('created_at', { ascending: false })
+  // Paginate to avoid Supabase's default 1000-row limit
+  const PAGE_SIZE = 1000
+  const allData: FormSubmission[] = []
+  let offset = 0
 
-  if (filters.startDate) {
-    query = query.gte('created_at', startOfDayAWST(filters.startDate))
+  while (true) {
+    let query = supabase
+      .from('hubspot_form_submissions')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .range(offset, offset + PAGE_SIZE - 1)
+
+    if (filters.startDate) {
+      query = query.gte('created_at', startOfDayAWST(filters.startDate))
+    }
+    if (filters.endDate) {
+      query = query.lte('created_at', endOfDayAWST(filters.endDate))
+    }
+
+    const { data, error } = await query
+
+    if (error) {
+      return { data: [], error: error.message }
+    }
+
+    if (data) allData.push(...(data as FormSubmission[]))
+    if (!data || data.length < PAGE_SIZE) break
+    offset += PAGE_SIZE
   }
-  if (filters.endDate) {
-    query = query.lte('created_at', endOfDayAWST(filters.endDate))
-  }
 
-  const { data, error } = await query
-
-  if (error) {
-    return { data: [], error: error.message }
-  }
-
-  let submissions = (data || []) as FormSubmission[]
+  let submissions = allData
 
   // Resolve agent names
   for (const s of submissions) {

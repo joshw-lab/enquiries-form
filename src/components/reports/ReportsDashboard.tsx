@@ -19,6 +19,7 @@ import DispositionTable from './DispositionTable'
 import DispositionChart from './DispositionChart'
 import CallRecordsTable from './CallRecordsTable'
 import CallRecordingsModal from './CallRecordingsModal'
+import AgentLeadsRepModal from './AgentLeadsRepModal'
 
 export default function ReportsDashboard() {
   const [submissions, setSubmissions] = useState<FormSubmission[]>([])
@@ -33,6 +34,9 @@ export default function ReportsDashboard() {
   const [selectedAgent, setSelectedAgent] = useState('')
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
+
+  // Leads Rep modal state
+  const [leadsRepModalOpen, setLeadsRepModalOpen] = useState(false)
 
   // Recordings modal state
   const [recordingsModalOpen, setRecordingsModalOpen] = useState(false)
@@ -168,12 +172,20 @@ export default function ReportsDashboard() {
           <h1 className="text-2xl font-bold text-gray-900">Call Reports</h1>
           <p className="text-sm text-gray-500 mt-0.5">Disposition analytics and agent performance</p>
         </div>
-        <button
-          onClick={handleLogout}
-          className="text-sm text-gray-500 hover:text-gray-700 transition-colors"
-        >
-          Sign out
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setLeadsRepModalOpen(true)}
+            className="text-xs font-medium text-blue-600 hover:text-blue-700 transition-colors cursor-pointer"
+          >
+            Update Leads Reps
+          </button>
+          <button
+            onClick={handleLogout}
+            className="text-sm text-gray-500 hover:text-gray-700 transition-colors cursor-pointer"
+          >
+            Sign out
+          </button>
+        </div>
       </div>
 
       {/* Filters */}
@@ -234,6 +246,12 @@ export default function ReportsDashboard() {
         onClose={() => setRecordingsModalOpen(false)}
         title={recordingsModalTitle}
         filters={recordingsModalFilters}
+      />
+
+      {/* Leads Rep Modal */}
+      <AgentLeadsRepModal
+        open={leadsRepModalOpen}
+        onClose={() => setLeadsRepModalOpen(false)}
       />
     </div>
   )

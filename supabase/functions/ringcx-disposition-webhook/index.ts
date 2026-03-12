@@ -10,6 +10,12 @@ const corsHeaders = {
 // HubSpot API base URL
 const HUBSPOT_API_BASE = "https://api.hubapi.com";
 
+// Not Interested disposition UUID (HubSpot call disposition ID)
+const NOT_INTERESTED_DISPOSITION_ID = "5e8c009f-db89-4e1a-9c9a-429b45faf0c0";
+
+// CHF Promotions HubSpot owner ID — assigned on "Not Interested" dispositions
+const CHF_PROMOTIONS_OWNER_ID = "27663217";
+
 /**
  * RingCX Disposition Webhook Payload
  * Maps directly to RingCX webhook variables
@@ -236,77 +242,67 @@ async function getHubSpotOwnerInfo(
   }
 }
 
+interface AgentMapping {
+  hubspotOwnerId: string | null;
+  leadsRep: string | null;
+}
+
 /**
- * Get HubSpot owner ID from agent extern ID
- * Maps RingCX agent IDs to HubSpot user IDs via database lookup
+ * Maps RingCX agent IDs to HubSpot user IDs and leads_rep via database lookup.
+ * Tries ringcx_agent_id first (always populated), falls back to agent_extern_id.
+ * Returns leads_rep from the DB if set, otherwise falls back to agent_name.
  */
-async function getHubSpotOwnerId(
+async function getAgentMapping(
+  agentId: string | undefined,
   agentExternId: string | undefined,
   supabaseClient: any
-): Promise<string | null> {
-  if (!agentExternId) {
-    console.log("No agent_extern_id provided, skipping owner mapping");
-    return null;
+): Promise<AgentMapping> {
+  const empty: AgentMapping = { hubspotOwnerId: null, leadsRep: null };
+
+  // Try ringcx_agent_id first (RingCX internal ID, always populated)
+  if (agentId) {
+    try {
+      const { data, error } = await supabaseClient
+        .from('agent_mappings')
+        .select('hubspot_owner_id, agent_name, leads_rep')
+        .eq('ringcx_agent_id', agentId)
+        .single();
+
+      if (!error && data) {
+        const hubspotOwnerId = data.hubspot_owner_id || null;
+        const leadsRep = data.leads_rep || data.agent_name || null;
+        console.log(`Mapped agent_id ${agentId} (${data.agent_name || 'unknown'}) to HubSpot owner ${hubspotOwnerId}, leads_rep="${leadsRep}"`);
+        return { hubspotOwnerId, leadsRep };
+      }
+    } catch (error) {
+      console.error("Error fetching agent mapping by agent_id:", error);
+    }
   }
 
-  try {
-    const { data, error } = await supabaseClient
-      .from('agent_mappings')
-      .select('hubspot_owner_id, agent_name')
-      .eq('agent_extern_id', agentExternId)
-      .single();
+  // Fall back to agent_extern_id (often unresolved in RingCX)
+  if (agentExternId && !isUnresolvedTemplateVar(agentExternId)) {
+    try {
+      const { data, error } = await supabaseClient
+        .from('agent_mappings')
+        .select('hubspot_owner_id, agent_name, leads_rep')
+        .eq('agent_extern_id', agentExternId)
+        .single();
 
-    if (error) {
-      console.log(`No mapping found for agent_extern_id: ${agentExternId}`);
-      return null;
+      if (!error && data) {
+        const hubspotOwnerId = data.hubspot_owner_id || null;
+        const leadsRep = data.leads_rep || data.agent_name || null;
+        console.log(`Mapped agent_extern_id ${agentExternId} (${data.agent_name || 'unknown'}) to HubSpot owner ${hubspotOwnerId}, leads_rep="${leadsRep}"`);
+        return { hubspotOwnerId, leadsRep };
+      }
+    } catch (error) {
+      console.error("Error fetching agent mapping by extern_id:", error);
     }
-
-    if (data?.hubspot_owner_id) {
-      console.log(`Mapped agent ${agentExternId} (${data.agent_name || 'unknown'}) to HubSpot owner ${data.hubspot_owner_id}`);
-      return data.hubspot_owner_id;
-    }
-
-    return null;
-  } catch (error) {
-    console.error("Error fetching HubSpot owner ID:", error);
-    return null;
   }
+
+  console.log(`No agent mapping found for agent_id=${agentId}, extern_id=${agentExternId}`);
+  return empty;
 }
 
-// Not Interested disposition GUID — used to conditionally update leads_rep
-const NOT_INTERESTED_DISPOSITION_ID = "5e8c009f-db89-4e1a-9c9a-429b45faf0c0";
-
-/**
- * Map RingCX agent display name → HubSpot "leads_rep" property value.
- * Most agents have identical names in both systems. This map contains
- * only the exceptions where the RingCX display name differs from the
- * HubSpot leads_rep value.
- */
-const AGENT_LEADS_REP_OVERRIDES: Record<string, string> = {
-  "Amani Neate": "Amani Neates",
-  "Belinda": "Ben",
-  "JC Guillemain": "Jean Claude Guilllemain",
-  "Jason": "Bao",
-  "Jono Ngo": "Jono N",
-  "Larissa James": "Larissa",
-  "Michael Ivory": "Michael",
-  "Nick M": "Nick",
-  "Nicole Lovell": "Nicolle Lovell",
-  "Rebecca Johnson": "Rebecca",
-  "Simon Birsa": "Simon",
-  "Szon Tomkiewicz": "Szon",
-  "Timothy Rowley-Evans": "Tim Rowley-Evans",
-};
-
-/**
- * Get the HubSpot "leads_rep" value for a RingCX agent.
- * Uses override map for agents whose names differ between systems,
- * otherwise returns the agent display name as-is.
- */
-function getLeadsRepValue(agentDisplayName: string): string {
-  const trimmed = agentDisplayName.trim();
-  return AGENT_LEADS_REP_OVERRIDES[trimmed] || trimmed;
-}
 
 /**
  * Map RingCX disposition to HubSpot call disposition
@@ -429,6 +425,28 @@ function mapDispositionToHubSpot(disposition: string): string {
     "hangup": "1bbfa758-eef2-4475-8717-2cebb16270db",
     "hang_up": "1bbfa758-eef2-4475-8717-2cebb16270db",
     "hung_up": "1bbfa758-eef2-4475-8717-2cebb16270db",
+
+    // --- RingCX system dispositions (auto-fired, no agent interaction) ---
+
+    // Intercept — number not in service / disconnected → map to No Answer
+    "intercept": "73a0d17f-1163-4015-bdd5-ec830791da20",
+    "operator_intercept": "73a0d17f-1163-4015-bdd5-ec830791da20",
+
+    // Machine — answering machine detected → map to No Answer
+    "machine": "73a0d17f-1163-4015-bdd5-ec830791da20",
+    "answering_machine": "73a0d17f-1163-4015-bdd5-ec830791da20",
+
+    // Fax machine → map to Wrong Number (not a person)
+    "fax_machine": "17b47fee-58de-441e-a44c-c6300d46f273",
+    "fax": "17b47fee-58de-441e-a44c-c6300d46f273",
+
+    // Dead line / dead air → map to No Answer
+    "dead_line": "73a0d17f-1163-4015-bdd5-ec830791da20",
+    "dead_air": "73a0d17f-1163-4015-bdd5-ec830791da20",
+
+    // Rejected / declined → map to No Answer
+    "rejected": "73a0d17f-1163-4015-bdd5-ec830791da20",
+    "declined": "73a0d17f-1163-4015-bdd5-ec830791da20",
   };
 
   const mapped = dispositionMap[normalized];
@@ -436,10 +454,12 @@ function mapDispositionToHubSpot(disposition: string): string {
     return mapped;
   }
 
-  // CRITICAL ERROR: Unmapped disposition will cause HubSpot to reject or default
-  console.error(`❌ UNMAPPED DISPOSITION: "${disposition}" (normalized: "${normalized}")`);
-  console.error(`   Available dispositions: ${Object.keys(dispositionMap).join(", ")}`);
-  throw new Error(`Disposition "${disposition}" is not mapped to a HubSpot value. Add mapping to dispositionMap in the webhook code.`);
+  // Fallback: unmapped dispositions default to "No Answer" so they still create
+  // HubSpot activity instead of silently failing. Log a warning for investigation.
+  const NO_ANSWER_FALLBACK = "73a0d17f-1163-4015-bdd5-ec830791da20";
+  console.warn(`⚠️ UNMAPPED DISPOSITION: "${disposition}" (normalized: "${normalized}") — falling back to No Answer`);
+  console.warn(`   Known dispositions: ${Object.keys(dispositionMap).join(", ")}`);
+  return NO_ANSWER_FALLBACK;
 }
 
 /**
@@ -906,47 +926,61 @@ serve(async (req) => {
     //   2. Disposition: actual agent_disposition filled in — fired after agent submits disposition
     // We only want to create a HubSpot call record from the DISPOSITION webhook (#2)
     // to avoid duplicate records and ensure we have the correct disposition.
+    // EXCEPTION: If the system disposition is non-default (e.g., "busy"), the agent never
+    // interacted with the call, so no disposition webhook will follow — process directly.
     console.log("Raw disposition fields:", {
       agent_disposition: payload.agent_disposition,
       disposition: payload.disposition
     });
 
     if (!payload.agent_disposition || isUnresolvedTemplateVar(payload.agent_disposition)) {
-      const reason = !payload.agent_disposition
-        ? "no agent_disposition"
-        : `unresolved template var: "${payload.agent_disposition}"`;
-      console.log(`⏭️ Skipping auto-fire webhook (${reason}) — waiting for disposition webhook`);
+      const systemDisp = (payload.disposition || "").toLowerCase().trim();
+      const isDefaultDisp = !systemDisp || systemDisp === "no_answer";
 
-      // Log skipped webhooks for audit trail
-      try {
-        const skipClient = createClient(
-          Deno.env.get("SUPABASE_URL") ?? "",
-          Deno.env.get("SB_SERVICE_ROLE_KEY") ?? ""
-        );
-        await skipClient.from("ringcx_webhook_logs").insert({
-          call_id: payload.call_id,
-          contact_id: payload.extern_id,
-          payload: payload,
-          processed_at: new Date().toISOString(),
-          status: "skipped",
-          error_message: `Auto-fire webhook skipped: ${reason}`,
-        });
-      } catch (logErr) {
-        console.error("Failed to log skipped webhook:", logErr);
-      }
+      if (!isDefaultDisp) {
+        // Non-default system disposition (e.g., busy, hangup) — agent never interacted
+        // with the call, so no agent disposition webhook will follow. Process directly.
+        console.log(`📞 Auto-fire webhook has system disposition "${systemDisp}" — processing directly (no agent interaction)`);
+        payload.agent_disposition = systemDisp;
+        // Fall through to normal processing below
+      } else {
+        // Default "no_answer" auto-fire — wait for agent disposition webhook
+        const reason = !payload.agent_disposition
+          ? "no agent_disposition"
+          : `unresolved template var: "${payload.agent_disposition}"`;
+        console.log(`⏭️ Skipping auto-fire webhook (${reason}) — waiting for disposition webhook`);
 
-      return new Response(
-        JSON.stringify({
-          success: true,
-          skipped: true,
-          message: `Auto-fire webhook ignored (${reason}) — will process disposition webhook instead`,
-          call_id: payload.call_id,
-        }),
-        {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-          status: 200,
+        // Log skipped webhooks for audit trail
+        try {
+          const skipClient = createClient(
+            Deno.env.get("SUPABASE_URL") ?? "",
+            Deno.env.get("SB_SERVICE_ROLE_KEY") ?? ""
+          );
+          await skipClient.from("ringcx_webhook_logs").insert({
+            call_id: payload.call_id,
+            contact_id: payload.extern_id,
+            payload: payload,
+            processed_at: new Date().toISOString(),
+            status: "skipped",
+            error_message: `Auto-fire webhook skipped: ${reason}`,
+          });
+        } catch (logErr) {
+          console.error("Failed to log skipped webhook:", logErr);
         }
-      );
+
+        return new Response(
+          JSON.stringify({
+            success: true,
+            skipped: true,
+            message: `Auto-fire webhook ignored (${reason}) — will process disposition webhook instead`,
+            call_id: payload.call_id,
+          }),
+          {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+            status: 200,
+          }
+        );
+      }
     }
 
     const disposition = payload.agent_disposition;
@@ -1028,16 +1062,14 @@ serve(async (req) => {
       );
     }
 
-    // Get agent's timezone from HubSpot (if agent_extern_id is provided and mapped)
+    // Get agent mapping from DB (owner ID, leads_rep, timezone)
+    const agentMapping = await getAgentMapping(payload.agent_id, payload.agent_extern_id, supabaseClient);
     let agentTimezone: string | undefined;
-    if (payload.agent_extern_id) {
-      const ownerId = await getHubSpotOwnerId(payload.agent_extern_id, supabaseClient);
-      if (ownerId) {
-        const ownerInfo = await getHubSpotOwnerInfo(ownerId, hubspotAccessToken);
-        if (ownerInfo?.timezone) {
-          agentTimezone = ownerInfo.timezone;
-          console.log(`Using agent timezone: ${agentTimezone}`);
-        }
+    if (agentMapping.hubspotOwnerId) {
+      const ownerInfo = await getHubSpotOwnerInfo(agentMapping.hubspotOwnerId, hubspotAccessToken);
+      if (ownerInfo?.timezone) {
+        agentTimezone = ownerInfo.timezone;
+        console.log(`Using agent timezone: ${agentTimezone}`);
       }
     }
 
@@ -1129,24 +1161,26 @@ serve(async (req) => {
       .update({ hubspot_call_id: result.callId })
       .eq("call_id", payload.call_id);
 
-    // Update contact properties: always set call notes flag,
-    // and conditionally set leads_rep when disposition is "Not Interested"
+    // Update contact properties: always set call notes flag and leads_rep
     try {
       const contactProperties: Record<string, string> = {
         n0_ringcx_call_notes: "Yes",
       };
 
-      // Check if disposition is "Not Interested" — if so, set leads_rep to the agent's name
+      // Set leads_rep on every disposition — use DB mapping, fall back to agent display name
+      const leadsRepValue = agentMapping.leadsRep || getAgentDisplayName(payload);
+      contactProperties.leads_rep = leadsRepValue;
+      console.log(`📋 Will update leads_rep="${leadsRepValue}" (disposition: ${disposition})`);
+
+      // On "Not Interested" dispositions, reassign contact owner to CHF Promotions
       try {
-        const dispositionGuid = mapDispositionToHubSpot(disposition);
-        if (dispositionGuid === NOT_INTERESTED_DISPOSITION_ID) {
-          const agentNameForRep = getAgentDisplayName(payload);
-          const leadsRepValue = getLeadsRepValue(agentNameForRep);
-          contactProperties.leads_rep = leadsRepValue;
-          console.log(`📋 Will update leads_rep="${leadsRepValue}" (agent: "${agentNameForRep}", disposition: not_interested)`);
+        const hubspotDispositionId = mapDispositionToHubSpot(disposition);
+        if (hubspotDispositionId === NOT_INTERESTED_DISPOSITION_ID) {
+          contactProperties.hubspot_owner_id = CHF_PROMOTIONS_OWNER_ID;
+          console.log(`🔄 Not Interested — setting contact owner to CHF Promotions (${CHF_PROMOTIONS_OWNER_ID})`);
         }
       } catch {
-        // mapDispositionToHubSpot may throw for unmapped dispositions — ignore here
+        // If disposition can't be mapped, skip the owner change
       }
 
       const contactUpdateResponse = await fetch(

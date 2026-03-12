@@ -11,8 +11,9 @@ import {
   formatPhoneNumber,
   isValidE164,
   searchLeadInCampaign,
+  hasRecentFailure,
 } from "../_shared/ringcx-lead-loader-base.ts";
-import { notifyGChatError } from "../gchat-notify.ts";
+import { notifyGChatError } from "../_shared/gchat-notify.ts";
 
 const CAMPAIGN_TYPE = "Old";
 const CAMPAIGN_ID_FIELD = "n0_old_list_id";
@@ -42,6 +43,16 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_URL") ?? "",
       Deno.env.get("SB_SERVICE_ROLE_KEY") ?? ""
     );
+
+    // Check for recent failure — skip if this contact already failed within the last hour
+    const recentFailure = await hasRecentFailure(supabaseClient, contactId);
+    if (recentFailure.suppressed) {
+      console.log(`[${CAMPAIGN_TYPE}] Skipping contact ${contactId} — recent failure: ${recentFailure.reason}`);
+      return new Response(
+        JSON.stringify({ success: false, skipped: true, reason: "recent_failure_suppressed" }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200 }
+      );
+    }
 
     const hubspotAccessToken = Deno.env.get("HUBSPOT_ACCESS_TOKEN");
     if (!hubspotAccessToken) {
@@ -115,6 +126,16 @@ serve(async (req) => {
         error_details: { contactId, campaignId, campaignType: CAMPAIGN_TYPE, phone: properties.phone, mobile: properties.mobilephone },
       });
 
+      await notifyGChatError({
+        source: `ringcx-lead-loader-${CAMPAIGN_TYPE.toLowerCase()}`,
+        error: msg,
+        details: { contactId, campaignId, phone: properties.phone, mobile: properties.mobilephone },
+      });
+
+      await updateHubSpotContact(contactId, hubspotAccessToken, {
+        ringcx_load_status: `[${CAMPAIGN_TYPE}] Failed — No valid phone. phone="${properties.phone || ""}" mobile="${properties.mobilephone || ""}"`,
+      });
+
       // Return 200 — this is a data quality issue, not a transient error. Do NOT retry.
       return new Response(
         JSON.stringify({ success: false, skipped: true, reason: "no_valid_phone", error: msg }),
@@ -141,7 +162,28 @@ serve(async (req) => {
       await supabaseClient.from("error_log").insert({
         source: `ringcx-lead-loader-${CAMPAIGN_TYPE.toLowerCase()}`,
         error_message: result.error || "Failed to push lead to RingCX",
-        error_details: { contactId, campaignId, campaignType: CAMPAIGN_TYPE, error: result.error },
+        error_details: {
+          contactId,
+          campaignId,
+          campaignType: CAMPAIGN_TYPE,
+          error: result.error,
+          ...(result.diagnostic ? { diagnostic: result.diagnostic } : {}),
+        },
+      });
+
+      await notifyGChatError({
+        source: `ringcx-lead-loader-${CAMPAIGN_TYPE.toLowerCase()}`,
+        error: result.error || "Failed to push lead to RingCX",
+        details: {
+          contactId,
+          campaignId,
+          campaignType: CAMPAIGN_TYPE,
+          ...(result.diagnostic ? { diagnostic: result.diagnostic } : {}),
+        },
+      });
+
+      await updateHubSpotContact(contactId, hubspotAccessToken, {
+        ringcx_load_status: `[${CAMPAIGN_TYPE}] Failed — ${(result.error || "Unknown error").substring(0, 250)}`,
       });
 
       // Return 200 for data/validation failures (non-retryable) — only 500 for auth/infra failures
@@ -156,21 +198,32 @@ serve(async (req) => {
 
     console.log(`[${CAMPAIGN_TYPE}] Successfully pushed contact ${contactId} to RingCX campaign ${campaignId}`);
 
+    // Log successful load for hourly reporting
+    await supabaseClient.from("lead_loads").insert({
+      contact_id: contactId,
+      campaign_id: campaignId,
+      campaign_type: CAMPAIGN_TYPE,
+      lead_id: result.leadId || null,
+    }).then(() => {}).catch((err: unknown) => console.warn("Failed to log lead load:", err));
+
     // Search for the lead to get the RingCX lead ID
     const searchResult = await searchLeadInCampaign(campaignId, contactId, ringcxAccessToken, properties.firstname);
 
-    // Write back the RingCX lead ID to HubSpot
+    // Write back the RingCX lead ID + clear load status on success
     const leadId = searchResult.success ? searchResult.leadId : result.leadId;
+    const now = new Date().toISOString().replace("T", " ").substring(0, 19);
+    const writebackProps: Record<string, string> = {
+      ringcx_load_status: `[${CAMPAIGN_TYPE}] Loaded to campaign ${campaignId}${leadId ? ` (lead ${leadId})` : ""} at ${now}`,
+    };
     if (leadId) {
+      writebackProps[LEAD_ID_FIELD] = leadId;
       console.log(`[${CAMPAIGN_TYPE}] Writing back lead ID ${leadId} to HubSpot field ${LEAD_ID_FIELD}`);
-      const writebackResult = await updateHubSpotContact(contactId, hubspotAccessToken, {
-        [LEAD_ID_FIELD]: leadId,
-      });
-      if (!writebackResult.success) {
-        console.error(`[${CAMPAIGN_TYPE}] Failed to write back lead ID to HubSpot:`, writebackResult.error);
-      }
     } else {
-      console.warn(`[${CAMPAIGN_TYPE}] No lead ID found, skipping HubSpot writeback`);
+      console.warn(`[${CAMPAIGN_TYPE}] No lead ID found, skipping lead ID writeback`);
+    }
+    const writebackResult = await updateHubSpotContact(contactId, hubspotAccessToken, writebackProps);
+    if (!writebackResult.success) {
+      console.error(`[${CAMPAIGN_TYPE}] Failed to write back to HubSpot:`, writebackResult.error);
     }
 
     return new Response(

@@ -9,6 +9,7 @@ interface LeadInfoAccordionProps {
   error: string | null
   defaultExpandedSections?: string[]
   compact?: boolean
+  onRetry?: () => void
 }
 
 // Chevron icon component
@@ -140,7 +141,7 @@ function LoadingSkeleton() {
 }
 
 // Error display
-function ErrorDisplay({ error }: { error: string }) {
+function ErrorDisplay({ error, onRetry }: { error: string; onRetry?: () => void }) {
   return (
     <div className="px-4 py-6 text-center">
       <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-red-100 mb-3">
@@ -149,6 +150,17 @@ function ErrorDisplay({ error }: { error: string }) {
         </svg>
       </div>
       <p className="text-sm text-gray-600">{error}</p>
+      {onRetry && (
+        <button
+          onClick={onRetry}
+          className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-md transition-colors"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+          Try Again
+        </button>
+      )}
     </div>
   )
 }
@@ -194,6 +206,7 @@ export default function LeadInfoAccordion({
   error,
   defaultExpandedSections = DEFAULT_EXPANDED,
   compact = false,
+  onRetry,
 }: LeadInfoAccordionProps) {
   // Track which sections are expanded
   const [expandedSections, setExpandedSections] = useState<Set<string>>(
@@ -242,7 +255,7 @@ export default function LeadInfoAccordion({
         <div className="px-4 py-3 bg-gray-50 border-b border-gray-200">
           <h2 className="font-semibold text-gray-900">Lead Information</h2>
         </div>
-        <ErrorDisplay error={error} />
+        <ErrorDisplay error={error} onRetry={onRetry} />
       </div>
     )
   }

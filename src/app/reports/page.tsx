@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation'
 import { isAuthenticated } from '@/lib/reports-auth'
-import ReportsDashboard from '@/components/reports/ReportsDashboard'
+import OperationsDashboard from '@/components/reports/OperationsDashboard'
 
 export default async function ReportsPage() {
   const authed = await isAuthenticated()
@@ -8,5 +8,5 @@ export default async function ReportsPage() {
     redirect('/reports/login')
   }
 
-  return <ReportsDashboard />
+  return <OperationsDashboard />
 }

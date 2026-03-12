@@ -79,20 +79,30 @@ serve(async (req) => {
     // Query ringcx_webhook_logs for the date range
     // Each row = one dial attempt (both auto-fire and disposition webhooks are logged)
     // We deduplicate by call_id since each call may trigger 2 webhooks
-    let query = supabase
-      .from("ringcx_webhook_logs")
-      .select("call_id, payload")
-      .gte("processed_at", `${startDate}T00:00:00Z`)
-      .lte("processed_at", `${endDate}T23:59:59Z`);
+    // Paginate to avoid Supabase's default 1000-row limit
+    const PAGE_SIZE = 1000;
+    const logs: Array<{ call_id: string; payload: Record<string, unknown> }> = [];
+    let offset = 0;
 
-    const { data: logs, error: queryError } = await query;
+    while (true) {
+      const { data: page, error: queryError } = await supabase
+        .from("ringcx_webhook_logs")
+        .select("call_id, payload")
+        .gte("processed_at", `${startDate}T00:00:00+08:00`)
+        .lte("processed_at", `${endDate}T23:59:59+08:00`)
+        .range(offset, offset + PAGE_SIZE - 1);
 
-    if (queryError) {
-      console.error("Query error:", queryError);
-      return new Response(
-        JSON.stringify({ error: queryError.message }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      if (queryError) {
+        console.error("Query error:", queryError);
+        return new Response(
+          JSON.stringify({ error: queryError.message }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      if (page) logs.push(...page);
+      if (!page || page.length < PAGE_SIZE) break;
+      offset += PAGE_SIZE;
     }
 
     // Deduplicate by call_id — keep the first occurrence per call

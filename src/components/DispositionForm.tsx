@@ -467,6 +467,44 @@ export default function DispositionForm() {
     }
   }, [])
 
+  // Fetch lead data from HubSpot by contact_id
+  const loadLeadData = useCallback((contactId: string) => {
+    setIsLoadingLead(true)
+    setLeadError(null)
+    fetchLeadData(contactId)
+      .then(response => {
+        if (response.success && response.contact) {
+          setLeadData(response.contact)
+          const mappedData = mapLeadPropertiesToFormData(response.contact.rawProperties)
+          setFormData(prev => ({
+            ...prev,
+            ...mappedData,
+            postcode: mappedData.postalCode || prev.postcode,
+          }))
+          if (mappedData.postalCode && mappedData.postalCode.length === 4) {
+            lookupPostcode(mappedData.postalCode)
+          }
+        } else {
+          setLeadError(response.error || 'Failed to load lead data')
+        }
+      })
+      .catch(err => {
+        console.error('Error fetching lead data:', err)
+        setLeadError('Failed to load lead data')
+      })
+      .finally(() => {
+        setIsLoadingLead(false)
+      })
+  }, [lookupPostcode])
+
+  // Retry handler for lead data fetch
+  const handleRetryLeadData = useCallback(() => {
+    const contactId = contactInfo?.contact_id
+    if (contactId) {
+      loadLeadData(contactId)
+    }
+  }, [contactInfo, loadLeadData])
+
   // Parse query params on mount and fetch lead data if contact_id present
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
@@ -505,37 +543,9 @@ export default function DispositionForm() {
 
     // Fetch full lead data from HubSpot if contact_id is present
     if (contact_id) {
-      setIsLoadingLead(true)
-      setLeadError(null)
-      fetchLeadData(contact_id)
-        .then(response => {
-          if (response.success && response.contact) {
-            setLeadData(response.contact)
-            // Pre-populate form fields from HubSpot data
-            const mappedData = mapLeadPropertiesToFormData(response.contact.rawProperties)
-            setFormData(prev => ({
-              ...prev,
-              ...mappedData,
-              // Keep postcode from URL if HubSpot doesn't have it
-              postcode: mappedData.postalCode || prev.postcode,
-            }))
-            // Lookup postcode zone if we got a postal code
-            if (mappedData.postalCode && mappedData.postalCode.length === 4) {
-              lookupPostcode(mappedData.postalCode)
-            }
-          } else {
-            setLeadError(response.error || 'Failed to load lead data')
-          }
-        })
-        .catch(err => {
-          console.error('Error fetching lead data:', err)
-          setLeadError('Failed to load lead data')
-        })
-        .finally(() => {
-          setIsLoadingLead(false)
-        })
+      loadLeadData(contact_id)
     }
-  }, [lookupPostcode])
+  }, [lookupPostcode]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handlePostcodeChange = (value: string) => {
     const numericValue = value.replace(/\D/g, '').slice(0, 4)
@@ -678,7 +688,6 @@ export default function DispositionForm() {
       case 'book_water_test':
         return (
           formData.firstName &&
-          formData.lastName &&
           formData.phoneNumber &&
           formData.streetAddress &&
           formData.city &&
@@ -822,6 +831,7 @@ export default function DispositionForm() {
                 error={leadError}
                 compact={true}
                 defaultExpandedSections={['contact', 'property', 'waterAssessment']}
+                onRetry={handleRetryLeadData}
               />
             </div>
           </aside>
@@ -924,16 +934,13 @@ export default function DispositionForm() {
                         )}
                       </div>
                       <div>
-                        <label className={getErrorLabelClass(formData.lastName)}>Last Name *</label>
+                        <label className="block text-sm font-medium text-gray-700">Last Name</label>
                         <input
                           type="text"
                           value={formData.lastName}
                           onChange={(e) => updateField('lastName', e.target.value)}
-                          className={getFieldClass(inputClass, formData.lastName)}
+                          className={inputClass}
                         />
-                        {isFieldInvalid(formData.lastName) && (
-                          <p className="text-red-600 text-sm mt-1">This field is required</p>
-                        )}
                       </div>
                       <div>
                         <label className={getErrorLabelClass(formData.phoneNumber)}>Phone Number *</label>
