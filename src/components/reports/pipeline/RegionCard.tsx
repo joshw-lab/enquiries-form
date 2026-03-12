@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import type { RegionPipelineData, PipelineData } from '@/lib/dashboard-types'
+import type { RegionPipelineData, PipelineData, ServiceAreaCalendar } from '@/lib/dashboard-types'
 import {
   NEW_BUCKET_COLORS,
   NEW_BUCKET_LABELS,
@@ -10,7 +10,7 @@ import {
 } from '@/lib/dashboard-types'
 
 interface RegionCardProps {
-  data: RegionPipelineData
+  data: RegionPipelineData & { serviceAreaCalendars?: ServiceAreaCalendar[] }
   isSelected: boolean
   onClick: () => void
 }
@@ -184,28 +184,52 @@ export default function RegionCard({ data, isSelected, onClick }: RegionCardProp
 
       {/* Calendar footer */}
       <div className="mt-auto border-t border-gray-100 px-4 py-2.5 bg-[#fafafa] flex flex-col gap-1.5">
-        {/* 72h row */}
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] text-gray-600 font-medium w-8 shrink-0">72h</span>
-          <div className="flex-1 bg-gray-200 rounded h-[5px] overflow-hidden">
-            <div className={`h-full rounded ${calFillClass(p72)}`} style={{ width: `${p72}%` }} />
-          </div>
-          <span className="text-[11px] font-bold min-w-[36px] text-right" style={{ color: calColor(p72) }}>
-            {data.calendar.slots72h.booked}/{data.calendar.slots72h.total}
-          </span>
-          <span className="text-[10px] text-gray-500 min-w-[38px] text-right">{open72} open</span>
-        </div>
-        {/* 7d row */}
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] text-gray-600 font-medium w-8 shrink-0">7d</span>
-          <div className="flex-1 bg-gray-200 rounded h-[5px] overflow-hidden">
-            <div className={`h-full rounded ${calFillClass(p7)}`} style={{ width: `${p7}%` }} />
-          </div>
-          <span className="text-[11px] font-bold min-w-[36px] text-right" style={{ color: calColor(p7) }}>
-            {data.calendar.slots7d.booked}/{data.calendar.slots7d.total}
-          </span>
-          <span className="text-[10px] text-gray-500 min-w-[38px] text-right">{open7} open</span>
-        </div>
+        {data.serviceAreaCalendars && data.serviceAreaCalendars.length > 1 ? (
+          /* Per-service-area breakdown */
+          data.serviceAreaCalendars.map((sa) => {
+            const sp72 = pct(sa.data.slots72h.booked, sa.data.slots72h.total)
+            const sOpen72 = sa.data.slots72h.total - sa.data.slots72h.booked
+            return (
+              <div key={sa.serviceArea} className="flex flex-col gap-1">
+                <span className="text-[9px] font-semibold uppercase tracking-wide text-gray-500">{sa.serviceArea}</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] text-gray-600 font-medium w-8 shrink-0">72h</span>
+                  <div className="flex-1 bg-gray-200 rounded h-[5px] overflow-hidden">
+                    <div className={`h-full rounded ${calFillClass(sp72)}`} style={{ width: `${sp72}%` }} />
+                  </div>
+                  <span className="text-[11px] font-bold min-w-[36px] text-right" style={{ color: calColor(sp72) }}>
+                    {sa.data.slots72h.booked}/{sa.data.slots72h.total}
+                  </span>
+                  <span className="text-[10px] text-gray-500 min-w-[38px] text-right">{sOpen72} open</span>
+                </div>
+              </div>
+            )
+          })
+        ) : (
+          /* Single calendar — show 72h + 7d */
+          <>
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] text-gray-600 font-medium w-8 shrink-0">72h</span>
+              <div className="flex-1 bg-gray-200 rounded h-[5px] overflow-hidden">
+                <div className={`h-full rounded ${calFillClass(p72)}`} style={{ width: `${p72}%` }} />
+              </div>
+              <span className="text-[11px] font-bold min-w-[36px] text-right" style={{ color: calColor(p72) }}>
+                {data.calendar.slots72h.booked}/{data.calendar.slots72h.total}
+              </span>
+              <span className="text-[10px] text-gray-500 min-w-[38px] text-right">{open72} open</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] text-gray-600 font-medium w-8 shrink-0">7d</span>
+              <div className="flex-1 bg-gray-200 rounded h-[5px] overflow-hidden">
+                <div className={`h-full rounded ${calFillClass(p7)}`} style={{ width: `${p7}%` }} />
+              </div>
+              <span className="text-[11px] font-bold min-w-[36px] text-right" style={{ color: calColor(p7) }}>
+                {data.calendar.slots7d.booked}/{data.calendar.slots7d.total}
+              </span>
+              <span className="text-[10px] text-gray-500 min-w-[38px] text-right">{open7} open</span>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Urgency strip */}

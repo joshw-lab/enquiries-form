@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
-import type { PipelineResponse, CalendarResponse, Region } from '@/lib/dashboard-types'
+import type { PipelineResponse, CalendarResponse, Region, ServiceAreaCalendar } from '@/lib/dashboard-types'
 import RegionCard from './RegionCard'
 import DrillPanel from './DrillPanel'
 
@@ -15,10 +15,33 @@ export default function PipelineView({ data, calendarData, onRefresh }: Pipeline
   const [selectedRegion, setSelectedRegion] = useState<Region | null>(null)
   const drillRef = useRef<HTMLDivElement>(null)
 
-  // Merge calendar data into pipeline regions if available
+  // Group service-area calendars by region
+  const calendarByRegion: Record<string, ServiceAreaCalendar[]> = {}
+  if (calendarData?.serviceAreas) {
+    for (const sa of calendarData.serviceAreas) {
+      if (!calendarByRegion[sa.region]) calendarByRegion[sa.region] = []
+      calendarByRegion[sa.region].push(sa)
+    }
+  }
+
+  // Merge calendar data into pipeline regions — aggregate across service areas
   const regions = data?.regions.map((r) => {
-    if (calendarData?.regions[r.region]) {
-      return { ...r, calendar: calendarData.regions[r.region] }
+    const areas = calendarByRegion[r.region]
+    if (areas && areas.length > 0) {
+      // Aggregate totals across all service areas for the region summary
+      const slots72h = { booked: 0, total: 0 }
+      const slots7d = { booked: 0, total: 0 }
+      for (const a of areas) {
+        slots72h.booked += a.data.slots72h.booked
+        slots72h.total += a.data.slots72h.total
+        slots7d.booked += a.data.slots7d.booked
+        slots7d.total += a.data.slots7d.total
+      }
+      return {
+        ...r,
+        calendar: { slots72h, slots7d, daily: areas[0].data.daily },
+        serviceAreaCalendars: areas,
+      }
     }
     return r
   }) ?? []
@@ -48,7 +71,7 @@ export default function PipelineView({ data, calendarData, onRefresh }: Pipeline
     <div>
       {/* Section heading */}
       <div className="flex items-center gap-2.5 mb-3 text-[10px] font-semibold uppercase tracking-wider text-gray-500">
-        6 Regions
+        {regions.length} Regions
         <span className="flex-1 h-px bg-gray-300" />
       </div>
 

@@ -131,9 +131,16 @@ export interface PipelineResponse {
   lastFetched: string
 }
 
+// ── Service area calendar (one per calendar / postcode zone) ──
+export interface ServiceAreaCalendar {
+  serviceArea: string // e.g. "Gold Coast", "WA Southwest"
+  region: string      // parent state e.g. "QLD", "WA"
+  data: RegionCalendarData
+}
+
 // ── Calendar API response ──
 export interface CalendarResponse {
-  regions: Record<Region, RegionCalendarData>
+  serviceAreas: ServiceAreaCalendar[]
   lastFetched: string
 }
 

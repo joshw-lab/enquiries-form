@@ -223,30 +223,36 @@ export function getGoogleCalendarClient(): GoogleCalendarClient {
 
 // ── Calendar ID mapping from service_area_mappings ──
 
-let _calendarIdCache: { ids: Record<string, string>; expiry: number } | null = null
+export interface ServiceAreaMapping {
+  serviceArea: string
+  region: string
+  calendarId: string
+}
 
-export async function getCalendarIdsFromDb(): Promise<Record<string, string>> {
+let _serviceAreaCache: { areas: ServiceAreaMapping[]; expiry: number } | null = null
+
+export async function getServiceAreaCalendars(): Promise<ServiceAreaMapping[]> {
   const now = Date.now()
-  if (_calendarIdCache && _calendarIdCache.expiry > now) return _calendarIdCache.ids
+  if (_serviceAreaCache && _serviceAreaCache.expiry > now) return _serviceAreaCache.areas
 
   const supabase = getSupabaseServerClient()
   const { data, error } = await supabase
     .from('service_area_mappings')
-    .select('region, calendar_id')
+    .select('region, service_area_name, calendar_id')
     .not('calendar_id', 'is', null)
+    .order('region')
+    .order('service_area_name')
 
-  if (error || !data) throw new Error('Failed to fetch calendar IDs from service_area_mappings')
+  if (error || !data) throw new Error('Failed to fetch service area calendars')
 
-  // Deduplicate: one calendar_id per region
-  const ids: Record<string, string> = {}
-  for (const row of data) {
-    if (row.region && row.calendar_id && !ids[row.region]) {
-      ids[row.region] = row.calendar_id
-    }
-  }
+  const areas: ServiceAreaMapping[] = data.map((row) => ({
+    serviceArea: row.service_area_name || row.region,
+    region: row.region,
+    calendarId: row.calendar_id,
+  }))
 
-  _calendarIdCache = { ids, expiry: now + 60 * 60 * 1000 } // Cache 1 hour
-  return ids
+  _serviceAreaCache = { areas, expiry: now + 60 * 60 * 1000 }
+  return areas
 }
 
 // ── Campaign mapping discovery from HubSpot ──

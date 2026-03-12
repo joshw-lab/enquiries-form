@@ -1,9 +1,8 @@
 import { NextResponse } from 'next/server'
-import type { CalendarResponse, Region, RegionCalendarData, CalendarDaySlot } from '@/lib/dashboard-types'
-import { REGIONS } from '@/lib/dashboard-types'
+import type { CalendarResponse, RegionCalendarData, CalendarDaySlot, ServiceAreaCalendar } from '@/lib/dashboard-types'
 import {
   getGoogleCalendarClient,
-  getCalendarIdsFromDb,
+  getServiceAreaCalendars,
   type CalendarEvent,
 } from '@/lib/server/api-clients'
 
@@ -25,27 +24,16 @@ const EMPTY_CALENDAR: RegionCalendarData = {
 export async function GET() {
   try {
     const calendar = getGoogleCalendarClient()
-    const calendarIds = await getCalendarIdsFromDb()
+    const serviceAreas = await getServiceAreaCalendars()
 
     const now = new Date()
     const in72h = new Date(now.getTime() + 72 * 3_600_000)
     const in7d = new Date(now.getTime() + 7 * 86_400_000)
 
-    const regions = {} as Record<Region, RegionCalendarData>
-
-    await Promise.all(
-      REGIONS.map(async (region) => {
-        const calId = calendarIds[region]
-        if (!calId) {
-          regions[region] = { ...EMPTY_CALENDAR, daily: [] }
-          return
-        }
-
+    const results: ServiceAreaCalendar[] = await Promise.all(
+      serviceAreas.map(async (sa) => {
         try {
-          // Fetch all events for the next 7 days (includes the 72h window)
-          const events = await calendar.listEvents(calId, now.toISOString(), in7d.toISOString())
-
-          // Only count timed events (not all-day)
+          const events = await calendar.listEvents(sa.calendarId, now.toISOString(), in7d.toISOString())
           const timed = events.filter((e) => e.start?.dateTime)
 
           // 72h window
@@ -55,7 +43,7 @@ export async function GET() {
           // 7d window
           const booked7d = timed.filter(isBooked).length
 
-          // Daily breakdown for drill panel (next 7 days)
+          // Daily breakdown (next 7 days)
           const daily: CalendarDaySlot[] = []
           for (let i = 0; i < 7; i++) {
             const dayStart = new Date(now)
@@ -87,31 +75,34 @@ export async function GET() {
             })
           }
 
-          regions[region] = {
-            slots72h: { booked: booked72h, total: events72h.length },
-            slots7d: { booked: booked7d, total: timed.length },
-            daily,
+          return {
+            serviceArea: sa.serviceArea,
+            region: sa.region,
+            data: {
+              slots72h: { booked: booked72h, total: events72h.length },
+              slots7d: { booked: booked7d, total: timed.length },
+              daily,
+            },
           }
         } catch (e) {
-          console.warn(`Calendar fetch failed for ${region}:`, (e as Error).message)
-          regions[region] = { ...EMPTY_CALENDAR, daily: [] }
+          console.warn(`Calendar fetch failed for ${sa.serviceArea} (${sa.region}):`, (e as Error).message)
+          return {
+            serviceArea: sa.serviceArea,
+            region: sa.region,
+            data: { ...EMPTY_CALENDAR, daily: [] },
+          }
         }
       })
     )
 
     const response: CalendarResponse = {
-      regions,
+      serviceAreas: results,
       lastFetched: new Date().toISOString(),
     }
 
     return NextResponse.json(response)
   } catch (e) {
     console.error('Calendar API error:', e)
-    // Return empty data so the UI doesn't break
-    const regions = {} as Record<Region, RegionCalendarData>
-    for (const r of REGIONS) {
-      regions[r] = { ...EMPTY_CALENDAR, daily: [] }
-    }
-    return NextResponse.json({ regions, lastFetched: new Date().toISOString() } as CalendarResponse)
+    return NextResponse.json({ serviceAreas: [], lastFetched: new Date().toISOString() } as CalendarResponse)
   }
 }
