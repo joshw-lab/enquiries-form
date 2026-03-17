@@ -3,7 +3,7 @@ export const REGIONS = ['NSW', 'VIC', 'QLD', 'WA', 'SA', 'ACT'] as const
 export type Region = (typeof REGIONS)[number]
 
 // ── Dashboard tab identifiers ──
-export type DashboardTab = 'pipeline' | 'sync' | 'reports' | 'calllog'
+export type DashboardTab = 'pipeline' | 'sync' | 'reports' | 'queue'
 
 // ── Pipeline data ──
 export interface PipelineData {
@@ -149,6 +149,80 @@ export interface SyncResponse {
   campaigns: CampaignSync[]
   summary: SyncSummary
   lastFetched: string
+}
+
+// ── Queue — Left column (queued leads) ──
+export interface QueuedLead {
+  id: string
+  contactId: string
+  contactName: string | null
+  contactState: string | null
+  contactPostcode: string | null
+  campaignId: string
+  campaignType: string
+  loadedAt: string
+  dialPriority: string
+  priorityReason: string
+  priorityContext: {
+    lead_date: string | null
+    createdate: string | null
+    num_contacted: number
+  } | null
+  queuePosition: number
+}
+
+// ── Queue — Right column (completed calls) ──
+export interface CompletedCall {
+  id: string
+  contactId: string | null
+  contactName: string | null
+  callStart: string
+  callDuration: number | null
+  disposition: string | null
+  agentName: string | null
+  gdriveFileId: string | null
+  ringcxRecordingUrl: string | null
+  backupStatus: string | null
+  callPosition: number
+  notes: string | null
+}
+
+// ── Queue — Metrics ──
+export interface QueueMetrics {
+  callsToday: number
+  callsPerHour: number
+  leadsPerHour: number
+  connectRate: number | null
+  bookingRate: number | null
+  bookingsPerHour: number
+  avgLeadToCallMinutes: number | null
+}
+
+// ── Queue — Summary strip ──
+export interface QueueSummary {
+  totalLoaded: number
+  immediateCount: number
+  normalCount: number
+  calledCount: number
+}
+
+// ── Queue API response ──
+export interface QueueCampaign {
+  id: string
+  label: string
+}
+
+export interface QueueResponse {
+  leads: QueuedLead[]
+  leadsTotal: number
+  leadsPage: number
+  calls: CompletedCall[]
+  callsTotal: number
+  callsPage: number
+  metrics: QueueMetrics
+  summary: QueueSummary
+  availableAgents: string[]
+  availableCampaigns: QueueCampaign[]
 }
 
 // ── Colour constants (from HTML prototype) ──

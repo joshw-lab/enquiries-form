@@ -62,9 +62,9 @@ export default function CallRecordingsModal({
   }, [open])
 
   function handlePlay(recording: CallRecording) {
-    // Use Google Drive URL if backed up, otherwise try RingCX URL
-    const url = recording.gdrive_file_url
-      ? `https://drive.google.com/uc?export=download&id=${recording.gdrive_file_id}`
+    // Use proxy for Google Drive files, otherwise try RingCX URL
+    const url = recording.gdrive_file_id
+      ? `/api/recording?id=${recording.gdrive_file_id}`
       : recording.ringcx_recording_url
 
     if (!url) return

@@ -5,17 +5,20 @@ import type { DashboardTab, PipelineResponse, SyncResponse, CalendarResponse } f
 import ReportsDashboard from './ReportsDashboard'
 import PipelineView from './pipeline/PipelineView'
 import SyncView from './SyncView'
-import CallLogView from './CallLogView'
+import QueueView from './QueueView'
 
-const TABS: { id: DashboardTab; label: string }[] = [
-  { id: 'pipeline', label: 'Pipeline' },
-  { id: 'sync', label: 'Sync' },
+const LEFT_TABS: { id: DashboardTab; label: string }[] = [
+  { id: 'queue', label: 'Queue' },
   { id: 'reports', label: 'Reports' },
-  { id: 'calllog', label: 'Call Log' },
+  { id: 'pipeline', label: 'Pipeline' },
+]
+
+const RIGHT_TABS: { id: DashboardTab; label: string }[] = [
+  { id: 'sync', label: 'Sync' },
 ]
 
 export default function OperationsDashboard() {
-  const [activeTab, setActiveTab] = useState<DashboardTab>('pipeline')
+  const [activeTab, setActiveTab] = useState<DashboardTab>('queue')
   const [clock, setClock] = useState('')
   const [lastFetched, setLastFetched] = useState<string | null>(null)
   const [isStale, setIsStale] = useState(false)
@@ -128,25 +131,42 @@ export default function OperationsDashboard() {
       </div>
 
       {/* Nav tabs */}
-      <div className="bg-white border-b border-gray-200 px-7 flex">
-        {TABS.map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className={`px-4 py-2.5 text-[13px] font-medium cursor-pointer flex items-center gap-1.5 border-b-2 transition-all ${
-              activeTab === tab.id
-                ? 'text-[#111827] border-[#111827]'
-                : 'text-gray-400 border-transparent hover:text-gray-500'
-            }`}
-          >
-            {tab.label}
-            {tab.id === 'sync' && syncIssueCount > 0 && (
-              <span className="text-[10px] font-bold px-1.5 py-px rounded-full bg-red-100 text-red-600">
-                {syncIssueCount}
-              </span>
-            )}
-          </button>
-        ))}
+      <div className="bg-white border-b border-gray-200 px-7 flex justify-between">
+        <div className="flex">
+          {LEFT_TABS.map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`px-4 py-2.5 text-[13px] font-medium cursor-pointer flex items-center gap-1.5 border-b-2 transition-all ${
+                activeTab === tab.id
+                  ? 'text-[#111827] border-[#111827]'
+                  : 'text-gray-400 border-transparent hover:text-gray-500'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+        <div className="flex">
+          {RIGHT_TABS.map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`px-4 py-2.5 text-[13px] font-medium cursor-pointer flex items-center gap-1.5 border-b-2 transition-all ${
+                activeTab === tab.id
+                  ? 'text-[#111827] border-[#111827]'
+                  : 'text-gray-400 border-transparent hover:text-gray-500'
+              }`}
+            >
+              {tab.label}
+              {tab.id === 'sync' && syncIssueCount > 0 && (
+                <span className="text-[10px] font-bold px-1.5 py-px rounded-full bg-red-100 text-red-600">
+                  {syncIssueCount}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Tab content */}
@@ -162,7 +182,7 @@ export default function OperationsDashboard() {
           <SyncView data={syncData} onRefresh={fetchDashboardData} />
         )}
         {activeTab === 'reports' && <ReportsDashboard />}
-        {activeTab === 'calllog' && <CallLogView />}
+        {activeTab === 'queue' && <QueueView />}
       </div>
     </div>
   )

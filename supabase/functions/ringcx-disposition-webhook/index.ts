@@ -447,6 +447,29 @@ function mapDispositionToHubSpot(disposition: string): string {
     // Rejected / declined → map to No Answer
     "rejected": "73a0d17f-1163-4015-bdd5-ec830791da20",
     "declined": "73a0d17f-1163-4015-bdd5-ec830791da20",
+
+    // Abandon — caller hung up before agent connected → map to No Answer
+    "abandon": "73a0d17f-1163-4015-bdd5-ec830791da20",
+    "abandoned": "73a0d17f-1163-4015-bdd5-ec830791da20",
+
+    // Congestion — network/carrier congestion → map to No Answer
+    "congestion": "73a0d17f-1163-4015-bdd5-ec830791da20",
+    "network_congestion": "73a0d17f-1163-4015-bdd5-ec830791da20",
+
+    // Not Live Person — IVR/automated system detected → map to No Answer
+    "not_live_person": "73a0d17f-1163-4015-bdd5-ec830791da20",
+    "nlp": "73a0d17f-1163-4015-bdd5-ec830791da20",
+
+    // Inbound Callback — system scheduled callback → map to Needs Call Back
+    "inbound_callback": "4aa8b662-f76e-4557-8a24-ffae50519382",
+    "callback_inbound": "4aa8b662-f76e-4557-8a24-ffae50519382",
+
+    // Answer — system "answer" disposition (call connected at system level) → map to Connected
+    "answer": "f240bbac-87c9-4f6e-bf70-924b57d47db7",
+    "answered": "f240bbac-87c9-4f6e-bf70-924b57d47db7",
+
+    // Other — catch-all system disposition → map to No Answer
+    "other": "73a0d17f-1163-4015-bdd5-ec830791da20",
   };
 
   const mapped = dispositionMap[normalized];
@@ -468,10 +491,10 @@ function mapDispositionToHubSpot(disposition: string): string {
 async function verifyContactExists(
   contactId: string,
   accessToken: string
-): Promise<{ exists: boolean; contact?: { firstname?: string; lastname?: string; phone?: string } }> {
+): Promise<{ exists: boolean; contact?: { firstname?: string; lastname?: string; phone?: string; num_contacted_notes?: string } }> {
   try {
     const response = await fetch(
-      `${HUBSPOT_API_BASE}/crm/v3/objects/contacts/${contactId}?properties=firstname,lastname,phone`,
+      `${HUBSPOT_API_BASE}/crm/v3/objects/contacts/${contactId}?properties=firstname,lastname,phone,num_contacted_notes`,
       {
         method: "GET",
         headers: {
@@ -488,7 +511,8 @@ async function verifyContactExists(
         contact: {
           firstname: data.properties?.firstname,
           lastname: data.properties?.lastname,
-          phone: data.properties?.phone
+          phone: data.properties?.phone,
+          num_contacted_notes: data.properties?.num_contacted_notes,
         }
       };
     }
@@ -644,7 +668,8 @@ async function updateExistingCallEngagement(
   contactId: string,
   accessToken: string,
   contactInfo?: { firstname?: string; lastname?: string; phone?: string },
-  agentTimezone?: string
+  agentTimezone?: string,
+  hubspotOwnerId?: string | null
 ): Promise<{ success: boolean; error?: string }> {
   try {
     const durationSeconds = parseCallDuration(payload.call_duration);
@@ -703,9 +728,11 @@ async function updateExistingCallEngagement(
       hs_call_title: `${directionLabel} Call - ${dispositionLabel}`,
       hs_call_body: callBodyParts.join("<br>"),
       hs_call_direction: callDirection,
+      hs_call_disposition: mapDispositionToHubSpot(payload.disposition || "no_answer"),
       hs_call_duration: durationMs,
       hs_call_from_number: callDirection === "OUTBOUND" ? dnisFormatted : aniFormatted,
       hs_call_to_number: callDirection === "OUTBOUND" ? aniFormatted : dnisFormatted,
+      ...(hubspotOwnerId && { hubspot_owner_id: hubspotOwnerId }),
     };
 
     if (recordingUrl) {
@@ -745,7 +772,8 @@ async function createCallEngagement(
   contactId: string,
   accessToken: string,
   contactInfo?: { firstname?: string; lastname?: string; phone?: string },
-  agentTimezone?: string
+  agentTimezone?: string,
+  hubspotOwnerId?: string | null
 ): Promise<{ success: boolean; callId?: string; error?: string }> {
   try {
     // Parse call duration using the new parser (handles HH:MM:SS format)
@@ -853,6 +881,7 @@ async function createCallEngagement(
         hs_call_to_number: callDirection === "OUTBOUND" ? aniFormatted : dnisFormatted,
         hs_call_status: "COMPLETED",
         ...(recordingUrl && { hs_call_recording_url: recordingUrl }),
+        ...(hubspotOwnerId && { hubspot_owner_id: hubspotOwnerId }),
       },
       associations: [
         {
@@ -922,12 +951,11 @@ serve(async (req) => {
     }
 
     // RingCX fires TWO webhooks per call:
-    //   1. Auto-fire: empty agent_disposition, disposition="no_answer" — fired on call end
+    //   1. Auto-fire: empty agent_disposition, system disposition only — fired on call end
     //   2. Disposition: actual agent_disposition filled in — fired after agent submits disposition
-    // We only want to create a HubSpot call record from the DISPOSITION webhook (#2)
-    // to avoid duplicate records and ensure we have the correct disposition.
-    // EXCEPTION: If the system disposition is non-default (e.g., "busy"), the agent never
-    // interacted with the call, so no disposition webhook will follow — process directly.
+    // We process ALL webhooks to ensure every call attempt (including passes like no_answer,
+    // abandon, congestion) creates a HubSpot record. If an agent disposition webhook follows
+    // for the same call_id, it will UPDATE the existing record with richer data (step 3 dedup).
     console.log("Raw disposition fields:", {
       agent_disposition: payload.agent_disposition,
       disposition: payload.disposition
@@ -935,22 +963,14 @@ serve(async (req) => {
 
     if (!payload.agent_disposition || isUnresolvedTemplateVar(payload.agent_disposition)) {
       const systemDisp = (payload.disposition || "").toLowerCase().trim();
-      const isDefaultDisp = !systemDisp || systemDisp === "no_answer";
 
-      if (!isDefaultDisp) {
-        // Non-default system disposition (e.g., busy, hangup) — agent never interacted
-        // with the call, so no agent disposition webhook will follow. Process directly.
-        console.log(`📞 Auto-fire webhook has system disposition "${systemDisp}" — processing directly (no agent interaction)`);
-        payload.agent_disposition = systemDisp;
-        // Fall through to normal processing below
-      } else {
-        // Default "no_answer" auto-fire — wait for agent disposition webhook
+      if (!systemDisp) {
+        // Truly empty — no disposition data at all, cannot process
         const reason = !payload.agent_disposition
-          ? "no agent_disposition"
-          : `unresolved template var: "${payload.agent_disposition}"`;
-        console.log(`⏭️ Skipping auto-fire webhook (${reason}) — waiting for disposition webhook`);
+          ? "no agent_disposition and no system disposition"
+          : `unresolved template var: "${payload.agent_disposition}", no system disposition`;
+        console.log(`⏭️ Skipping webhook with no disposition data (${reason})`);
 
-        // Log skipped webhooks for audit trail
         try {
           const skipClient = createClient(
             Deno.env.get("SUPABASE_URL") ?? "",
@@ -962,7 +982,7 @@ serve(async (req) => {
             payload: payload,
             processed_at: new Date().toISOString(),
             status: "skipped",
-            error_message: `Auto-fire webhook skipped: ${reason}`,
+            error_message: `Webhook skipped: ${reason}`,
           });
         } catch (logErr) {
           console.error("Failed to log skipped webhook:", logErr);
@@ -972,7 +992,7 @@ serve(async (req) => {
           JSON.stringify({
             success: true,
             skipped: true,
-            message: `Auto-fire webhook ignored (${reason}) — will process disposition webhook instead`,
+            message: `Webhook ignored (${reason})`,
             call_id: payload.call_id,
           }),
           {
@@ -981,6 +1001,14 @@ serve(async (req) => {
           }
         );
       }
+
+      // System disposition present — process it directly. For passes (no_answer, abandon,
+      // busy, etc.) where no agent connected, this creates the HubSpot call record.
+      // If an agent DID connect, their disposition webhook will arrive later and
+      // UPDATE this record via call_recordings dedup.
+      console.log(`📞 Auto-fire webhook with system disposition "${systemDisp}" — processing directly`);
+      payload.agent_disposition = systemDisp;
+      // Fall through to normal processing below
     }
 
     const disposition = payload.agent_disposition;
@@ -1083,37 +1111,70 @@ serve(async (req) => {
       ? formatPhoneNumber(payload.ani)
       : formatPhoneNumber(payload.ani);
 
-    // We'll update hubspot_call_id after the engagement is created
-    const { error: recordingInsertError } = await supabaseClient
+    // Check if an auto-fire webhook already processed this call_id (dedup for same call)
+    const { data: existingCallRec } = await supabaseClient
       .from("call_recordings")
-      .upsert({
-        call_id: payload.call_id,
-        ringcx_recording_url: recordingUrl || null,
-        call_direction: callDirection,
-        call_duration_seconds: durationSeconds,
-        call_start: new Date(callStartTimestamp).toISOString(),
-        disposition: payload.disposition,
-        phone_number: customerPhone,
-        agent_id: payload.agent_id,
-        agent_name: agentName,
-        hubspot_contact_id: contactId,
-        hubspot_call_id: null,
-        backup_status: recordingUrl ? "pending" : "no_recording",
-      }, { onConflict: "call_id" });
+      .select("hubspot_call_id")
+      .eq("call_id", payload.call_id)
+      .maybeSingle();
+
+    const existingHubSpotCallId = existingCallRec?.hubspot_call_id || null;
+
+    // Insert/update call_recordings — preserve hubspot_call_id if already set by auto-fire
+    const callRecordingFields = {
+      ringcx_recording_url: recordingUrl || null,
+      call_direction: callDirection,
+      call_duration_seconds: durationSeconds,
+      call_start: new Date(callStartTimestamp).toISOString(),
+      disposition: payload.disposition,
+      phone_number: customerPhone,
+      agent_id: payload.agent_id,
+      agent_name: agentName,
+      hubspot_contact_id: contactId,
+      backup_status: recordingUrl ? "pending" : "no_recording",
+    };
+
+    let recordingInsertError;
+    if (existingCallRec) {
+      // Update existing row — don't overwrite hubspot_call_id
+      ({ error: recordingInsertError } = await supabaseClient
+        .from("call_recordings")
+        .update(callRecordingFields)
+        .eq("call_id", payload.call_id));
+    } else {
+      // Insert new row
+      ({ error: recordingInsertError } = await supabaseClient
+        .from("call_recordings")
+        .insert({ call_id: payload.call_id, hubspot_call_id: null, ...callRecordingFields }));
+    }
 
     if (recordingInsertError) {
-      console.error("Failed to insert call_recordings row:", recordingInsertError);
+      console.error("Failed to insert/update call_recordings row:", recordingInsertError);
     } else {
       console.log(`📼 Call recording tracked: ${payload.call_id} (${recordingUrl ? "has recording" : "no recording"})`);
     }
 
-    // Deduplication: Check if the form submission already created a call engagement
-    // for this contact within the last 15 minutes. If so, UPDATE that call instead
-    // of creating a new one (the webhook has richer data: duration, recording, agent).
+    // Deduplication priority:
+    // 1. Same call_id already has a HubSpot call (auto-fire created it) → UPDATE with agent data
+    // 2. Recent form submission created a call for this contact → UPDATE with webhook data
+    // 3. Otherwise → CREATE new call engagement
     const recentFormCall = await findRecentFormSubmissionCall(contactId, supabaseClient);
     let result: { success: boolean; callId?: string; error?: string };
 
-    if (recentFormCall?.hubspot_call_id) {
+    if (existingHubSpotCallId) {
+      // Auto-fire already created a HubSpot call for this call_id — update with richer agent data
+      console.log(`🔄 Auto-fire already created HubSpot call ${existingHubSpotCallId} for call_id ${payload.call_id}. Updating with agent disposition.`);
+      const updateResult = await updateExistingCallEngagement(
+        existingHubSpotCallId,
+        payload,
+        contactId,
+        hubspotAccessToken,
+        contactVerification.contact,
+        agentTimezone,
+        agentMapping.hubspotOwnerId
+      );
+      result = { success: updateResult.success, callId: existingHubSpotCallId, error: updateResult.error };
+    } else if (recentFormCall?.hubspot_call_id) {
       console.log(`🔄 Found recent form submission call ${recentFormCall.hubspot_call_id} for contact ${contactId}. Updating instead of creating new.`);
       const updateResult = await updateExistingCallEngagement(
         recentFormCall.hubspot_call_id,
@@ -1121,18 +1182,19 @@ serve(async (req) => {
         contactId,
         hubspotAccessToken,
         contactVerification.contact,
-        agentTimezone
+        agentTimezone,
+        agentMapping.hubspotOwnerId
       );
-      // Reuse the existing call ID
       result = { success: updateResult.success, callId: recentFormCall.hubspot_call_id, error: updateResult.error };
     } else {
-      // No recent form call found — create a new call engagement as usual
+      // No existing call — create new
       result = await createCallEngagement(
         payload,
         contactId,
         hubspotAccessToken,
         contactVerification.contact,
-        agentTimezone
+        agentTimezone,
+        agentMapping.hubspotOwnerId
       );
     }
 
@@ -1161,16 +1223,29 @@ serve(async (req) => {
       .update({ hubspot_call_id: result.callId })
       .eq("call_id", payload.call_id);
 
-    // Update contact properties: always set call notes flag and leads_rep
+    // Update contact properties: call notes flag, leads_rep, num_contacted_notes
     try {
       const contactProperties: Record<string, string> = {
         n0_ringcx_call_notes: "Yes",
       };
 
-      // Set leads_rep on every disposition — use DB mapping, fall back to agent display name
-      const leadsRepValue = agentMapping.leadsRep || getAgentDisplayName(payload);
-      contactProperties.leads_rep = leadsRepValue;
-      console.log(`📋 Will update leads_rep="${leadsRepValue}" (disposition: ${disposition})`);
+      // Increment num_contacted_notes (syncs RingCX pass count with HubSpot)
+      const currentCount = parseInt(contactVerification.contact?.num_contacted_notes || "0", 10);
+      const newCount = (isNaN(currentCount) ? 0 : currentCount) + 1;
+      contactProperties.num_contacted_notes = String(newCount);
+      console.log(`📊 Incrementing num_contacted_notes: ${currentCount} → ${newCount}`);
+
+      // Only set leads_rep if we have a real agent (not system-level pass)
+      const hasRealAgent = agentMapping.leadsRep ||
+        (payload.agent_id && !isUnresolvedTemplateVar(payload.agent_id) && payload.agent_id !== "0");
+
+      if (hasRealAgent) {
+        const leadsRepValue = agentMapping.leadsRep || getAgentDisplayName(payload);
+        contactProperties.leads_rep = leadsRepValue;
+        console.log(`📋 Will update leads_rep="${leadsRepValue}" (disposition: ${disposition})`);
+      } else {
+        console.log(`📋 Skipping leads_rep update — system-level pass (no agent interaction)`);
+      }
 
       // On "Not Interested" dispositions, reassign contact owner to CHF Promotions
       try {

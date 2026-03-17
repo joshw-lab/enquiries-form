@@ -98,6 +98,7 @@ export interface RingCXLeadData {
   phone1?: string;
   phone2?: string;
   phone3?: string;
+  numContacted?: number;
   extendedLeadData?: Record<string, string>;
 }
 
@@ -262,6 +263,9 @@ export async function getHubSpotContact(
       "state",
       "zip",
       "mobilephone",
+      "num_contacted_notes",
+      "lead_date",
+      "createdate",
       campaignIdField,
     ].join(",");
 
@@ -315,6 +319,56 @@ function toLocalAU(phone: string): string {
 }
 
 /**
+ * Structured result from dial priority determination.
+ * Captures the decision + reasoning for queue visibility dashboards.
+ */
+export interface DialPriorityResult {
+  priority: "IMMEDIATE" | "NORMAL";
+  reason: string; // "reconversion" | "recontacted" | "new_today" | "aged_lead"
+  context: {
+    lead_date: string | null;
+    createdate: string | null;
+    num_contacted: number;
+  };
+}
+
+/**
+ * Determine dial priority for a lead.
+ * IMMEDIATE (jump the queue) when lead_date is today AND either:
+ *   - It's a reconversion (lead_date differs from createdate), OR
+ *   - numContacted > 1 (previously contacted — ensures reconverted leads
+ *     with high pass counts aren't deprioritized by RingCX)
+ * Otherwise NORMAL.
+ */
+export function determineDialPriority(
+  leadDate?: string,
+  createDate?: string,
+  numContacted = 0,
+): DialPriorityResult {
+  const context = {
+    lead_date: leadDate?.slice(0, 10) || null,
+    createdate: createDate?.slice(0, 10) || null,
+    num_contacted: numContacted,
+  };
+
+  if (!leadDate) return { priority: "NORMAL", reason: "aged_lead", context };
+
+  const today = new Date().toISOString().slice(0, 10);
+  const leadDay = leadDate.slice(0, 10);
+
+  if (leadDay !== today) return { priority: "NORMAL", reason: "aged_lead", context };
+
+  // lead_date is today — check for reconversion signals
+  const isReconversion = createDate ? leadDay !== createDate.slice(0, 10) : false;
+  if (isReconversion) return { priority: "IMMEDIATE", reason: "reconversion", context };
+
+  const wasPreviouslyContacted = numContacted > 1;
+  if (wasPreviouslyContacted) return { priority: "IMMEDIATE", reason: "recontacted", context };
+
+  return { priority: "NORMAL", reason: "new_today", context };
+}
+
+/**
  * Push lead to RingCX Lead Loader API
  */
 /**
@@ -356,19 +410,22 @@ function validateLeadData(
  * Helps identify which field is actually the problem.
  */
 function buildLeadDiagnostic(
-  leadRecord: Record<string, string>,
+  leadRecord: Record<string, string | number>,
   requestBody: Record<string, unknown>
 ): string {
   const parts: string[] = [];
 
   // Summarise key fields
-  const phone = leadRecord.leadPhone;
+  const phone = String(leadRecord.leadPhone || "");
   parts.push(`leadPhone=${phone ? `"${phone}" (${phone.length} digits)` : "MISSING"}`);
   parts.push(`externId=${leadRecord.externId || "MISSING"}`);
   parts.push(`firstName=${leadRecord.firstName ? `"${leadRecord.firstName}"` : "empty"}`);
   parts.push(`lastName=${leadRecord.lastName ? `"${leadRecord.lastName}"` : "empty"}`);
   if (leadRecord.leadTimezone) {
     parts.push(`leadTimezone="${leadRecord.leadTimezone}"`);
+  }
+  if (leadRecord.passCount) {
+    parts.push(`passCount=${leadRecord.passCount}`);
   }
   parts.push(`timeZoneOption=${requestBody.timeZoneOption}`);
 
@@ -383,7 +440,8 @@ function buildLeadDiagnostic(
 export async function pushLeadToRingCX(
   campaignId: string,
   leadData: RingCXLeadData,
-  accessToken: string
+  accessToken: string,
+  dialPriority: "IMMEDIATE" | "NORMAL" = "IMMEDIATE"
 ): Promise<{ success: boolean; leadId?: string; error?: string; diagnostic?: string }> {
   try {
     // ── Pre-flight validation ──────────────────────────────────
@@ -404,7 +462,7 @@ export async function pushLeadToRingCX(
 
     // RingCX Lead Loader API — send E.164 international format (campaign intl dialling enabled)
     // Only include fields that have values — empty strings can cause lead rejection
-    const leadRecord: Record<string, string> = {
+    const leadRecord: Record<string, string | number> = {
       externId: leadData.externId,
       leadPhone: leadData.phone1!,
     };
@@ -417,6 +475,13 @@ export async function pushLeadToRingCX(
     if (leadData.email) leadRecord.email = leadData.email;
     if (leadData.phone2) leadRecord.auxPhone1 = leadData.phone2;
 
+    // Pass count from HubSpot "number of times contacted" (num_contacted_notes).
+    // Sets the lead's pass count so RingCX knows how many times the contact has been dialled.
+    if (leadData.numContacted != null && leadData.numContacted > 0) {
+      leadRecord.passCount = leadData.numContacted;
+      leadRecord.leadPasses = leadData.numContacted;
+    }
+
     // NPA_NXX: RingCX auto-determines timezone from phone number area code
     const requestBody = {
       description: `HubSpot lead ${leadData.externId}`,
@@ -424,7 +489,7 @@ export async function pushLeadToRingCX(
       fileType: "COMMA",
       duplicateHandling: "REMOVE_ALL_EXISTING",
       timeZoneOption: "NPA_NXX",
-      dialPriority: "IMMEDIATE",
+      dialPriority,
       phoneNumbersI18nEnabled: true,
       internationalNumberFormat: true,
       numberOriginCountry: "e164",

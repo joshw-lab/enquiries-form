@@ -12,6 +12,7 @@ import {
   isValidE164,
   searchLeadInCampaign,
   hasRecentFailure,
+  determineDialPriority,
 } from "../_shared/ringcx-lead-loader-base.ts";
 import { notifyGChatError } from "../_shared/gchat-notify.ts";
 
@@ -143,6 +144,13 @@ serve(async (req) => {
       );
     }
 
+    const numContacted = parseInt(properties.num_contacted_notes || "0", 10);
+
+    // Reconversions today jump the queue — lead_date is today + (different from createdate OR previously contacted)
+    const dialPriorityResult = determineDialPriority(properties.lead_date, properties.createdate, numContacted);
+    const dialPriority = dialPriorityResult.priority;
+    console.log(`[${CAMPAIGN_TYPE}] Dial priority: ${dialPriority} (reason=${dialPriorityResult.reason}, lead_date=${properties.lead_date || "n/a"}, createdate=${properties.createdate || "n/a"}, numContacted=${numContacted})`);
+
     const leadData: RingCXLeadData = {
       externId: contactId,
       firstName: properties.firstname || "",
@@ -154,9 +162,10 @@ serve(async (req) => {
       email: properties.email || "",
       phone1: isValidE164(phone1) ? phone1 : (isValidE164(phone2) ? phone2 : ""),
       phone2: isValidE164(phone1) && isValidE164(phone2) ? phone2 : "",
+      numContacted,
     };
 
-    const result = await pushLeadToRingCX(campaignId, leadData, ringcxAccessToken);
+    const result = await pushLeadToRingCX(campaignId, leadData, ringcxAccessToken, dialPriority);
 
     if (!result.success) {
       await supabaseClient.from("error_log").insert({
@@ -204,6 +213,15 @@ serve(async (req) => {
       campaign_id: campaignId,
       campaign_type: CAMPAIGN_TYPE,
       lead_id: result.leadId || null,
+      dial_priority: dialPriorityResult.priority,
+      priority_reason: dialPriorityResult.reason,
+      priority_context: dialPriorityResult.context,
+      contact_first_name: properties.firstname || null,
+      contact_last_name: properties.lastname || null,
+      contact_state: properties.state || null,
+      contact_postcode: properties.zip || null,
+      contact_email: properties.email || null,
+      contact_phone: phone1 || phone2 || null,
     }).then(() => {}).catch((err: unknown) => console.warn("Failed to log lead load:", err));
 
     // Search for the lead to get the RingCX lead ID
