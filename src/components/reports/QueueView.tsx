@@ -445,9 +445,9 @@ function CompletedCallRow({ call, onPlay }: { call: CompletedCall; onPlay: (c: C
 
   return (
     <div className="px-3 py-1.5 hover:bg-gray-50/50 transition-colors">
-      {/* Single row: Name, time, agent, duration, audio player (50%), disposition */}
-      <div className="flex items-center gap-1.5">
-        <div className="flex items-center gap-1.5 min-w-0 shrink">
+      {/* Row: Name + agent left, time + duration + player + disposition right */}
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5 min-w-0">
           {hubspotUrl ? (
             <a
               href={hubspotUrl}
@@ -460,27 +460,29 @@ function CompletedCallRow({ call, onPlay }: { call: CompletedCall; onPlay: (c: C
           ) : (
             <span className="text-[13px] font-medium text-[#111827] truncate">{displayName}</span>
           )}
-          <span className="text-[10px] text-gray-400 flex-shrink-0">{timeAgo(call.callStart)}</span>
           <span className="text-[10px] text-gray-500 flex-shrink-0">{call.agentName || ''}</span>
         </div>
-        <span className="text-[12px] font-semibold text-gray-700 tabular-nums flex-shrink-0">{formatDuration(call.callDuration)}</span>
-        {(call.storageUrl || call.gdriveFileId) ? (
-          <audio controls preload="none" className="h-7 flex-shrink-0" style={{ width: '45%', minWidth: '140px' }}>
-            <source src={call.storageUrl || `/api/recording?id=${call.gdriveFileId}`} />
-          </audio>
-        ) : (call.backupStatus === 'pending' || call.backupStatus === 'downloading') ? (
-          <span className="text-[9px] text-gray-400 italic flex-shrink-0">Processing...</span>
-        ) : call.backupStatus === 'no_recording' ? (
-          <span className="text-[9px] text-gray-300 flex-shrink-0">No recording</span>
-        ) : null}
-        {call.disposition && (
-          <span
-            className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium text-white flex-shrink-0"
-            style={{ backgroundColor: getDispositionColor(call.disposition) }}
-          >
-            {getDispositionLabel(call.disposition)}
-          </span>
-        )}
+        <div className="flex items-center gap-1.5 flex-shrink-0">
+          <span className="text-[10px] text-gray-400">{timeAgo(call.callStart)}</span>
+          <span className="text-[12px] font-semibold text-gray-700 tabular-nums">{formatDuration(call.callDuration)}</span>
+          {(call.storageUrl || call.gdriveFileId) ? (
+            <audio controls preload="none" className="h-7" style={{ width: '180px' }}>
+              <source src={call.storageUrl || `/api/recording?id=${call.gdriveFileId}`} />
+            </audio>
+          ) : (call.backupStatus === 'pending' || call.backupStatus === 'downloading') ? (
+            <span className="text-[9px] text-gray-400 italic">Processing...</span>
+          ) : call.backupStatus === 'no_recording' ? (
+            <span className="text-[9px] text-gray-300">No recording</span>
+          ) : null}
+          {call.disposition && (
+            <span
+              className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium text-white"
+              style={{ backgroundColor: getDispositionColor(call.disposition) }}
+            >
+              {getDispositionLabel(call.disposition)}
+            </span>
+          )}
+        </div>
       </div>
       {call.notes && (
         <div className="text-[10px] text-gray-500 truncate mt-0.5" title={call.notes}>{call.notes}</div>

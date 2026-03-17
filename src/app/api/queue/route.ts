@@ -97,6 +97,7 @@ export async function GET(request: NextRequest) {
       'contact_state, contact_postcode',
       { count: 'exact' },
     )
+    .order('dial_priority', { ascending: true })
     .order('priority_context->num_contacted', { ascending: true, nullsFirst: false })
     .order('created_at', { ascending: false })
 
