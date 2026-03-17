@@ -45,14 +45,12 @@ export default function ReportsDashboard() {
     FiltersType & { disposition?: string }
   >({})
 
-  // Set default to last 30 days on mount (Perth timezone)
+  // Set default to today (Perth timezone)
   useEffect(() => {
-    const end = new Date()
-    const start = new Date()
-    start.setDate(end.getDate() - 30)
     const fmt = (d: Date) => d.toLocaleDateString('en-CA', { timeZone: REPORT_TIMEZONE })
-    setStartDate(fmt(start))
-    setEndDate(fmt(end))
+    const today = fmt(new Date())
+    setStartDate(today)
+    setEndDate(today)
   }, [])
 
   // Load user lookup once on mount

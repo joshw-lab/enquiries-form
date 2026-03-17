@@ -23,14 +23,12 @@ export default function CallLogView() {
   const [dispositions, setDispositions] = useState<string[]>([])
   const [exporting, setExporting] = useState(false)
 
-  // Default: last 7 days
+  // Default: today
   const [filters, setFilters] = useState<CallLogFilterState>(() => {
-    const end = new Date()
-    const start = new Date()
-    start.setDate(end.getDate() - 7)
+    const today = perthDate(new Date())
     return {
-      from: perthDate(start),
-      to: perthDate(end),
+      from: today,
+      to: today,
       operator: '',
       region: '',
       disposition: '',

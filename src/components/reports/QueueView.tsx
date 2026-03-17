@@ -464,6 +464,7 @@ function CompletedCallRow({ call, onPlay }: { call: CompletedCall; onPlay: (c: C
           <span className="text-[10px] text-gray-500">{call.agentName || ''}</span>
         </div>
         <div className="flex items-center gap-1.5 flex-shrink-0">
+          <span className="text-[12px] font-semibold text-gray-700 tabular-nums">{formatDuration(call.callDuration)}</span>
           {call.gdriveFileId ? (
             <button
               onClick={() => onPlay(call)}
@@ -487,13 +488,10 @@ function CompletedCallRow({ call, onPlay }: { call: CompletedCall; onPlay: (c: C
           )}
         </div>
       </div>
-      {/* Line 2: Duration + notes */}
-      <div className="flex items-center gap-2 text-[10px] text-gray-400">
-        <span>{formatDuration(call.callDuration)}</span>
-        {call.notes && (
-          <span className="text-gray-500 truncate" title={call.notes}>{call.notes}</span>
-        )}
-      </div>
+      {/* Line 2: Notes */}
+      {call.notes && (
+        <div className="text-[10px] text-gray-500 truncate" title={call.notes}>{call.notes}</div>
+      )}
     </div>
   )
 }
