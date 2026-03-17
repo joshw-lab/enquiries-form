@@ -464,7 +464,7 @@ function CompletedCallRow({ call, onPlay }: { call: CompletedCall; onPlay: (c: C
           <span className="text-[10px] text-gray-500">{call.agentName || ''}</span>
         </div>
         <div className="flex items-center gap-1.5 flex-shrink-0">
-          {call.gdriveFileId && (
+          {call.gdriveFileId ? (
             <button
               onClick={() => onPlay(call)}
               className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-blue-500 hover:bg-blue-600 text-white cursor-pointer flex-shrink-0"
@@ -472,7 +472,11 @@ function CompletedCallRow({ call, onPlay }: { call: CompletedCall; onPlay: (c: C
             >
               <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><polygon points="2,1 9,5 2,9" /></svg>
             </button>
-          )}
+          ) : (call.backupStatus === 'pending' || call.backupStatus === 'downloading') ? (
+            <span className="text-[9px] text-gray-400 italic flex-shrink-0">Processing...</span>
+          ) : call.backupStatus === 'no_recording' ? (
+            <span className="text-[9px] text-gray-300 flex-shrink-0">No recording</span>
+          ) : null}
           {call.disposition && (
             <span
               className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium text-white"
