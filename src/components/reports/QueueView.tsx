@@ -465,17 +465,7 @@ function CompletedCallRow({ call, onPlay }: { call: CompletedCall; onPlay: (c: C
         </div>
         <div className="flex items-center gap-1.5 flex-shrink-0">
           <span className="text-[12px] font-semibold text-gray-700 tabular-nums">{formatDuration(call.callDuration)}</span>
-          {call.gdriveFileId ? (
-            <a
-              href={`https://drive.google.com/uc?export=download&id=${call.gdriveFileId}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-blue-500 hover:bg-blue-600 text-white flex-shrink-0"
-              title="Download recording"
-            >
-              <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><path d="M5 1v6M2 5l3 3 3-3M1 9h8" stroke="currentColor" strokeWidth="1.2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>
-            </a>
-          ) : (call.backupStatus === 'pending' || call.backupStatus === 'downloading') ? (
+          {(call.backupStatus === 'pending' || call.backupStatus === 'downloading') ? (
             <span className="text-[9px] text-gray-400 italic flex-shrink-0">Processing...</span>
           ) : call.backupStatus === 'no_recording' ? (
             <span className="text-[9px] text-gray-300 flex-shrink-0">No recording</span>
@@ -490,10 +480,14 @@ function CompletedCallRow({ call, onPlay }: { call: CompletedCall; onPlay: (c: C
           )}
         </div>
       </div>
-      {/* Line 2: Notes */}
-      {call.notes && (
+      {/* Line 2: Audio player or notes */}
+      {call.gdriveFileId ? (
+        <audio controls preload="none" className="w-full h-7 mt-1" style={{ minWidth: 0 }}>
+          <source src={`https://docs.google.com/uc?export=download&id=${call.gdriveFileId}`} type="audio/wav" />
+        </audio>
+      ) : call.notes ? (
         <div className="text-[10px] text-gray-500 truncate" title={call.notes}>{call.notes}</div>
-      )}
+      ) : null}
     </div>
   )
 }
