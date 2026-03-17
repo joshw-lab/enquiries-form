@@ -122,7 +122,7 @@ export async function GET(request: NextRequest) {
   let callsQuery = supabase
     .from('call_recordings')
     .select(
-      'id, hubspot_contact_id, hubspot_call_id, call_start, call_duration_seconds, disposition, agent_name, gdrive_file_id, ringcx_recording_url, backup_status',
+      'id, hubspot_contact_id, hubspot_call_id, call_start, call_duration_seconds, disposition, agent_name, gdrive_file_id, ringcx_recording_url, backup_status, storage_url',
       { count: 'exact' },
     )
     .order('call_start', { ascending: false })
@@ -229,6 +229,7 @@ export async function GET(request: NextRequest) {
     gdriveFileId: row.gdrive_file_id || null,
     ringcxRecordingUrl: row.ringcx_recording_url || null,
     backupStatus: row.backup_status || null,
+    storageUrl: row.storage_url || null,
     callPosition: (callsResult.count ?? 0) - callsOffset - idx,
     notes: notesMap[row.hubspot_call_id as string] || null,
   }))

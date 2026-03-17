@@ -481,9 +481,9 @@ function CompletedCallRow({ call, onPlay }: { call: CompletedCall; onPlay: (c: C
         </div>
       </div>
       {/* Line 2: Audio player or notes */}
-      {call.gdriveFileId ? (
+      {(call.storageUrl || call.gdriveFileId) ? (
         <audio controls preload="none" className="w-full h-7 mt-1" style={{ minWidth: 0 }}>
-          <source src={`/api/recording?id=${call.gdriveFileId}`} type="audio/wav" />
+          <source src={call.storageUrl || `/api/recording?id=${call.gdriveFileId}`} type="audio/wav" />
         </audio>
       ) : call.notes ? (
         <div className="text-[10px] text-gray-500 truncate" title={call.notes}>{call.notes}</div>

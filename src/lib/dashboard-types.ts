@@ -183,6 +183,7 @@ export interface CompletedCall {
   gdriveFileId: string | null
   ringcxRecordingUrl: string | null
   backupStatus: string | null
+  storageUrl: string | null
   callPosition: number
   notes: string | null
 }
