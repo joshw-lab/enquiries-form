@@ -237,7 +237,7 @@ serve(async (req) => {
       .select("*")
       .eq("backup_status", "pending")
       .lt("backup_attempts", MAX_ATTEMPTS)
-      .order("call_start", { ascending: true })
+      .order("call_start", { ascending: false })
       .limit(BATCH_SIZE);
 
     if (fetchError) {
@@ -293,12 +293,24 @@ serve(async (req) => {
         }
 
         // Download the WAV from RingCX (requires authenticated session)
+        // Try X-Auth-Token first (RingCX native), fall back to Bearer
         console.log(`  Downloading from RingCX...`);
-        const downloadResponse = await fetch(recording.ringcx_recording_url, {
+        let downloadResponse = await fetch(recording.ringcx_recording_url, {
           headers: {
-            Authorization: `Bearer ${ringcxToken}`,
+            "X-Auth-Token": ringcxToken,
           },
         });
+
+        // If X-Auth-Token returns HTML or 401, try Bearer
+        const ct1 = downloadResponse.headers.get("content-type") || "";
+        if (!downloadResponse.ok || ct1.includes("text/html")) {
+          console.log(`  X-Auth-Token failed (${downloadResponse.status}, ${ct1}), trying Bearer...`);
+          downloadResponse = await fetch(recording.ringcx_recording_url, {
+            headers: {
+              Authorization: `Bearer ${ringcxToken}`,
+            },
+          });
+        }
 
         if (!downloadResponse.ok) {
           throw new Error(`Download failed: ${downloadResponse.status} ${downloadResponse.statusText}`);
@@ -307,7 +319,8 @@ serve(async (req) => {
         // Verify we got audio, not an HTML login page
         const contentType = downloadResponse.headers.get("content-type") || "";
         if (contentType.includes("text/html")) {
-          throw new Error("RingCX returned HTML instead of audio — auth may have expired");
+          const htmlSnippet = (await downloadResponse.text()).substring(0, 300);
+          throw new Error(`HTML(${downloadResponse.status}): ${htmlSnippet}`);
         }
 
         const audioData = await downloadResponse.arrayBuffer();
