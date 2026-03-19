@@ -208,31 +208,31 @@ export default function LeadTimelineModal({ contactId, contactName, open, onClos
                         </div>
 
                         {/* Call-specific: disposition badge + audio */}
-                        {event.type === 'call' && (
+                        {event.type === 'call' ? (
                           <div className="flex items-center gap-2 mt-1.5">
-                            {meta.disposition && (
+                            {meta.disposition ? (
                               <span
                                 className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium text-white"
                                 style={{ backgroundColor: getDispositionColor(meta.disposition as string) }}
                               >
                                 {getDispositionLabel(meta.disposition as string)}
                               </span>
-                            )}
-                            {meta.durationSeconds && (
+                            ) : null}
+                            {meta.durationSeconds ? (
                               <span className="text-[11px] text-gray-600 font-medium tabular-nums">
                                 {formatDuration(meta.durationSeconds as number)}
                               </span>
-                            )}
-                            {audioUrl && (
+                            ) : null}
+                            {audioUrl ? (
                               <audio controls preload="none" className="h-7" style={{ width: '200px' }}>
                                 <source src={audioUrl} />
                               </audio>
-                            )}
+                            ) : null}
                           </div>
-                        )}
+                        ) : null}
 
                         {/* Form-specific: disposition badge */}
-                        {event.type === 'form' && meta.disposition && (
+                        {event.type === 'form' && meta.disposition ? (
                           <div className="mt-1">
                             <span
                               className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium text-white"
@@ -241,10 +241,10 @@ export default function LeadTimelineModal({ contactId, contactName, open, onClos
                               {getDispositionLabel(meta.disposition as string)}
                             </span>
                           </div>
-                        )}
+                        ) : null}
 
                         {/* Loaded-specific: priority badge */}
-                        {event.type === 'loaded' && meta.dialPriority && (
+                        {event.type === 'loaded' && meta.dialPriority ? (
                           <div className="mt-1">
                             <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium border ${
                               meta.dialPriority === 'IMMEDIATE'
@@ -254,7 +254,7 @@ export default function LeadTimelineModal({ contactId, contactName, open, onClos
                               {meta.dialPriority as string}
                             </span>
                           </div>
-                        )}
+                        ) : null}
                       </div>
                     </div>
                   )
