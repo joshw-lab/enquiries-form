@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import type { QueuedLead, CompletedCall, QueueMetrics, QueueSummary, QueueResponse, QueueCampaign } from '@/lib/dashboard-types'
 import { getDispositionLabel, getDispositionColor } from '@/lib/reports-queries'
 import QueueFilters, { type QueueFilterState } from './QueueFilters'
+import LeadTimelineModal from './LeadTimelineModal'
 
 const HUBSPOT_PORTAL_ID = '5877625'
 const PAGE_SIZES = [25, 50, 100]
@@ -137,6 +138,7 @@ export default function QueueView() {
   const [playingCall, setPlayingCall] = useState<CompletedCall | null>(null)
   const [availableAgents, setAvailableAgents] = useState<string[]>([])
   const [availableCampaigns, setAvailableCampaigns] = useState<QueueCampaign[]>([])
+  const [timelineContact, setTimelineContact] = useState<{ id: string; name?: string | null } | null>(null)
 
   const [filters, setFilters] = useState<QueueFilterState>(() => {
     const today = new Date()
@@ -272,7 +274,7 @@ export default function QueueView() {
             ) : leads.length === 0 ? (
               <div className="px-4 py-8 text-center text-sm text-gray-500">No leads found.</div>
             ) : (
-              leads.map((lead) => <QueueLeadRow key={lead.id} lead={lead} />)
+              leads.map((lead) => <QueueLeadRow key={lead.id} lead={lead} onTimeline={() => setTimelineContact({ id: lead.contactId, name: lead.contactName })} />)
             )}
           </div>
         </div>
@@ -312,7 +314,7 @@ export default function QueueView() {
             ) : calls.length === 0 ? (
               <div className="px-4 py-8 text-center text-sm text-gray-500">No calls found.</div>
             ) : (
-              calls.map((call) => <CompletedCallRow key={call.id} call={call} onPlay={setPlayingCall} />)
+              calls.map((call) => <CompletedCallRow key={call.id} call={call} onPlay={setPlayingCall} onTimeline={() => call.contactId && setTimelineContact({ id: call.contactId, name: call.contactName })} />)
             )}
           </div>
         </div>
@@ -322,6 +324,14 @@ export default function QueueView() {
       {playingCall && (
         <RecordingModal call={playingCall} onClose={() => setPlayingCall(null)} />
       )}
+
+      {/* Lead timeline modal */}
+      <LeadTimelineModal
+        contactId={timelineContact?.id || ''}
+        contactName={timelineContact?.name}
+        open={!!timelineContact}
+        onClose={() => setTimelineContact(null)}
+      />
     </div>
   )
 }
@@ -396,7 +406,7 @@ function RecordingModal({ call, onClose }: { call: CompletedCall; onClose: () =>
   )
 }
 
-function QueueLeadRow({ lead }: { lead: QueuedLead }) {
+function QueueLeadRow({ lead, onTimeline }: { lead: QueuedLead; onTimeline: () => void }) {
   const badge = getPriorityBadge(lead.dialPriority, lead.priorityReason)
   const hubspotUrl = `https://app.hubspot.com/contacts/${HUBSPOT_PORTAL_ID}/record/0-1/${lead.contactId}`
 
@@ -405,6 +415,15 @@ function QueueLeadRow({ lead }: { lead: QueuedLead }) {
       {/* Line 1: Name (time ago) — badge */}
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-1.5 min-w-0">
+          <button
+            onClick={onTimeline}
+            className="text-gray-300 hover:text-blue-500 transition-colors flex-shrink-0 cursor-pointer"
+            title="View timeline"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </button>
           <a
             href={hubspotUrl}
             target="_blank"
@@ -436,7 +455,7 @@ function QueueLeadRow({ lead }: { lead: QueuedLead }) {
   )
 }
 
-function CompletedCallRow({ call, onPlay }: { call: CompletedCall; onPlay: (c: CompletedCall) => void }) {
+function CompletedCallRow({ call, onPlay, onTimeline }: { call: CompletedCall; onPlay: (c: CompletedCall) => void; onTimeline: () => void }) {
   const hubspotUrl = call.contactId
     ? `https://app.hubspot.com/contacts/${HUBSPOT_PORTAL_ID}/record/0-1/${call.contactId}`
     : null
@@ -448,6 +467,17 @@ function CompletedCallRow({ call, onPlay }: { call: CompletedCall; onPlay: (c: C
       {/* Row: Name + agent left, time + duration + player + disposition right */}
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-1.5 min-w-0">
+          {call.contactId && (
+            <button
+              onClick={onTimeline}
+              className="text-gray-300 hover:text-blue-500 transition-colors flex-shrink-0 cursor-pointer"
+              title="View timeline"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </button>
+          )}
           {hubspotUrl ? (
             <a
               href={hubspotUrl}

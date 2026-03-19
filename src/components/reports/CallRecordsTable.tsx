@@ -8,6 +8,7 @@ import {
   getDispositionColor,
   type CallRecording,
 } from '@/lib/reports-queries'
+import LeadTimelineModal from './LeadTimelineModal'
 
 const HUBSPOT_PORTAL_ID = '5877625'
 
@@ -22,6 +23,7 @@ export default function CallRecordsTable({ submissions, onListenClick }: CallRec
   const [page, setPage] = useState(0)
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [recordingsMap, setRecordingsMap] = useState<Record<string, CallRecording>>({})
+  const [timelineContact, setTimelineContact] = useState<{ id: string; name?: string } | null>(null)
 
   const totalPages = Math.ceil(submissions.length / PAGE_SIZE)
   const pageData = submissions.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
@@ -192,7 +194,22 @@ export default function CallRecordsTable({ submissions, onListenClick }: CallRec
                 >
                   <td className="px-4 py-2 text-gray-600 whitespace-nowrap">{timestamp}</td>
                   <td className="px-4 py-2">{agent}</td>
-                  <td className="px-4 py-2">{contactName}</td>
+                  <td className="px-4 py-2">
+                    <div className="flex items-center gap-1.5">
+                      {hubspotContactId && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setTimelineContact({ id: hubspotContactId, name: contactName !== '-' ? contactName : undefined }) }}
+                          className="text-gray-300 hover:text-blue-500 transition-colors flex-shrink-0 cursor-pointer"
+                          title="View timeline"
+                        >
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                        </button>
+                      )}
+                      <span>{contactName}</span>
+                    </div>
+                  </td>
                   <td className="px-4 py-2 text-gray-600 whitespace-nowrap">{phone}</td>
                   <td className="px-4 py-2">
                     <span
@@ -268,6 +285,14 @@ export default function CallRecordsTable({ submissions, onListenClick }: CallRec
           </tbody>
         </table>
       </div>
+
+      {/* Lead timeline modal */}
+      <LeadTimelineModal
+        contactId={timelineContact?.id || ''}
+        contactName={timelineContact?.name}
+        open={!!timelineContact}
+        onClose={() => setTimelineContact(null)}
+      />
     </div>
   )
 }

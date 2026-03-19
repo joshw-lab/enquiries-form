@@ -33,5 +33,20 @@ verify_jwt = false
 [functions.ringcx-dial-stats]
 verify_jwt = false
 
+[functions.remove-lead]
+verify_jwt = false
+
+[functions.ringcx-lead-mover]
+verify_jwt = false
+
 [functions.thank-you]
+verify_jwt = false
+
+[functions.ringcx-lead-ingest]
+verify_jwt = false
+
+[functions.ringcx-lead-aging-hot]
+verify_jwt = false
+
+[functions.ringcx-lead-aging-new]
 verify_jwt = false

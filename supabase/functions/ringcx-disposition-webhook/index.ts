@@ -1,5 +1,10 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import {
+  RINGCX_ACCOUNT_ID,
+  RINGCX_API_BASE,
+  getRingCentralAccessToken,
+} from "../_shared/ringcx-lead-loader-base.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -1279,6 +1284,64 @@ serve(async (req) => {
       }
     } catch (err) {
       console.error("Error updating contact properties:", err);
+      // Non-fatal — don't fail the webhook response
+    }
+
+    // ── HOT lead priority maintenance ──────────────────────────
+    // If this contact is in the HOT tier, re-push the lead with IMMEDIATE priority
+    // so it doesn't get deprioritized after a no-answer pass.
+    try {
+      const { data: routing } = await supabaseClient
+        .from("ringcx_lead_routing")
+        .select("current_tier, current_campaign_id, ringcx_lead_id")
+        .eq("contact_id", contactId)
+        .eq("current_tier", "HOT")
+        .maybeSingle();
+
+      if (routing) {
+        console.log(`🔥 HOT lead ${contactId} — re-pushing with IMMEDIATE priority after ${disposition}`);
+        const { token: ringcxToken } = await getRingCentralAccessToken(supabaseClient);
+        if (ringcxToken) {
+          // Re-upload the lead with REMOVE_ALL_EXISTING + IMMEDIATE to reset priority
+          const reloadUrl = `${RINGCX_API_BASE}/admin/accounts/${RINGCX_ACCOUNT_ID}/campaigns/${routing.current_campaign_id}/leadLoader/direct`;
+          const reloadBody = {
+            description: `Priority reset after ${disposition}`,
+            listState: "ACTIVE",
+            fileType: "COMMA",
+            duplicateHandling: "REMOVE_ALL_EXISTING",
+            timeZoneOption: "NPA_NXX",
+            dialPriority: "IMMEDIATE",
+            phoneNumbersI18nEnabled: true,
+            internationalNumberFormat: true,
+            numberOriginCountry: "e164",
+            uploadLeads: [{
+              externId: contactId,
+              leadPhone: customerPhone || formatPhoneNumber(payload.ani),
+            }],
+            dncTags: [],
+          };
+
+          const reloadResp = await fetch(reloadUrl, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${ringcxToken}`,
+            },
+            body: JSON.stringify(reloadBody),
+          });
+
+          const reloadText = await reloadResp.text();
+          if (reloadResp.ok) {
+            console.log(`✅ HOT lead ${contactId} priority reset to IMMEDIATE (campaign ${routing.current_campaign_id})`);
+          } else {
+            console.error(`⚠️ HOT lead priority reset failed: ${reloadResp.status} ${reloadText}`);
+          }
+        } else {
+          console.warn("⚠️ Could not get RingCX token for HOT lead priority reset");
+        }
+      }
+    } catch (priorityErr) {
+      console.error("Error in HOT lead priority reset:", priorityErr);
       // Non-fatal — don't fail the webhook response
     }
 
