@@ -482,13 +482,18 @@ export async function pushLeadToRingCX(
       leadRecord.leadPasses = leadData.numContacted;
     }
 
-    // NPA_NXX: RingCX auto-determines timezone from phone number area code
+    // Determine timezone from campaign → state mapping (AU numbers have no NPA/NXX)
+    const tzCode = CAMPAIGN_TIMEZONE[Number(campaignId)];
+    if (tzCode) {
+      leadRecord.leadTimezone = tzCode;
+    }
+
     const requestBody = {
       description: `HubSpot lead ${leadData.externId}`,
       listState: "ACTIVE",
       fileType: "COMMA",
       duplicateHandling: "REMOVE_ALL_EXISTING",
-      timeZoneOption: "NPA_NXX",
+      timeZoneOption: tzCode ? "EXPLICIT" : "NPA_NXX",
       dialPriority,
       phoneNumbersI18nEnabled: true,
       internationalNumberFormat: true,

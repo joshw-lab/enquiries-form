@@ -13,7 +13,7 @@ import { computeHealthStatus } from '@/lib/dashboard-scoring'
 
 const MS_PER_DAY = 86_400_000
 
-// Age bucket boundaries (days since createdate)
+// Age bucket boundaries (days since lead_date)
 const NEW_BUCKET_RANGES = [
   { minDays: 0, maxDays: 1 },   // <24h
   { minDays: 1, maxDays: 3 },   // 1–3d
@@ -29,25 +29,25 @@ const AGED_BUCKET_RANGES = [
 ]
 
 /**
- * Count HubSpot contacts matching a campaign property filter + optional createdate range.
+ * Count HubSpot contacts matching a campaign property filter + optional lead_date range.
  * Uses limit: 1 to minimise payload — we only need the `total` field.
  */
 async function hsCount(
   hs: HubSpotClient,
   prop: string,
   value: string,
-  createdAfter?: number,
-  createdBefore?: number,
+  leadDateAfter?: number,
+  leadDateBefore?: number,
 ): Promise<number> {
   try {
     const filters: Record<string, unknown>[] = [
       { propertyName: prop, operator: 'EQ', value },
     ]
-    if (createdAfter !== undefined) {
-      filters.push({ propertyName: 'createdate', operator: 'GTE', value: String(createdAfter) })
+    if (leadDateAfter !== undefined) {
+      filters.push({ propertyName: 'lead_date', operator: 'GTE', value: String(leadDateAfter) })
     }
-    if (createdBefore !== undefined) {
-      filters.push({ propertyName: 'createdate', operator: 'LT', value: String(createdBefore) })
+    if (leadDateBefore !== undefined) {
+      filters.push({ propertyName: 'lead_date', operator: 'LT', value: String(leadDateBefore) })
     }
     const result = await hs.searchContacts({ filterGroups: [{ filters }], limit: 1 })
     return result.total
