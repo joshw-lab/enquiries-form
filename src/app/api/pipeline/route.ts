@@ -68,12 +68,13 @@ async function buildRegion(
   now: number,
 ): Promise<RegionPipelineData> {
   // ── HubSpot: New pipeline total + 4 buckets ──
+  // Property name matches lead loader: n0_new_list_id
   const newCountsP = Promise.all([
-    hsCount(hs, 'ringcx_campaignid_new', campaigns.new),
+    hsCount(hs, 'n0_new_list_id', campaigns.new),
     ...NEW_BUCKET_RANGES.map((b) =>
       hsCount(
         hs,
-        'ringcx_campaignid_new',
+        'n0_new_list_id',
         campaigns.new,
         now - b.maxDays * MS_PER_DAY,
         now - b.minDays * MS_PER_DAY,
@@ -82,13 +83,14 @@ async function buildRegion(
   ])
 
   // ── HubSpot: Aged pipeline total + 4 buckets ──
+  // Property name matches lead loader: n0_old_list_id
   const oldCountsP = campaigns.old
     ? Promise.all([
-        hsCount(hs, 'ringcx_campaignid_old', campaigns.old),
+        hsCount(hs, 'n0_old_list_id', campaigns.old),
         ...AGED_BUCKET_RANGES.map((b) =>
           hsCount(
             hs,
-            'ringcx_campaignid_old',
+            'n0_old_list_id',
             campaigns.old,
             now - b.maxDays * MS_PER_DAY,
             now - b.minDays * MS_PER_DAY,

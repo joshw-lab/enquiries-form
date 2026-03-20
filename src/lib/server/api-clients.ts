@@ -275,19 +275,20 @@ export async function discoverCampaignMapping(
   }
 
   // Search HubSpot for contacts with campaign IDs set
+  // Property names match the lead loader: n0_new_list_id, n0_old_list_id, etc.
   const result = await hubspot.searchContacts({
     filterGroups: [{
       filters: [{
-        propertyName: 'ringcx_campaignid_new',
+        propertyName: 'n0_new_list_id',
         operator: 'HAS_PROPERTY',
       }],
     }],
     properties: [
       'state',
-      'ringcx_campaignid_new',
-      'ringcx_campaignid_newhitlist',
-      'ringcx_campaignid_old',
-      'ringcx_campaignid_oldhitlist',
+      'n0_new_list_id',
+      'n0_new_hitlist_id',
+      'n0_old_list_id',
+      'n0_old_hitlist_id',
     ],
     limit: 100,
   })
@@ -298,14 +299,14 @@ export async function discoverCampaignMapping(
     if (!props) continue
 
     const state = props.state
-    const newId = props.ringcx_campaignid_new
+    const newId = props.n0_new_list_id
 
     if (state && newId && !mapping[state]) {
       mapping[state] = {
         new: newId,
-        old: props.ringcx_campaignid_old || '',
-        newHitlist: props.ringcx_campaignid_newhitlist || '',
-        oldHitlist: props.ringcx_campaignid_oldhitlist || '',
+        old: props.n0_old_list_id || '',
+        newHitlist: props.n0_new_hitlist_id || '',
+        oldHitlist: props.n0_old_hitlist_id || '',
       }
     }
   }
