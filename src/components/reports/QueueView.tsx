@@ -53,7 +53,7 @@ interface PriorityBadgeInfo {
   tooltip: string
 }
 
-function getPriorityBadge(priority: string, reason: string): PriorityBadgeInfo {
+function getPriorityBadge(priority: string, reason: string): PriorityBadgeInfo | null {
   if (priority === 'IMMEDIATE' && reason === 'reconversion') {
     return {
       label: 'Reconversion',
@@ -81,31 +81,8 @@ function getPriorityBadge(priority: string, reason: string): PriorityBadgeInfo {
       tooltip: 'Immediate priority',
     }
   }
-  if (reason === 'new_today') {
-    return {
-      label: 'New',
-      bg: 'bg-green-50',
-      text: 'text-green-700',
-      border: 'border-green-200',
-      tooltip: 'New lead created today',
-    }
-  }
-  if (reason === 'aged_lead') {
-    return {
-      label: 'Standard',
-      bg: 'bg-gray-50',
-      text: 'text-gray-500',
-      border: 'border-gray-200',
-      tooltip: 'Standard queue position',
-    }
-  }
-  return {
-    label: 'Standard',
-    bg: 'bg-gray-50',
-    text: 'text-gray-400',
-    border: 'border-gray-200',
-    tooltip: 'Loaded before priority tracking',
-  }
+  // New and Standard are the default states — no badge needed
+  return null
 }
 
 export default function QueueView() {
@@ -434,12 +411,14 @@ function QueueLeadRow({ lead, onTimeline }: { lead: QueuedLead; onTimeline: () =
           </a>
           <span className="text-[10px] text-gray-400 flex-shrink-0">{timeAgo(lead.loadedAt)}</span>
         </div>
-        <span
-          className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium border flex-shrink-0 ${badge.bg} ${badge.text} ${badge.border}`}
-          title={badge.tooltip}
-        >
-          {badge.label}
-        </span>
+        {badge && (
+          <span
+            className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium border flex-shrink-0 ${badge.bg} ${badge.text} ${badge.border}`}
+            title={badge.tooltip}
+          >
+            {badge.label}
+          </span>
+        )}
       </div>
       {/* Line 2: Campaign | State Postcode | Lead/Create dates | Contacted */}
       <div className="flex items-center gap-2 text-[10px] text-gray-400">

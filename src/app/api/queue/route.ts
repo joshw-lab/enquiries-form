@@ -133,6 +133,10 @@ export async function GET(request: NextRequest) {
   if (!showAll) {
     // Default: only show calls with a form submission (rich data with notes/disposition)
     callsQuery = callsQuery.not('hubspot_call_id', 'is', null)
+    // When no specific disposition filter, exclude non-connected calls (No Answer, Voicemail, etc.)
+    if (!dispositionFilter) {
+      callsQuery = callsQuery.not('disposition', 'in', `(${NOT_CONNECTED_DB.join(',')})`)
+    }
   }
   if (dispositionFilter) {
     callsQuery = callsQuery.eq('disposition', dispositionFilter)
