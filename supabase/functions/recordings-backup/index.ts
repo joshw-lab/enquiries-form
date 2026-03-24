@@ -9,7 +9,22 @@ const corsHeaders = {
 };
 
 // Max recordings to process per invocation (avoid timeout)
-const BATCH_SIZE = 10;
+const BATCH_SIZE = 25;
+
+// Dispositions where no meaningful conversation occurred — skip recording backup
+const SKIP_DISPOSITIONS = new Set([
+  "No Answer",
+  "No-Answer",
+  "Busy",
+  "Dead Air",
+  "Dead-Air",
+  "Hang Up",
+  "Hang-Up",
+  "Machine",
+  "Answering Machine",
+  "Answering-Machine",
+  "Left Voicemail",
+]);
 
 // Max retry attempts before marking as failed
 const MAX_ATTEMPTS = 3;
@@ -281,6 +296,18 @@ serve(async (req) => {
           })
           .eq("id", recording.id);
 
+        // Skip non-conversation dispositions (No Answer, Busy, etc.)
+        if (recording.disposition && SKIP_DISPOSITIONS.has(recording.disposition)) {
+          console.log(`  Skipping "${recording.disposition}" — no conversation`);
+          await supabaseClient
+            .from("call_recordings")
+            .update({ backup_status: "no_recording" })
+            .eq("id", recording.id);
+          results.push({ call_id: recording.call_id, status: "no_recording" });
+          processed++;
+          continue;
+        }
+
         if (!recording.ringcx_recording_url) {
           console.log(`  No recording URL — marking as no_recording`);
           await supabaseClient
@@ -376,20 +403,6 @@ serve(async (req) => {
             backed_up_at: new Date().toISOString(),
           })
           .eq("id", recording.id);
-
-        // Look up HubSpot owner from agent_mappings
-        let hubspotOwnerId: string | null = null;
-        if (recording.agent_id) {
-          const { data: agentMap } = await supabaseClient
-            .from("agent_mappings")
-            .select("hubspot_owner_id")
-            .eq("ringcx_agent_id", recording.agent_id)
-            .maybeSingle();
-          hubspotOwnerId = agentMap?.hubspot_owner_id || null;
-          if (hubspotOwnerId) {
-            console.log(`  👤 Agent ${recording.agent_id} → HubSpot owner ${hubspotOwnerId}`);
-          }
-        }
 
         // HubSpot sync is handled by recording-to-storage after VM converts WAV→MP3
 

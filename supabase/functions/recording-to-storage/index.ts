@@ -7,7 +7,7 @@ const corsHeaders = {
 };
 
 // Max recordings to process per batch invocation
-const BATCH_SIZE = 20;
+const BATCH_SIZE = 50;
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
