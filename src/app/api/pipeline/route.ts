@@ -1,12 +1,12 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
 import type { PipelineResponse, RegionPipelineData, Region } from '@/lib/dashboard-types'
 import { REGIONS, DEFAULT_THRESHOLDS } from '@/lib/dashboard-types'
+import { getHubSpotClient, type HubSpotClient } from '@/lib/server/api-clients'
 import { computeHealthStatus } from '@/lib/dashboard-scoring'
 
 const MS_PER_DAY = 86_400_000
 
-// All 8 age bucket boundaries (days since lead_date) — applied to every lead
+// All 8 age bucket boundaries (days since lead_date)
 const ALL_BUCKET_RANGES = [
   { minDays: 0, maxDays: 1 },     // <24h
   { minDays: 1, maxDays: 3 },     // 1–3d
@@ -18,18 +18,6 @@ const ALL_BUCKET_RANGES = [
   { minDays: 90, maxDays: 9999 }, // 90d+
 ]
 
-interface LeadRow {
-  contact_id: string
-  contact_state: string | null
-  campaign_type: string
-  campaign_id: string | null
-  priority_context: { lead_date?: string; createdate?: string } | null
-}
-
-/**
- * Determine which age bucket (0-7) a lead falls into based on its lead_date.
- * Returns bucket index or -1 if outside all ranges.
- */
 function getBucketIndex(leadDateMs: number, now: number): number {
   const ageDays = (now - leadDateMs) / MS_PER_DAY
   for (let i = 0; i < ALL_BUCKET_RANGES.length; i++) {
@@ -60,95 +48,85 @@ function emptyRegion(region: Region): RegionPipelineData {
   }
 }
 
-export async function GET() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
-  if (!url || !key) {
-    return NextResponse.json(
-      { regions: REGIONS.map(emptyRegion), lastFetched: new Date().toISOString() },
-      { status: 200 },
-    )
+/**
+ * Fetch all HubSpot contacts with a lead_date, paginating through results.
+ * Returns contacts with state + lead_date for client-side bucketing.
+ */
+async function fetchAllLeads(hs: HubSpotClient): Promise<Array<{ state: string; leadDateMs: number }>> {
+  const leads: Array<{ state: string; leadDateMs: number }> = []
+  let after: string | undefined
+
+  // Paginate through all results (HubSpot max 100 per page)
+  for (let page = 0; page < 50; page++) {
+    const body: Record<string, unknown> = {
+      filterGroups: [{
+        filters: [
+          {
+            propertyName: 'lead_date',
+            operator: 'HAS_PROPERTY',
+          },
+        ],
+      }],
+      properties: ['state', 'lead_date'],
+      sorts: [{ propertyName: 'lead_date', direction: 'DESCENDING' }],
+      limit: 100,
+    }
+
+    if (after) {
+      body.after = after
+    }
+
+    const result = await hs.searchContacts(body)
+
+    for (const contact of result.results) {
+      const props = contact.properties as Record<string, string> | undefined
+      if (!props) continue
+
+      const state = props.state
+      const leadDate = props.lead_date
+      if (!state || !leadDate) continue
+
+      const leadDateMs = new Date(leadDate).getTime()
+      if (isNaN(leadDateMs)) continue
+
+      leads.push({ state, leadDateMs })
+    }
+
+    // Check for next page
+    const paging = (result as Record<string, unknown>).paging as { next?: { after?: string } } | undefined
+    if (!paging?.next?.after) break
+    after = paging.next.after
   }
 
+  return leads
+}
+
+export async function GET() {
   try {
-    const supabase = createClient(url, key)
+    const hs = getHubSpotClient()
     const now = Date.now()
 
-    // Fetch all lead_loads — deduplicate by contact_id + campaign_type in JS
-    // Pull only the columns we need for bucketing
-    const { data: allLeads, error } = await supabase
-      .from('lead_loads')
-      .select('contact_id, contact_state, campaign_type, campaign_id, priority_context')
-      .in('campaign_type', ['New', 'Old'])
-      .order('created_at', { ascending: false })
-      .limit(10000)
+    const leads = await fetchAllLeads(hs)
 
-    if (error) {
-      console.error('Pipeline: lead_loads query failed:', error.message)
-      return NextResponse.json(
-        { regions: REGIONS.map(emptyRegion), lastFetched: new Date().toISOString() },
-        { status: 200 },
-      )
-    }
-
-    // Deduplicate: keep the most recent load per contact + campaign_type
-    const seen = new Set<string>()
-    const leads: LeadRow[] = []
-    for (const row of (allLeads || []) as LeadRow[]) {
-      const k = `${row.contact_id}:${row.campaign_type}`
-      if (seen.has(k)) continue
-      seen.add(k)
-      leads.push(row)
-    }
-
-    // Build region data from leads — single 8-bucket array per region
-    const regionMap: Record<string, {
-      newTotal: number
-      oldTotal: number
-      buckets: number[]  // 8 buckets: [<24h, 1-3d, 3-7d, 7-30d, 30-45d, 45-60d, 60-90d, 90d+]
-      newCampaignId: string
-      oldCampaignId: string
-    }> = {}
-
-    // Initialise all regions
+    // Build region data — single 8-bucket array per region
+    const regionMap: Record<string, { total: number; buckets: number[] }> = {}
     for (const r of REGIONS) {
-      regionMap[r] = {
-        newTotal: 0,
-        oldTotal: 0,
-        buckets: [0, 0, 0, 0, 0, 0, 0, 0],
-        newCampaignId: '',
-        oldCampaignId: '',
-      }
+      regionMap[r] = { total: 0, buckets: [0, 0, 0, 0, 0, 0, 0, 0] }
     }
 
-    // Aggregate leads into regions and buckets
     for (const lead of leads) {
-      const region = lead.contact_state
-      if (!region || !regionMap[region]) continue
+      const rm = regionMap[lead.state]
+      if (!rm) continue
 
-      const rm = regionMap[region]
-      const leadDateStr = lead.priority_context?.lead_date || lead.priority_context?.createdate
-      const leadDateMs = leadDateStr ? new Date(leadDateStr).getTime() : 0
-
-      if (lead.campaign_type === 'New') {
-        rm.newTotal++
-        if (lead.campaign_id && !rm.newCampaignId) rm.newCampaignId = lead.campaign_id
-      } else if (lead.campaign_type === 'Old') {
-        rm.oldTotal++
-        if (lead.campaign_id && !rm.oldCampaignId) rm.oldCampaignId = lead.campaign_id
-      }
-
-      // Bucket by age regardless of campaign type
-      if (leadDateMs > 0) {
-        const bucket = getBucketIndex(leadDateMs, now)
-        if (bucket >= 0) rm.buckets[bucket]++
-      }
+      rm.total++
+      const bucket = getBucketIndex(lead.leadDateMs, now)
+      if (bucket >= 0) rm.buckets[bucket]++
     }
 
     // Build response
     const regions: RegionPipelineData[] = REGIONS.map((region) => {
       const rm = regionMap[region]
-      if (!rm || (rm.newTotal === 0 && rm.oldTotal === 0)) return emptyRegion(region)
+      if (!rm || rm.total === 0) return emptyRegion(region)
 
       const regionData: RegionPipelineData = {
         region,
@@ -156,22 +134,22 @@ export async function GET() {
         urgency: 'low',
         avgResponseTime: '-',
         avgResponseHours: 0,
-        totalContacts: rm.newTotal + rm.oldTotal,
+        totalContacts: rm.total,
         newPipeline: {
-          hubspotCount: rm.newTotal,
+          hubspotCount: rm.total,
           ringcxCount: 0,
           delta: 0,
-          campaignId: rm.newCampaignId,
-          campaignName: `${region}-New`,
+          campaignId: '',
+          campaignName: `${region}`,
           bucketCounts: rm.buckets,
         },
         agedPipeline: {
-          hubspotCount: rm.oldTotal,
+          hubspotCount: 0,
           ringcxCount: 0,
           delta: 0,
-          campaignId: rm.oldCampaignId,
-          campaignName: `${region}-Old`,
-          bucketCounts: rm.buckets,
+          campaignId: '',
+          campaignName: '',
+          bucketCounts: [0, 0, 0, 0, 0, 0, 0, 0],
         },
         calendar: { slots72h: { booked: 0, total: 0 }, slots7d: { booked: 0, total: 0 }, daily: [] },
       }
