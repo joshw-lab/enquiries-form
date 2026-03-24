@@ -123,6 +123,7 @@ async function fetchAllLeads(hs: HubSpotClient): Promise<Array<{ state: string; 
 async function fetchTierMetrics(): Promise<{
   tiers: Array<{ contact_state: string; current_tier: TierKey; total_active: number; new_today: number; calls_today: number; total_passes: number }>
   avg_response: Array<{ contact_state: string; avg_response_seconds: number }>
+  buckets: Array<{ contact_state: string; bucket_index: number; count: number }>
 } | null> {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -143,14 +144,16 @@ async function fetchTierMetrics(): Promise<{
   return data as {
     tiers: Array<{ contact_state: string; current_tier: TierKey; total_active: number; new_today: number; calls_today: number; total_passes: number }>
     avg_response: Array<{ contact_state: string; avg_response_seconds: number }>
+    buckets: Array<{ contact_state: string; bucket_index: number; count: number }>
   }
 }
 
 function formatResponseTime(seconds: number): { text: string; hours: number } {
   const hours = seconds / 3600
-  if (hours < 1) {
-    const mins = Math.round(seconds / 60)
-    return { text: `${mins} mins ${Math.round(seconds % 60)} sec`, hours }
+  const mins = Math.floor(seconds / 60)
+  const secs = Math.round(seconds % 60)
+  if (mins < 60) {
+    return { text: `${mins} mins ${secs} sec`, hours }
   }
   if (hours < 24) {
     return { text: `${hours.toFixed(1)}h`, hours }
@@ -178,6 +181,7 @@ export async function GET() {
     // Index tier metrics by region+tier for fast lookup
     const tierIndex: Record<string, { total_active: number; new_today: number; calls_today: number; total_passes: number }> = {}
     const avgRespIndex: Record<string, number> = {} // region → avg_response_seconds
+    const bucketIndex: Record<string, number[]> = {} // region → 8-bucket counts
 
     if (tierData) {
       for (const row of tierData.tiers) {
@@ -185,6 +189,14 @@ export async function GET() {
       }
       for (const row of tierData.avg_response) {
         avgRespIndex[row.contact_state] = row.avg_response_seconds
+      }
+      for (const row of tierData.buckets) {
+        if (!bucketIndex[row.contact_state]) {
+          bucketIndex[row.contact_state] = [0, 0, 0, 0, 0, 0, 0, 0]
+        }
+        if (row.bucket_index >= 0 && row.bucket_index < 8) {
+          bucketIndex[row.contact_state][row.bucket_index] = row.count
+        }
       }
     }
 
@@ -226,9 +238,14 @@ export async function GET() {
         ? formatResponseTime(avgRespSec)
         : { text: '-', hours: 0 }
 
-      // Use totalContacts from HubSpot, or sum of tier totals if HubSpot unavailable
+      // Use HubSpot data when available, fall back to Supabase
       const hsTotal = rm.total
       const tierTotal = tiers.reduce((sum, t) => sum + t.totalActive, 0)
+      const hsBuckets = rm.buckets
+      const sbBuckets = bucketIndex[region] ?? [0, 0, 0, 0, 0, 0, 0, 0]
+      // Use HubSpot buckets if they have data, otherwise Supabase buckets
+      const hasBucketData = hsBuckets.some((v) => v > 0)
+      const finalBuckets = hasBucketData ? hsBuckets : sbBuckets
 
       const regionData: RegionPipelineData = {
         region,
@@ -239,12 +256,12 @@ export async function GET() {
         totalContacts: hsTotal || tierTotal,
         tierMetrics: tiers,
         newPipeline: {
-          hubspotCount: rm.total,
+          hubspotCount: hsTotal || tierTotal,
           ringcxCount: 0,
           delta: 0,
           campaignId: '',
           campaignName: `${region}`,
-          bucketCounts: rm.buckets,
+          bucketCounts: finalBuckets,
         },
         agedPipeline: {
           hubspotCount: 0,
