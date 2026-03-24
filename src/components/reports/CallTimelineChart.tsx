@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import {
   AreaChart,
   Area,
@@ -9,6 +9,7 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
+  ReferenceLine,
 } from 'recharts'
 import type { ChartCall } from '@/lib/dashboard-types'
 import { getDispositionLabel, getDispositionColor } from '@/lib/reports-queries'
@@ -41,35 +42,70 @@ function getGroup(disposition: string): string {
   return 'Other'
 }
 
-// Generate 30-min time slots for a full day
-function generateSlots(from: string, to: string): string[] {
+// Generate 30-min time slots from 6am to 8pm Perth time for a given date
+function generateFixedSlots(dateStr: string): string[] {
   const slots: string[] = []
-  // Parse the earliest and latest call times to determine range
-  const start = new Date(from)
-  const end = new Date(to)
+  // Parse any date from the calls to get the correct calendar day in Perth
+  const ref = new Date(dateStr)
+  // Get Perth date string (YYYY-MM-DD)
+  const perthDate = ref.toLocaleDateString('en-CA', { timeZone: 'Australia/Perth' })
+  const [y, m, d] = perthDate.split('-').map(Number)
 
-  // Round start down to nearest 30 min
-  start.setMinutes(Math.floor(start.getMinutes() / 30) * 30, 0, 0)
-  // Round end up to nearest 30 min
-  end.setMinutes(Math.ceil(end.getMinutes() / 30) * 30, 0, 0)
-
-  const cursor = new Date(start)
-  while (cursor <= end) {
-    slots.push(cursor.toISOString())
-    cursor.setMinutes(cursor.getMinutes() + 30)
+  // Build slots from 06:00 to 20:00 Perth time
+  // Perth is UTC+8, so 06:00 AWST = 22:00 UTC previous day
+  for (let h = 6; h <= 20; h++) {
+    for (let min = 0; min < 60; min += 30) {
+      if (h === 20 && min > 0) break // stop at 20:00
+      const utc = new Date(Date.UTC(y, m - 1, d, h - 8, min))
+      slots.push(utc.toISOString())
+    }
   }
   return slots
 }
 
+// Get current time label in Perth timezone
+function getNowLabel(): string {
+  return new Date().toLocaleTimeString('en-AU', {
+    timeZone: 'Australia/Perth',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+  })
+}
+
+// Get current Perth hour as a number (e.g. 14.5 for 2:30pm)
+function getPerthHourNow(): number {
+  const now = new Date()
+  const perthStr = now.toLocaleTimeString('en-AU', {
+    timeZone: 'Australia/Perth',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  })
+  const [h, m] = perthStr.split(':').map(Number)
+  return h + m / 60
+}
+
 export default function CallTimelineChart({ chartCalls }: CallTimelineChartProps) {
+  // Track current time for the "now" indicator — update every minute
+  const [nowLabel, setNowLabel] = useState(getNowLabel)
+  const [nowHour, setNowHour] = useState(getPerthHourNow)
+  useEffect(() => {
+    const id = setInterval(() => {
+      setNowLabel(getNowLabel())
+      setNowHour(getPerthHourNow())
+    }, 60_000)
+    return () => clearInterval(id)
+  }, [])
+
   const { chartData, groups } = useMemo(() => {
-    if (chartCalls.length === 0) return { chartData: [], groups: [] }
+    // Use today in Perth as default if no calls
+    const refDate = chartCalls.length > 0
+      ? chartCalls[0].callStart
+      : new Date().toISOString()
 
-    // Sort calls by time
-    const sorted = [...chartCalls].sort((a, b) => a.callStart.localeCompare(b.callStart))
-
-    // Generate time slots spanning the data range
-    const slots = generateSlots(sorted[0].callStart, sorted[sorted.length - 1].callStart)
+    // Generate fixed 6am–8pm slots
+    const slots = generateFixedSlots(refDate)
 
     // Track which groups appear in the data
     const activeGroups = new Set<string>()
@@ -80,7 +116,7 @@ export default function CallTimelineChart({ chartCalls }: CallTimelineChartProps
       buckets[slot] = {}
     }
 
-    for (const call of sorted) {
+    for (const call of chartCalls) {
       const callTime = new Date(call.callStart)
       // Find the slot this call belongs to
       const slotTime = new Date(callTime)
@@ -97,26 +133,44 @@ export default function CallTimelineChart({ chartCalls }: CallTimelineChartProps
     // Order groups: Booked first (green on top), then others
     const groupOrder = ['Booked Test', 'Needs Call Back', 'No Answer', 'Not Interested', 'Other']
     const groups = groupOrder.filter((g) => activeGroups.has(g))
+    // If no calls yet, still show all default groups so chart renders
+    const displayGroups = groups.length > 0 ? groups : groupOrder
 
-    // Build chart data
+    // Current time boundary — slots after "now" should have no data
+    const currentPerthHour = getPerthHourNow()
+
+    // Build chart data — only populate slots up to current time
     const chartData = slots.map((slot) => {
-      const row: Record<string, string | number> = {
+      const slotLabel = new Date(slot).toLocaleTimeString('en-AU', {
+        timeZone: 'Australia/Perth',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true,
+      })
+      // Get Perth hour for this slot
+      const perthTime = new Date(slot).toLocaleTimeString('en-AU', {
+        timeZone: 'Australia/Perth',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      })
+      const [sh, sm] = perthTime.split(':').map(Number)
+      const slotHour = sh + sm / 60
+      const isFuture = slotHour > currentPerthHour
+
+      const row: Record<string, string | number | null> = {
         time: slot,
-        label: new Date(slot).toLocaleTimeString('en-AU', {
-          timeZone: 'Australia/Perth',
-          hour: '2-digit',
-          minute: '2-digit',
-          hour12: true,
-        }),
+        label: slotLabel,
       }
-      for (const group of groups) {
-        row[group] = buckets[slot]?.[group] || 0
+      for (const group of displayGroups) {
+        // Future slots get null so lines stop at current time
+        row[group] = isFuture ? null : (buckets[slot]?.[group] || 0)
       }
       return row
     })
 
-    return { chartData, groups }
-  }, [chartCalls])
+    return { chartData, groups: displayGroups }
+  }, [chartCalls, nowHour])
 
   const [cumulative, setCumulative] = useState(false)
   const [hidden, setHidden] = useState<Set<string>>(new Set(['No Answer']))
@@ -126,10 +180,15 @@ export default function CallTimelineChart({ chartCalls }: CallTimelineChartProps
     if (!cumulative) return chartData
     const totals: Record<string, number> = {}
     return chartData.map((row) => {
-      const cumRow: Record<string, string | number> = { time: row.time, label: row.label }
+      const cumRow: Record<string, string | number | null> = { time: row.time, label: row.label }
       for (const group of groups) {
-        totals[group] = (totals[group] || 0) + (row[group] as number || 0)
-        cumRow[group] = totals[group]
+        if (row[group] === null) {
+          // Future slot — keep null so line stops
+          cumRow[group] = null
+        } else {
+          totals[group] = (totals[group] || 0) + (row[group] as number || 0)
+          cumRow[group] = totals[group]
+        }
       }
       return cumRow
     })
@@ -144,7 +203,24 @@ export default function CallTimelineChart({ chartCalls }: CallTimelineChartProps
     })
   }
 
-  if (chartData.length === 0) return null
+  // Find the closest slot label to current time for the ReferenceLine
+  const nowRefLabel = useMemo(() => {
+    if (chartData.length === 0) return null
+    // Find the last slot that is at or before current time
+    let closest: string | null = null
+    for (const row of chartData) {
+      const perthTime = new Date(row.time as string).toLocaleTimeString('en-AU', {
+        timeZone: 'Australia/Perth',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      })
+      const [sh, sm] = perthTime.split(':').map(Number)
+      const slotHour = sh + sm / 60
+      if (slotHour <= nowHour) closest = row.label as string
+    }
+    return closest
+  }, [chartData, nowHour])
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 px-5 py-4">
@@ -213,8 +289,24 @@ export default function CallTimelineChart({ chartCalls }: CallTimelineChartProps
               dot={false}
               activeDot={hidden.has(group) ? false : { r: 3, strokeWidth: 0 }}
               hide={hidden.has(group)}
+              connectNulls={false}
             />
           ))}
+          {nowRefLabel && (
+            <ReferenceLine
+              x={nowRefLabel}
+              stroke="#6b7280"
+              strokeDasharray="4 3"
+              strokeWidth={1}
+              label={{
+                value: 'Now',
+                position: 'top',
+                fill: '#6b7280',
+                fontSize: 10,
+                fontWeight: 600,
+              }}
+            />
+          )}
         </AreaChart>
       </ResponsiveContainer>
       {/* Legend (clickable to toggle) */}
