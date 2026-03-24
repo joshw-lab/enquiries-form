@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import {
   AreaChart,
   Area,
@@ -118,6 +118,17 @@ export default function CallTimelineChart({ chartCalls }: CallTimelineChartProps
     return { chartData, groups }
   }, [chartCalls])
 
+  const [hidden, setHidden] = useState<Set<string>>(new Set(['No Answer']))
+
+  const toggleGroup = (group: string) => {
+    setHidden((prev) => {
+      const next = new Set(prev)
+      if (next.has(group)) next.delete(group)
+      else next.add(group)
+      return next
+    })
+  }
+
   if (chartData.length === 0) return null
 
   return (
@@ -169,25 +180,41 @@ export default function CallTimelineChart({ chartCalls }: CallTimelineChartProps
               key={group}
               type="monotone"
               dataKey={group}
-              stroke={GROUP_COLORS[group]}
+              stroke={hidden.has(group) ? 'transparent' : GROUP_COLORS[group]}
               strokeWidth={2}
-              fill={`url(#gradient-${group.replace(/\s/g, '')})`}
+              fill={hidden.has(group) ? 'transparent' : `url(#gradient-${group.replace(/\s/g, '')})`}
               dot={false}
-              activeDot={{ r: 3, strokeWidth: 0 }}
+              activeDot={hidden.has(group) ? false : { r: 3, strokeWidth: 0 }}
+              hide={hidden.has(group)}
             />
           ))}
         </AreaChart>
       </ResponsiveContainer>
-      {/* Legend */}
+      {/* Legend (clickable to toggle) */}
       <div className="flex items-center gap-4 mt-2 justify-center">
         {groups.map((group) => (
-          <div key={group} className="flex items-center gap-1.5">
+          <button
+            key={group}
+            onClick={() => toggleGroup(group)}
+            className="flex items-center gap-1.5 cursor-pointer"
+          >
             <span
-              className="inline-block w-2.5 h-2.5 rounded-full"
-              style={{ backgroundColor: GROUP_COLORS[group] }}
+              className="inline-block w-2.5 h-2.5 rounded-full transition-opacity"
+              style={{
+                backgroundColor: GROUP_COLORS[group],
+                opacity: hidden.has(group) ? 0.25 : 1,
+              }}
             />
-            <span className="text-[11px] text-gray-500">{group}</span>
-          </div>
+            <span
+              className="text-[11px] transition-opacity"
+              style={{
+                color: hidden.has(group) ? '#d1d5db' : '#6b7280',
+                textDecoration: hidden.has(group) ? 'line-through' : 'none',
+              }}
+            >
+              {group}
+            </span>
+          </button>
         ))}
       </div>
     </div>
