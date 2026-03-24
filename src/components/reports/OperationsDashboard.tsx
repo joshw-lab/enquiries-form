@@ -2,14 +2,12 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import type { DashboardTab, PipelineResponse, SyncResponse, CalendarResponse } from '@/lib/dashboard-types'
-import ReportsDashboard from './ReportsDashboard'
 import PipelineView from './pipeline/PipelineView'
 import SyncView from './SyncView'
 import QueueView from './QueueView'
 
 const LEFT_TABS: { id: DashboardTab; label: string }[] = [
   { id: 'queue', label: 'Queue' },
-  { id: 'reports', label: 'Reports' },
   { id: 'pipeline', label: 'Pipeline' },
 ]
 
@@ -181,8 +179,7 @@ export default function OperationsDashboard() {
         {activeTab === 'sync' && (
           <SyncView data={syncData} onRefresh={fetchDashboardData} />
         )}
-        {activeTab === 'reports' && <ReportsDashboard />}
-        {activeTab === 'queue' && <QueueView />}
+{activeTab === 'queue' && <QueueView />}
       </div>
     </div>
   )

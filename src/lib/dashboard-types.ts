@@ -3,7 +3,7 @@ export const REGIONS = ['NSW', 'VIC', 'QLD', 'WA', 'SA', 'ACT'] as const
 export type Region = (typeof REGIONS)[number]
 
 // ── Dashboard tab identifiers ──
-export type DashboardTab = 'pipeline' | 'sync' | 'reports' | 'queue'
+export type DashboardTab = 'pipeline' | 'sync' | 'queue'
 
 // ── Pipeline data ──
 export interface PipelineData {
