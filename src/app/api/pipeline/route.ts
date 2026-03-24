@@ -190,7 +190,7 @@ export async function GET() {
       for (const row of tierData.avg_response) {
         avgRespIndex[row.contact_state] = row.avg_response_seconds
       }
-      for (const row of tierData.buckets) {
+      for (const row of tierData.buckets ?? []) {
         if (!bucketIndex[row.contact_state]) {
           bucketIndex[row.contact_state] = [0, 0, 0, 0, 0, 0, 0, 0]
         }
