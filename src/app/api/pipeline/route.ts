@@ -166,8 +166,12 @@ export async function GET() {
     const now = Date.now()
 
     // Fetch HubSpot leads and Supabase tier metrics in parallel
+    // Use .catch() so a HubSpot failure doesn't block tier metrics
     const [leads, tierData] = await Promise.all([
-      fetchAllLeads(hs),
+      fetchAllLeads(hs).catch((e) => {
+        console.error('HubSpot fetch error (tier metrics still available):', e.message)
+        return [] as Array<{ state: string; leadDateMs: number }>
+      }),
       fetchTierMetrics(),
     ])
 
@@ -201,10 +205,9 @@ export async function GET() {
 
     // Build response
     const regions: RegionPipelineData[] = REGIONS.map((region) => {
-      const rm = regionMap[region]
-      if (!rm || rm.total === 0) return emptyRegion(region)
+      const rm = regionMap[region] ?? { total: 0, buckets: [0, 0, 0, 0, 0, 0, 0, 0] }
 
-      // Build tier metrics from Supabase data
+      // Build tier metrics from Supabase data (always — even if HubSpot returned 0)
       const tiers: TierMetrics[] = (['HOT', 'NEW', 'OLD'] as TierKey[]).map((tier) => {
         const row = tierIndex[`${region}:${tier}`]
         return {
@@ -223,13 +226,17 @@ export async function GET() {
         ? formatResponseTime(avgRespSec)
         : { text: '-', hours: 0 }
 
+      // Use totalContacts from HubSpot, or sum of tier totals if HubSpot unavailable
+      const hsTotal = rm.total
+      const tierTotal = tiers.reduce((sum, t) => sum + t.totalActive, 0)
+
       const regionData: RegionPipelineData = {
         region,
         status: 'good',
         urgency: 'low',
         avgResponseTime: resp.text,
         avgResponseHours: resp.hours,
-        totalContacts: rm.total,
+        totalContacts: hsTotal || tierTotal,
         tierMetrics: tiers,
         newPipeline: {
           hubspotCount: rm.total,
