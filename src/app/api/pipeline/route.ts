@@ -56,14 +56,18 @@ async function fetchAllLeads(hs: HubSpotClient): Promise<Array<{ state: string; 
   const leads: Array<{ state: string; leadDateMs: number }> = []
   let after: string | undefined
 
-  // Paginate through all results (HubSpot max 100 per page)
-  for (let page = 0; page < 50; page++) {
+  // Only fetch leads from the last 270 days (covers all 8 buckets including 90d+)
+  const cutoffDate = new Date(Date.now() - 270 * MS_PER_DAY).toISOString().split('T')[0]
+
+  // Paginate through results (HubSpot max 100 per page, cap at 30 pages = 3000 contacts)
+  for (let page = 0; page < 30; page++) {
     const body: Record<string, unknown> = {
       filterGroups: [{
         filters: [
           {
             propertyName: 'lead_date',
-            operator: 'HAS_PROPERTY',
+            operator: 'GTE',
+            value: cutoffDate,
           },
         ],
       }],
