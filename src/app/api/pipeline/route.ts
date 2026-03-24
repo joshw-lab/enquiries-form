@@ -1,14 +1,7 @@
 import { NextResponse } from 'next/server'
+import { createClient } from '@supabase/supabase-js'
 import type { PipelineResponse, RegionPipelineData, Region } from '@/lib/dashboard-types'
 import { REGIONS, DEFAULT_THRESHOLDS } from '@/lib/dashboard-types'
-import {
-  getHubSpotClient,
-  getRingCXClient,
-  discoverCampaignMapping,
-  type HubSpotClient,
-  type RingCXClient,
-  type CampaignMapping,
-} from '@/lib/server/api-clients'
 import { computeHealthStatus } from '@/lib/dashboard-scoring'
 
 const MS_PER_DAY = 86_400_000
@@ -28,125 +21,24 @@ const AGED_BUCKET_RANGES = [
   { minDays: 90, maxDays: 365 }, // 90d+
 ]
 
-/**
- * Count HubSpot contacts matching a campaign property filter + optional lead_date range.
- * Uses limit: 1 to minimise payload — we only need the `total` field.
- */
-async function hsCount(
-  hs: HubSpotClient,
-  prop: string,
-  value: string,
-  leadDateAfter?: number,
-  leadDateBefore?: number,
-): Promise<number> {
-  try {
-    const filters: Record<string, unknown>[] = [
-      { propertyName: prop, operator: 'EQ', value },
-    ]
-    if (leadDateAfter !== undefined) {
-      filters.push({ propertyName: 'lead_date', operator: 'GTE', value: String(leadDateAfter) })
-    }
-    if (leadDateBefore !== undefined) {
-      filters.push({ propertyName: 'lead_date', operator: 'LT', value: String(leadDateBefore) })
-    }
-    const result = await hs.searchContacts({ filterGroups: [{ filters }], limit: 1 })
-    return result.total
-  } catch {
-    return 0
-  }
+interface LeadRow {
+  contact_id: string
+  contact_state: string | null
+  campaign_type: string
+  campaign_id: string | null
+  priority_context: { lead_date?: string; createdate?: string } | null
 }
 
 /**
- * Build a full RegionPipelineData for one region.
- * Runs HubSpot bucket counts and RingCX lead counts in parallel.
+ * Determine which age bucket a lead falls into based on its lead_date.
+ * Returns bucket index (0-3) or -1 if outside all ranges.
  */
-async function buildRegion(
-  region: Region,
-  campaigns: CampaignMapping,
-  hs: HubSpotClient,
-  rcx: RingCXClient | null,
-  now: number,
-): Promise<RegionPipelineData> {
-  // ── HubSpot: New pipeline total + 4 buckets ──
-  // Property name matches lead loader: n0_new_list_id
-  const newCountsP = Promise.all([
-    hsCount(hs, 'n0_new_list_id', campaigns.new),
-    ...NEW_BUCKET_RANGES.map((b) =>
-      hsCount(
-        hs,
-        'n0_new_list_id',
-        campaigns.new,
-        now - b.maxDays * MS_PER_DAY,
-        now - b.minDays * MS_PER_DAY,
-      )
-    ),
-  ])
-
-  // ── HubSpot: Aged pipeline total + 4 buckets ──
-  // Property name matches lead loader: n0_old_list_id
-  const oldCountsP = campaigns.old
-    ? Promise.all([
-        hsCount(hs, 'n0_old_list_id', campaigns.old),
-        ...AGED_BUCKET_RANGES.map((b) =>
-          hsCount(
-            hs,
-            'n0_old_list_id',
-            campaigns.old,
-            now - b.maxDays * MS_PER_DAY,
-            now - b.minDays * MS_PER_DAY,
-          )
-        ),
-      ])
-    : Promise.resolve([0, 0, 0, 0, 0] as number[])
-
-  // ── RingCX: lead counts per campaign ──
-  const rcxP = rcx
-    ? Promise.all([
-        rcx.getCampaignLeadCount(campaigns.new),
-        campaigns.old ? rcx.getCampaignLeadCount(campaigns.old) : Promise.resolve(0),
-      ])
-    : Promise.resolve([0, 0] as number[])
-
-  const [[newTotal, ...newBuckets], [oldTotal, ...oldBuckets], [newRcx, oldRcx]] =
-    await Promise.all([newCountsP, oldCountsP, rcxP])
-
-  const totalContacts = newTotal + oldTotal
-  const newDelta = newTotal - newRcx
-  const oldDelta = oldTotal - oldRcx
-
-  const regionData: RegionPipelineData = {
-    region,
-    status: 'good',
-    urgency: 'low',
-    avgResponseTime: '-',
-    avgResponseHours: 0,
-    totalContacts,
-    newPipeline: {
-      hubspotCount: newTotal,
-      ringcxCount: newRcx,
-      delta: newDelta,
-      campaignId: campaigns.new,
-      campaignName: `${region}-New`,
-      bucketCounts: newBuckets as [number, number, number, number],
-    },
-    agedPipeline: {
-      hubspotCount: oldTotal,
-      ringcxCount: oldRcx,
-      delta: oldDelta,
-      campaignId: campaigns.old || '',
-      campaignName: `${region}-Aged`,
-      bucketCounts: oldBuckets as [number, number, number, number],
-    },
-    // Calendar data is merged in from the separate /api/calendar route
-    calendar: { slots72h: { booked: 0, total: 0 }, slots7d: { booked: 0, total: 0 }, daily: [] },
+function getBucketIndex(leadDateMs: number, now: number, ranges: typeof NEW_BUCKET_RANGES): number {
+  const ageDays = (now - leadDateMs) / MS_PER_DAY
+  for (let i = 0; i < ranges.length; i++) {
+    if (ageDays >= ranges[i].minDays && ageDays < ranges[i].maxDays) return i
   }
-
-  // Compute health status from thresholds
-  const health = computeHealthStatus(regionData, DEFAULT_THRESHOLDS)
-  regionData.status = health.status
-  regionData.urgency = health.urgency
-
-  return regionData
+  return -1
 }
 
 function emptyRegion(region: Region): RegionPipelineData {
@@ -172,42 +64,140 @@ function emptyRegion(region: Region): RegionPipelineData {
 }
 
 export async function GET() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!url || !key) {
+    return NextResponse.json(
+      { regions: REGIONS.map(emptyRegion), lastFetched: new Date().toISOString() },
+      { status: 200 },
+    )
+  }
+
   try {
-    const hs = getHubSpotClient()
-
-    // Discover region → campaign ID mapping from HubSpot contacts
-    const campaignMapping = await discoverCampaignMapping(hs)
-
-    // Initialise RingCX client (may fail if auth token expired)
-    let rcx: RingCXClient | null = null
-    try {
-      rcx = await getRingCXClient()
-    } catch (e) {
-      console.warn('RingCX unavailable:', (e as Error).message)
-    }
-
+    const supabase = createClient(url, key)
     const now = Date.now()
 
-    // Build all 6 regions in parallel
-    const regions = await Promise.all(
-      REGIONS.map(async (region) => {
-        const campaigns = campaignMapping[region]
-        if (!campaigns) return emptyRegion(region)
-        return buildRegion(region, campaigns, hs, rcx, now)
-      })
-    )
+    // Fetch all lead_loads — deduplicate by contact_id + campaign_type in JS
+    // Pull only the columns we need for bucketing
+    const { data: allLeads, error } = await supabase
+      .from('lead_loads')
+      .select('contact_id, contact_state, campaign_type, campaign_id, priority_context')
+      .in('campaign_type', ['New', 'Old'])
+      .order('created_at', { ascending: false })
 
-    const response: PipelineResponse = {
-      regions,
-      lastFetched: new Date().toISOString(),
+    if (error) {
+      console.error('Pipeline: lead_loads query failed:', error.message)
+      return NextResponse.json(
+        { regions: REGIONS.map(emptyRegion), lastFetched: new Date().toISOString() },
+        { status: 200 },
+      )
     }
 
-    return NextResponse.json(response)
+    // Deduplicate: keep the most recent load per contact + campaign_type
+    const seen = new Set<string>()
+    const leads: LeadRow[] = []
+    for (const row of (allLeads || []) as LeadRow[]) {
+      const k = `${row.contact_id}:${row.campaign_type}`
+      if (seen.has(k)) continue
+      seen.add(k)
+      leads.push(row)
+    }
+
+    // Build region data from leads
+    const regionMap: Record<string, {
+      newTotal: number
+      newBuckets: [number, number, number, number]
+      newCampaignId: string
+      oldTotal: number
+      oldBuckets: [number, number, number, number]
+      oldCampaignId: string
+    }> = {}
+
+    // Initialise all regions
+    for (const r of REGIONS) {
+      regionMap[r] = {
+        newTotal: 0,
+        newBuckets: [0, 0, 0, 0],
+        newCampaignId: '',
+        oldTotal: 0,
+        oldBuckets: [0, 0, 0, 0],
+        oldCampaignId: '',
+      }
+    }
+
+    // Aggregate leads into regions and buckets
+    for (const lead of leads) {
+      const region = lead.contact_state
+      if (!region || !regionMap[region]) continue
+
+      const rm = regionMap[region]
+      const leadDateStr = lead.priority_context?.lead_date || lead.priority_context?.createdate
+      const leadDateMs = leadDateStr ? new Date(leadDateStr).getTime() : 0
+
+      if (lead.campaign_type === 'New') {
+        rm.newTotal++
+        if (lead.campaign_id && !rm.newCampaignId) rm.newCampaignId = lead.campaign_id
+        if (leadDateMs > 0) {
+          const bucket = getBucketIndex(leadDateMs, now, NEW_BUCKET_RANGES)
+          if (bucket >= 0) rm.newBuckets[bucket]++
+        }
+      } else if (lead.campaign_type === 'Old') {
+        rm.oldTotal++
+        if (lead.campaign_id && !rm.oldCampaignId) rm.oldCampaignId = lead.campaign_id
+        if (leadDateMs > 0) {
+          const bucket = getBucketIndex(leadDateMs, now, AGED_BUCKET_RANGES)
+          if (bucket >= 0) rm.oldBuckets[bucket]++
+        }
+      }
+    }
+
+    // Build response
+    const regions: RegionPipelineData[] = REGIONS.map((region) => {
+      const rm = regionMap[region]
+      if (!rm || (rm.newTotal === 0 && rm.oldTotal === 0)) return emptyRegion(region)
+
+      const regionData: RegionPipelineData = {
+        region,
+        status: 'good',
+        urgency: 'low',
+        avgResponseTime: '-',
+        avgResponseHours: 0,
+        totalContacts: rm.newTotal + rm.oldTotal,
+        newPipeline: {
+          hubspotCount: rm.newTotal,
+          ringcxCount: 0, // RingCX counts merged via sync view
+          delta: 0,
+          campaignId: rm.newCampaignId,
+          campaignName: `${region}-New`,
+          bucketCounts: rm.newBuckets,
+        },
+        agedPipeline: {
+          hubspotCount: rm.oldTotal,
+          ringcxCount: 0,
+          delta: 0,
+          campaignId: rm.oldCampaignId,
+          campaignName: `${region}-Old`,
+          bucketCounts: rm.oldBuckets,
+        },
+        calendar: { slots72h: { booked: 0, total: 0 }, slots7d: { booked: 0, total: 0 }, daily: [] },
+      }
+
+      const health = computeHealthStatus(regionData, DEFAULT_THRESHOLDS)
+      regionData.status = health.status
+      regionData.urgency = health.urgency
+
+      return regionData
+    })
+
+    return NextResponse.json({
+      regions,
+      lastFetched: new Date().toISOString(),
+    } satisfies PipelineResponse)
   } catch (e) {
     console.error('Pipeline API error:', e)
     return NextResponse.json(
       { regions: REGIONS.map(emptyRegion), lastFetched: new Date().toISOString() },
-      { status: 200 } // Return empty data rather than error so UI doesn't break
+      { status: 200 },
     )
   }
 }
