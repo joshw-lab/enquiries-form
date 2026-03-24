@@ -1,10 +1,11 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import type { QueuedLead, CompletedCall, QueueMetrics, QueueSummary, QueueResponse, QueueCampaign } from '@/lib/dashboard-types'
+import type { QueuedLead, CompletedCall, ChartCall, QueueMetrics, QueueSummary, QueueResponse, QueueCampaign } from '@/lib/dashboard-types'
 import { getDispositionLabel, getDispositionColor } from '@/lib/reports-queries'
 import QueueFilters, { type QueueFilterState } from './QueueFilters'
 import LeadTimelineModal from './LeadTimelineModal'
+import CallTimelineChart from './CallTimelineChart'
 
 const HUBSPOT_PORTAL_ID = '5877625'
 const PAGE_SIZES = [25, 50, 100]
@@ -111,6 +112,7 @@ export default function QueueView() {
     calledCount: 0,
   })
 
+  const [chartCalls, setChartCalls] = useState<ChartCall[]>([])
   const [disposition, setDisposition] = useState('connected')
   const [playingCall, setPlayingCall] = useState<CompletedCall | null>(null)
   const [availableAgents, setAvailableAgents] = useState<string[]>([])
@@ -158,6 +160,7 @@ export default function QueueView() {
       setCallsTotal(data.callsTotal)
       setMetrics(data.metrics)
       setSummary(data.summary)
+      if (data.chartCalls) setChartCalls(data.chartCalls)
       if (data.availableAgents) setAvailableAgents(data.availableAgents)
       if (data.availableCampaigns) setAvailableCampaigns(data.availableCampaigns)
     } catch (e) {
@@ -213,6 +216,9 @@ export default function QueueView() {
           value={metrics.avgLeadToCallMinutes !== null ? `${metrics.avgLeadToCallMinutes}m` : '-'}
         />
       </div>
+
+      {/* Call outcomes timeline chart */}
+      <CallTimelineChart chartCalls={chartCalls} />
 
       {/* Two-column layout: 33% queue / 67% completed */}
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_2fr] gap-4">
@@ -315,7 +321,7 @@ export default function QueueView() {
 
 function RecordingModal({ call, onClose }: { call: CompletedCall; onClose: () => void }) {
   const audioRef = useRef<HTMLAudioElement>(null)
-  const audioUrl = call.gdriveFileId ? `/api/recording?id=${call.gdriveFileId}` : null
+  const audioUrl = call.storageUrl || null
   const displayName = call.contactName || call.contactId || 'Unknown'
   const hubspotUrl = call.contactId
     ? `https://app.hubspot.com/contacts/${HUBSPOT_PORTAL_ID}/record/0-1/${call.contactId}`
@@ -358,8 +364,8 @@ function RecordingModal({ call, onClose }: { call: CompletedCall; onClose: () =>
         <div className="px-5 py-4 bg-gray-50 border-b border-gray-200">
           <div className="flex items-center gap-4 mb-3">
             <div className="text-2xl font-bold text-[#111827] tabular-nums">{formatDuration(call.callDuration)}</div>
-            {call.gdriveFileId && (
-              <span className="text-[10px] text-gray-400 bg-gray-200 px-1.5 py-0.5 rounded">Google Drive</span>
+            {call.storageUrl && (
+              <span className="text-[10px] text-gray-400 bg-gray-200 px-1.5 py-0.5 rounded">MP3</span>
             )}
           </div>
           {audioUrl ? (
@@ -474,9 +480,9 @@ function CompletedCallRow({ call, onPlay, onTimeline }: { call: CompletedCall; o
         <div className="flex items-center gap-1.5 flex-shrink-0">
           <span className="text-[10px] text-gray-400">{timeAgo(call.callStart)}</span>
           <span className="text-[12px] font-semibold text-gray-700 tabular-nums">{formatDuration(call.callDuration)}</span>
-          {(call.storageUrl || call.gdriveFileId) ? (
-            <audio controls preload="none" className="h-7" style={{ width: '180px' }}>
-              <source src={call.storageUrl || `/api/recording?id=${call.gdriveFileId}`} />
+          {call.storageUrl ? (
+            <audio controls preload="metadata" className="h-7" style={{ width: '180px' }}>
+              <source src={call.storageUrl} type="audio/mpeg" />
             </audio>
           ) : (call.backupStatus === 'pending' || call.backupStatus === 'downloading') ? (
             <span className="text-[9px] text-gray-400 italic">Processing...</span>

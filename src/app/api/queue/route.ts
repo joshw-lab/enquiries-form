@@ -148,10 +148,20 @@ export async function GET(request: NextRequest) {
   const callsOffset = (callsPage - 1) * pageSize
   callsQuery = callsQuery.range(callsOffset, callsOffset + pageSize - 1)
 
-  // ── Run leads + calls + agent/campaign lookups in parallel ──
-  const [leadsResult, callsResult, agentResult, campaignResult] = await Promise.all([
+  // ── Chart data: all calls in date range (call_start + disposition only) ──
+  let chartQuery = supabase
+    .from('call_recordings')
+    .select('call_start, disposition')
+    .order('call_start', { ascending: true })
+  if (from) chartQuery = chartQuery.gte('call_start', startOfDayAWST(from))
+  if (to) chartQuery = chartQuery.lte('call_start', endOfDayAWST(to))
+  if (operatorFilter) chartQuery = chartQuery.eq('agent_name', operatorFilter)
+
+  // ── Run leads + calls + chart + agent/campaign lookups in parallel ──
+  const [leadsResult, callsResult, chartResult, agentResult, campaignResult] = await Promise.all([
     leadsQuery,
     callsQuery,
+    chartQuery,
     supabase.from('agent_mappings').select('agent_name').order('agent_name'),
     supabase.from('lead_loads').select('campaign_id, campaign_type'),
   ])
@@ -325,6 +335,12 @@ export async function GET(request: NextRequest) {
     availableCampaigns.sort((a, b) => a.label.localeCompare(b.label))
   }
 
+  // ── Chart calls: lightweight array for timeline chart ──
+  const chartCalls = ((chartResult.data || []) as Record<string, unknown>[]).map((row) => ({
+    callStart: row.call_start as string,
+    disposition: (row.disposition as string) || 'Unknown',
+  }))
+
   return NextResponse.json({
     leads,
     leadsTotal: leadsResult.count ?? 0,
@@ -341,6 +357,7 @@ export async function GET(request: NextRequest) {
     },
     availableAgents,
     availableCampaigns,
+    chartCalls,
   })
 }
 

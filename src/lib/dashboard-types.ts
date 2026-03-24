@@ -207,6 +207,12 @@ export interface QueueSummary {
   calledCount: number
 }
 
+// ── Queue — Chart data (hourly disposition timeline) ──
+export interface ChartCall {
+  callStart: string
+  disposition: string
+}
+
 // ── Queue API response ──
 export interface QueueCampaign {
   id: string
@@ -224,6 +230,7 @@ export interface QueueResponse {
   summary: QueueSummary
   availableAgents: string[]
   availableCampaigns: QueueCampaign[]
+  chartCalls: ChartCall[]
 }
 
 // ── Colour constants (from HTML prototype) ──
