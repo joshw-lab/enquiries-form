@@ -238,3 +238,7 @@ export const NEW_BUCKET_COLORS = ['#ef4444', '#f97316', '#f59e0b', '#e5e7eb'] as
 export const NEW_BUCKET_LABELS = ['<24h', '1\u20133d', '3\u20137d', '7\u201330d'] as const
 export const AGED_BUCKET_COLORS = ['#c084fc', '#a855f7', '#7c3aed', '#4c1d95'] as const
 export const AGED_BUCKET_LABELS = ['30\u201345d', '45\u201360d', '60\u201390d', '90d+'] as const
+
+// Combined 8-bucket colours/labels for unified pipeline card display
+export const ALL_BUCKET_COLORS = [...NEW_BUCKET_COLORS, ...AGED_BUCKET_COLORS] as const
+export const ALL_BUCKET_LABELS = [...NEW_BUCKET_LABELS, ...AGED_BUCKET_LABELS] as const
