@@ -149,20 +149,32 @@ export async function GET(request: NextRequest) {
   callsQuery = callsQuery.range(callsOffset, callsOffset + pageSize - 1)
 
   // ── Chart data: all calls in date range (call_start + disposition only) ──
-  let chartQuery = supabase
-    .from('call_recordings')
-    .select('call_start, disposition')
-    .order('call_start', { ascending: true })
-    .limit(10000)
-  if (from) chartQuery = chartQuery.gte('call_start', startOfDayAWST(from))
-  if (to) chartQuery = chartQuery.lte('call_start', endOfDayAWST(to))
-  if (operatorFilter) chartQuery = chartQuery.eq('agent_name', operatorFilter)
+  // Supabase caps rows per request (~1000), so paginate to get all calls for the day
+  async function fetchAllChartData() {
+    const PAGE_SIZE = 1000
+    const allRows: Record<string, unknown>[] = []
+    for (let page = 0; page < 10; page++) {
+      let q = supabase
+        .from('call_recordings')
+        .select('call_start, disposition')
+        .order('call_start', { ascending: true })
+        .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
+      if (from) q = q.gte('call_start', startOfDayAWST(from))
+      if (to) q = q.lte('call_start', endOfDayAWST(to))
+      if (operatorFilter) q = q.eq('agent_name', operatorFilter)
+      const { data } = await q
+      if (!data || data.length === 0) break
+      allRows.push(...(data as Record<string, unknown>[]))
+      if (data.length < PAGE_SIZE) break
+    }
+    return { data: allRows, error: null }
+  }
 
   // ── Run leads + calls + chart + agent/campaign lookups in parallel ──
   const [leadsResult, callsResult, chartResult, agentResult, campaignResult] = await Promise.all([
     leadsQuery,
     callsQuery,
-    chartQuery,
+    fetchAllChartData(),
     supabase.from('agent_mappings').select('agent_name').order('agent_name'),
     supabase.from('lead_loads').select('campaign_id, campaign_type'),
   ])
