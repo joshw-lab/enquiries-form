@@ -1,10 +1,12 @@
 import { NextResponse } from 'next/server'
-import type { PipelineResponse, RegionPipelineData, Region } from '@/lib/dashboard-types'
-import { REGIONS, DEFAULT_THRESHOLDS } from '@/lib/dashboard-types'
+import { createClient } from '@supabase/supabase-js'
+import type { PipelineResponse, RegionPipelineData, Region, TierMetrics, TierKey } from '@/lib/dashboard-types'
+import { REGIONS, DEFAULT_THRESHOLDS, TIER_LABELS } from '@/lib/dashboard-types'
 import { getHubSpotClient, type HubSpotClient } from '@/lib/server/api-clients'
 import { computeHealthStatus } from '@/lib/dashboard-scoring'
 
 const MS_PER_DAY = 86_400_000
+const AWST_OFFSET = '+08:00'
 
 // All 8 age bucket boundaries (days since lead_date)
 const ALL_BUCKET_RANGES = [
@@ -26,6 +28,17 @@ function getBucketIndex(leadDateMs: number, now: number): number {
   return -1
 }
 
+function emptyTierMetrics(): TierMetrics[] {
+  return (['HOT', 'NEW', 'OLD'] as TierKey[]).map((tier) => ({
+    tier,
+    tierLabel: TIER_LABELS[tier],
+    totalActive: 0,
+    newToday: 0,
+    newCallsToday: 0,
+    passes: 0,
+  }))
+}
+
 function emptyRegion(region: Region): RegionPipelineData {
   return {
     region,
@@ -34,6 +47,7 @@ function emptyRegion(region: Region): RegionPipelineData {
     avgResponseTime: '-',
     avgResponseHours: 0,
     totalContacts: 0,
+    tierMetrics: emptyTierMetrics(),
     newPipeline: {
       hubspotCount: 0, ringcxCount: 0, delta: 0,
       campaignId: '', campaignName: `${region}-New`,
@@ -105,12 +119,70 @@ async function fetchAllLeads(hs: HubSpotClient): Promise<Array<{ state: string; 
   return leads
 }
 
+/** Fetch tier metrics from Supabase RPC (returns null on error). */
+async function fetchTierMetrics(): Promise<{
+  tiers: Array<{ contact_state: string; current_tier: TierKey; total_active: number; new_today: number; calls_today: number; total_passes: number }>
+  avg_response: Array<{ contact_state: string; avg_response_seconds: number }>
+} | null> {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!url || !key) return null
+
+  const supabase = createClient(url, key)
+
+  // Start of today in AWST
+  const todayAWST = new Date().toLocaleDateString('en-CA', { timeZone: 'Australia/Perth' })
+  const todayStart = `${todayAWST}T00:00:00${AWST_OFFSET}`
+
+  const { data, error } = await supabase.rpc('pipeline_tier_metrics', { today_start: todayStart })
+  if (error) {
+    console.error('Tier metrics RPC error:', error)
+    return null
+  }
+
+  return data as {
+    tiers: Array<{ contact_state: string; current_tier: TierKey; total_active: number; new_today: number; calls_today: number; total_passes: number }>
+    avg_response: Array<{ contact_state: string; avg_response_seconds: number }>
+  }
+}
+
+function formatResponseTime(seconds: number): { text: string; hours: number } {
+  const hours = seconds / 3600
+  if (hours < 1) {
+    const mins = Math.round(seconds / 60)
+    return { text: `${mins} mins ${Math.round(seconds % 60)} sec`, hours }
+  }
+  if (hours < 24) {
+    return { text: `${hours.toFixed(1)}h`, hours }
+  }
+  const days = Math.floor(hours / 24)
+  const remainHours = Math.round(hours % 24)
+  return { text: `${days}d ${remainHours}h`, hours }
+}
+
 export async function GET() {
   try {
     const hs = getHubSpotClient()
     const now = Date.now()
 
-    const leads = await fetchAllLeads(hs)
+    // Fetch HubSpot leads and Supabase tier metrics in parallel
+    const [leads, tierData] = await Promise.all([
+      fetchAllLeads(hs),
+      fetchTierMetrics(),
+    ])
+
+    // Index tier metrics by region+tier for fast lookup
+    const tierIndex: Record<string, { total_active: number; new_today: number; calls_today: number; total_passes: number }> = {}
+    const avgRespIndex: Record<string, number> = {} // region → avg_response_seconds
+
+    if (tierData) {
+      for (const row of tierData.tiers) {
+        tierIndex[`${row.contact_state}:${row.current_tier}`] = row
+      }
+      for (const row of tierData.avg_response) {
+        avgRespIndex[row.contact_state] = row.avg_response_seconds
+      }
+    }
 
     // Build region data — single 8-bucket array per region
     const regionMap: Record<string, { total: number; buckets: number[] }> = {}
@@ -132,13 +204,33 @@ export async function GET() {
       const rm = regionMap[region]
       if (!rm || rm.total === 0) return emptyRegion(region)
 
+      // Build tier metrics from Supabase data
+      const tiers: TierMetrics[] = (['HOT', 'NEW', 'OLD'] as TierKey[]).map((tier) => {
+        const row = tierIndex[`${region}:${tier}`]
+        return {
+          tier,
+          tierLabel: TIER_LABELS[tier],
+          totalActive: row?.total_active ?? 0,
+          newToday: row?.new_today ?? 0,
+          newCallsToday: row?.calls_today ?? 0,
+          passes: row?.total_passes ?? 0,
+        }
+      })
+
+      // Avg response time
+      const avgRespSec = avgRespIndex[region]
+      const resp = avgRespSec != null && avgRespSec > 0
+        ? formatResponseTime(avgRespSec)
+        : { text: '-', hours: 0 }
+
       const regionData: RegionPipelineData = {
         region,
         status: 'good',
         urgency: 'low',
-        avgResponseTime: '-',
-        avgResponseHours: 0,
+        avgResponseTime: resp.text,
+        avgResponseHours: resp.hours,
         totalContacts: rm.total,
+        tierMetrics: tiers,
         newPipeline: {
           hubspotCount: rm.total,
           ringcxCount: 0,

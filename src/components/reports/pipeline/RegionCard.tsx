@@ -81,14 +81,45 @@ export default function RegionCard({ data, isSelected, onClick }: RegionCardProp
         <div className="flex flex-col items-end gap-0.5">
           <span className={`w-2 h-2 rounded-full mt-0.5 ${statusDot}`} />
           <div className="flex items-center gap-1 text-[11px] text-gray-600">
-            <span>avg&nbsp;resp</span>
+            <span>avg&nbsp;resp:</span>
             <span className={`text-[12px] font-bold ${respClass(data.avgResponseHours)}`}>{data.avgResponseTime}</span>
           </div>
         </div>
       </div>
 
+      {/* Tier metrics table */}
+      <div className="px-3 py-2">
+        <table className="w-full text-[11px]">
+          <thead>
+            <tr className="text-gray-500 text-right">
+              <th className="text-left font-medium pb-1"></th>
+              <th className="font-medium pb-1 px-1">Total Active</th>
+              <th className="font-medium pb-1 px-1">New Today</th>
+              <th className="font-medium pb-1 px-1">New Calls</th>
+              <th className="font-medium pb-1 px-1">Passes</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.tierMetrics.map((tm) => (
+              <tr key={tm.tier} className="border-t border-gray-50">
+                <td className="py-1 pr-1">
+                  <span className="text-[11px] font-semibold text-gray-800">{tm.tierLabel}</span>
+                  <span className="text-[10px] text-gray-400 ml-1">({tm.totalActive})</span>
+                </td>
+                <td className="py-1 px-1 text-right font-bold text-gray-900">{tm.totalActive}</td>
+                <td className="py-1 px-1 text-right font-bold text-emerald-600">
+                  {tm.newToday > 0 ? `+${tm.newToday}` : '0'}
+                </td>
+                <td className="py-1 px-1 text-right font-bold text-gray-900">{tm.newCallsToday}</td>
+                <td className="py-1 px-1 text-right font-bold text-gray-900">{tm.passes}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
       {/* All 8 bucket counts — 2 rows of 4 */}
-      <div className="px-3 py-2.5 flex flex-col gap-2">
+      <div className="px-3 py-2.5 flex flex-col gap-2 border-t border-gray-100">
         {/* Tier bar */}
         <div className="flex h-1.5 rounded overflow-hidden gap-px">
           {allBuckets.map((_, i) => (

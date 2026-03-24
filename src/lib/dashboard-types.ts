@@ -33,6 +33,24 @@ export interface RegionCalendarData {
   daily: CalendarDaySlot[] // next 7 days for drill panel
 }
 
+// ── Tier metrics (HOT / NEW / OLD) ──
+export type TierKey = 'HOT' | 'NEW' | 'OLD'
+
+export interface TierMetrics {
+  tier: TierKey
+  tierLabel: string           // "First 72 hours", "Days 4 - 90", "90+ Days"
+  totalActive: number         // leads loaded in RingCX for this tier
+  newToday: number            // leads that entered this tier today
+  newCallsToday: number       // calls made today to leads in this tier
+  passes: number              // total call attempts since lead was loaded
+}
+
+export const TIER_LABELS: Record<TierKey, string> = {
+  HOT: 'First 72 hours',
+  NEW: 'Days 4 - 90',
+  OLD: '90+ Days',
+}
+
 export interface RegionPipelineData {
   region: Region
   status: 'urgent' | 'warn' | 'good'
@@ -40,6 +58,7 @@ export interface RegionPipelineData {
   avgResponseTime: string // e.g. "4.2h"
   avgResponseHours: number // numeric for threshold comparison
   totalContacts: number
+  tierMetrics: TierMetrics[] // 3 tiers: HOT, NEW, OLD
   newPipeline: PipelineData
   agedPipeline: PipelineData
   calendar: RegionCalendarData

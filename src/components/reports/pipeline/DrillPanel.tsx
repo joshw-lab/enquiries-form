@@ -88,7 +88,9 @@ function PipelineDetailColumn({
 export default function DrillPanel({ data, onClose }: DrillPanelProps) {
   const p72 = pct(data.calendar.slots72h.booked, data.calendar.slots72h.total)
   const open72 = data.calendar.slots72h.total - data.calendar.slots72h.booked
-  const hotFresh = data.newPipeline.bucketCounts[0] + data.newPipeline.bucketCounts[1]
+  const hotTier = data.tierMetrics.find((t) => t.tier === 'HOT')
+  const totalCallsToday = data.tierMetrics.reduce((sum, t) => sum + t.newCallsToday, 0)
+  const totalPasses = data.tierMetrics.reduce((sum, t) => sum + t.passes, 0)
 
   return (
     <div className="bg-white border border-blue-100 rounded-xl mb-5 overflow-hidden shadow-[0_4px_20px_rgba(37,99,235,0.08)]">
@@ -155,8 +157,16 @@ export default function DrillPanel({ data, onClose }: DrillPanelProps) {
             <span className="text-[10px] text-gray-600 mt-0.5">Total contacts</span>
           </div>
           <div className="flex flex-col">
-            <span className="text-xl font-extrabold text-red-500 leading-none">{hotFresh}</span>
-            <span className="text-[10px] text-gray-600 mt-0.5">Hot + fresh</span>
+            <span className="text-xl font-extrabold text-red-500 leading-none">{hotTier?.totalActive ?? 0}</span>
+            <span className="text-[10px] text-gray-600 mt-0.5">Hot leads (72h)</span>
+          </div>
+          <div className="flex flex-col">
+            <span className="text-xl font-extrabold text-blue-600 leading-none">{totalCallsToday}</span>
+            <span className="text-[10px] text-gray-600 mt-0.5">Calls today</span>
+          </div>
+          <div className="flex flex-col">
+            <span className="text-xl font-extrabold text-gray-700 leading-none">{totalPasses}</span>
+            <span className="text-[10px] text-gray-600 mt-0.5">Total passes</span>
           </div>
           <div className="flex flex-col">
             <span className="text-xl font-extrabold leading-none" style={{ color: slotColor(p72) }}>{open72}</span>
@@ -173,7 +183,7 @@ export default function DrillPanel({ data, onClose }: DrillPanelProps) {
             : 'bg-green-50 border border-green-200 text-green-900'
         }`}>
           {data.urgency === 'high'
-            ? `${open72} open slots in 72h \u00b7 ${data.newPipeline.bucketCounts[0]} hot leads ready \u00b7 avg response ${data.avgResponseTime}`
+            ? `${open72} open slots in 72h \u00b7 ${hotTier?.totalActive ?? 0} hot leads active \u00b7 avg response ${data.avgResponseTime}`
             : `Calendar ${p72}% filled \u00b7 pipeline sustaining \u00b7 avg response ${data.avgResponseTime}`
           }
         </div>
