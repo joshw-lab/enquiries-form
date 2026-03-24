@@ -153,6 +153,7 @@ export async function GET(request: NextRequest) {
     .from('call_recordings')
     .select('call_start, disposition')
     .order('call_start', { ascending: true })
+    .limit(10000)
   if (from) chartQuery = chartQuery.gte('call_start', startOfDayAWST(from))
   if (to) chartQuery = chartQuery.lte('call_start', endOfDayAWST(to))
   if (operatorFilter) chartQuery = chartQuery.eq('agent_name', operatorFilter)
@@ -260,10 +261,12 @@ export async function GET(request: NextRequest) {
     summaryResult,
   ] = await Promise.all([
     // Today's calls (for callsToday + connect/booking rates)
+    // Use exact count + large limit to avoid Supabase default 1000-row cap
     supabase
       .from('call_recordings')
-      .select('disposition')
-      .gte('call_start', startOfDayAWST(today)),
+      .select('disposition', { count: 'exact' })
+      .gte('call_start', startOfDayAWST(today))
+      .limit(10000),
     // Calls in last hour
     supabase
       .from('call_recordings')
@@ -281,7 +284,7 @@ export async function GET(request: NextRequest) {
   // Calculate rates from today's calls
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const todayCalls = (todayCallsResult.data || []) as any[]
-  const callsToday = todayCalls.length
+  const callsToday = todayCallsResult.count ?? todayCalls.length
   let connectedCount = 0
   let bookedCount = 0
   for (const c of todayCalls) {

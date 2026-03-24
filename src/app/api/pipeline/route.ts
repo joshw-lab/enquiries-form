@@ -81,6 +81,7 @@ export async function GET() {
       .select('contact_id, contact_state, campaign_type, campaign_id, priority_context')
       .in('campaign_type', ['New', 'Old'])
       .order('created_at', { ascending: false })
+      .limit(10000)
 
     if (error) {
       console.error('Pipeline: lead_loads query failed:', error.message)
