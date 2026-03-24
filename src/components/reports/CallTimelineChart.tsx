@@ -27,12 +27,15 @@ const DISPOSITION_GROUPS: Record<string, string[]> = {
   'Other': ['Other Departments', 'Not Qualified', 'Wrong Number', 'other_department', 'unable_to_service', 'wrong_number'],
 }
 
+const TOTAL_KEY = 'Total Calls'
+
 const GROUP_COLORS: Record<string, string> = {
   'Booked Test': '#22c55e',
   'Needs Call Back': '#f59e0b',
   'Not Interested': '#ef4444',
   'No Answer': '#3b82f6',
   'Other': '#94a3b8',
+  [TOTAL_KEY]: '#111827',
 }
 
 function getGroup(disposition: string): string {
@@ -162,10 +165,14 @@ export default function CallTimelineChart({ chartCalls }: CallTimelineChartProps
         time: slot,
         label: slotLabel,
       }
+      let slotTotal = 0
       for (const group of displayGroups) {
         // Future slots get null so lines stop at current time
-        row[group] = isFuture ? null : (buckets[slot]?.[group] || 0)
+        const val = isFuture ? null : (buckets[slot]?.[group] || 0)
+        row[group] = val
+        if (typeof val === 'number') slotTotal += val
       }
+      row[TOTAL_KEY] = isFuture ? null : slotTotal
       return row
     })
 
@@ -173,7 +180,7 @@ export default function CallTimelineChart({ chartCalls }: CallTimelineChartProps
   }, [chartCalls, nowHour])
 
   const [cumulative, setCumulative] = useState(false)
-  const [hidden, setHidden] = useState<Set<string>>(new Set(['No Answer']))
+  const [hidden, setHidden] = useState<Set<string>>(new Set(['No Answer', TOTAL_KEY]))
 
   // Build cumulative version of chart data (running totals)
   const displayData = useMemo(() => {
@@ -181,13 +188,12 @@ export default function CallTimelineChart({ chartCalls }: CallTimelineChartProps
     const totals: Record<string, number> = {}
     return chartData.map((row) => {
       const cumRow: Record<string, string | number | null> = { time: row.time, label: row.label }
-      for (const group of groups) {
-        if (row[group] === null) {
-          // Future slot — keep null so line stops
-          cumRow[group] = null
+      for (const key of [...groups, TOTAL_KEY]) {
+        if (row[key] === null) {
+          cumRow[key] = null
         } else {
-          totals[group] = (totals[group] || 0) + (row[group] as number || 0)
-          cumRow[group] = totals[group]
+          totals[key] = (totals[key] || 0) + (row[key] as number || 0)
+          cumRow[key] = totals[key]
         }
       }
       return cumRow
@@ -292,6 +298,18 @@ export default function CallTimelineChart({ chartCalls }: CallTimelineChartProps
               connectNulls={false}
             />
           ))}
+          <Area
+            type="monotone"
+            dataKey={TOTAL_KEY}
+            stroke={hidden.has(TOTAL_KEY) ? 'transparent' : GROUP_COLORS[TOTAL_KEY]}
+            strokeWidth={2}
+            strokeDasharray="4 2"
+            fill="none"
+            dot={false}
+            activeDot={hidden.has(TOTAL_KEY) ? false : { r: 3, strokeWidth: 0 }}
+            hide={hidden.has(TOTAL_KEY)}
+            connectNulls={false}
+          />
           {nowRefLabel && (
             <ReferenceLine
               x={nowRefLabel}
@@ -311,7 +329,7 @@ export default function CallTimelineChart({ chartCalls }: CallTimelineChartProps
       </ResponsiveContainer>
       {/* Legend (clickable to toggle) */}
       <div className="flex items-center gap-4 mt-2 justify-center">
-        {groups.map((group) => (
+        {[...groups, TOTAL_KEY].map((group) => (
           <button
             key={group}
             onClick={() => toggleGroup(group)}
