@@ -1,7 +1,7 @@
 'use client'
 
 import type { RegionPipelineData } from '@/lib/dashboard-types'
-import { NEW_BUCKET_COLORS, NEW_BUCKET_LABELS, AGED_BUCKET_COLORS, AGED_BUCKET_LABELS } from '@/lib/dashboard-types'
+import { ALL_BUCKET_COLORS, ALL_BUCKET_LABELS } from '@/lib/dashboard-types'
 
 interface DrillPanelProps {
   data: RegionPipelineData
@@ -134,28 +134,16 @@ export default function DrillPanel({ data, onClose }: DrillPanelProps) {
           })}
         </div>
 
-        {/* Column 2: New pipeline */}
+        {/* Column 2: Pipeline age breakdown */}
         <PipelineDetailColumn
-          title={`New \u00b7 ${data.newPipeline.campaignId}`}
+          title={`Pipeline \u00b7 ${data.newPipeline.campaignId || data.agedPipeline.campaignId}`}
           titleClass="text-blue-600 border-blue-100"
           pipe={data.newPipeline}
-          colors={NEW_BUCKET_COLORS}
-          labels={NEW_BUCKET_LABELS}
+          colors={ALL_BUCKET_COLORS}
+          labels={ALL_BUCKET_LABELS}
           accentBg="#f0f9ff"
           accentBorder="#e0f2fe"
           accentColor="#0284c7"
-        />
-
-        {/* Column 3: Aged pipeline */}
-        <PipelineDetailColumn
-          title={`Aged \u00b7 ${data.agedPipeline.campaignId}`}
-          titleClass="text-purple-600 border-purple-100"
-          pipe={data.agedPipeline}
-          colors={AGED_BUCKET_COLORS}
-          labels={AGED_BUCKET_LABELS}
-          accentBg="#f5f3ff"
-          accentBorder="#ede9fe"
-          accentColor="#7c3aed"
         />
       </div>
 

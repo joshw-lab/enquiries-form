@@ -12,7 +12,7 @@ export interface PipelineData {
   delta: number // hubspot - ringcx (negative = missing from RingCX)
   campaignId: string
   campaignName: string
-  bucketCounts: [number, number, number, number] // 4 buckets
+  bucketCounts: number[] // 8 buckets: <24h, 1-3d, 3-7d, 7-30d, 30-45d, 45-60d, 60-90d, 90d+
 }
 
 export interface CalendarSlots {
@@ -234,7 +234,7 @@ export interface QueueResponse {
 }
 
 // ── Colour constants (from HTML prototype) ──
-export const NEW_BUCKET_COLORS = ['#ef4444', '#f97316', '#f59e0b', '#e5e7eb'] as const
+export const NEW_BUCKET_COLORS = ['#ef4444', '#f97316', '#f59e0b', '#374151'] as const
 export const NEW_BUCKET_LABELS = ['<24h', '1\u20133d', '3\u20137d', '7\u201330d'] as const
 export const AGED_BUCKET_COLORS = ['#c084fc', '#a855f7', '#7c3aed', '#4c1d95'] as const
 export const AGED_BUCKET_LABELS = ['30\u201345d', '45\u201360d', '60\u201390d', '90d+'] as const

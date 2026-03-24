@@ -35,8 +35,8 @@ function respClass(hours: number): string {
 }
 
 export default function RegionCard({ data, isSelected, onClick }: RegionCardProps) {
-  // Combine new (4) + aged (4) bucket counts into a single 8-element array
-  const allBuckets = [...data.newPipeline.bucketCounts, ...data.agedPipeline.bucketCounts]
+  // Unified 8-bucket array (API now returns all 8 buckets in each pipeline)
+  const allBuckets = data.newPipeline.bucketCounts
   const total = allBuckets.reduce((a, b) => a + b, 0)
   const pcts = allBuckets.map((v) => pct(v, total))
 

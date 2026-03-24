@@ -6,19 +6,16 @@ import { computeHealthStatus } from '@/lib/dashboard-scoring'
 
 const MS_PER_DAY = 86_400_000
 
-// Age bucket boundaries (days since lead_date)
-const NEW_BUCKET_RANGES = [
-  { minDays: 0, maxDays: 1 },   // <24h
-  { minDays: 1, maxDays: 3 },   // 1–3d
-  { minDays: 3, maxDays: 7 },   // 3–7d
-  { minDays: 7, maxDays: 30 },  // 7–30d
-]
-
-const AGED_BUCKET_RANGES = [
-  { minDays: 30, maxDays: 45 },  // 30–45d
-  { minDays: 45, maxDays: 60 },  // 45–60d
-  { minDays: 60, maxDays: 90 },  // 60–90d
-  { minDays: 90, maxDays: 365 }, // 90d+
+// All 8 age bucket boundaries (days since lead_date) — applied to every lead
+const ALL_BUCKET_RANGES = [
+  { minDays: 0, maxDays: 1 },     // <24h
+  { minDays: 1, maxDays: 3 },     // 1–3d
+  { minDays: 3, maxDays: 7 },     // 3–7d
+  { minDays: 7, maxDays: 30 },    // 7–30d
+  { minDays: 30, maxDays: 45 },   // 30–45d
+  { minDays: 45, maxDays: 60 },   // 45–60d
+  { minDays: 60, maxDays: 90 },   // 60–90d
+  { minDays: 90, maxDays: 9999 }, // 90d+
 ]
 
 interface LeadRow {
@@ -30,13 +27,13 @@ interface LeadRow {
 }
 
 /**
- * Determine which age bucket a lead falls into based on its lead_date.
- * Returns bucket index (0-3) or -1 if outside all ranges.
+ * Determine which age bucket (0-7) a lead falls into based on its lead_date.
+ * Returns bucket index or -1 if outside all ranges.
  */
-function getBucketIndex(leadDateMs: number, now: number, ranges: typeof NEW_BUCKET_RANGES): number {
+function getBucketIndex(leadDateMs: number, now: number): number {
   const ageDays = (now - leadDateMs) / MS_PER_DAY
-  for (let i = 0; i < ranges.length; i++) {
-    if (ageDays >= ranges[i].minDays && ageDays < ranges[i].maxDays) return i
+  for (let i = 0; i < ALL_BUCKET_RANGES.length; i++) {
+    if (ageDays >= ALL_BUCKET_RANGES[i].minDays && ageDays < ALL_BUCKET_RANGES[i].maxDays) return i
   }
   return -1
 }
@@ -52,12 +49,12 @@ function emptyRegion(region: Region): RegionPipelineData {
     newPipeline: {
       hubspotCount: 0, ringcxCount: 0, delta: 0,
       campaignId: '', campaignName: `${region}-New`,
-      bucketCounts: [0, 0, 0, 0],
+      bucketCounts: [0, 0, 0, 0, 0, 0, 0, 0],
     },
     agedPipeline: {
       hubspotCount: 0, ringcxCount: 0, delta: 0,
       campaignId: '', campaignName: `${region}-Aged`,
-      bucketCounts: [0, 0, 0, 0],
+      bucketCounts: [0, 0, 0, 0, 0, 0, 0, 0],
     },
     calendar: { slots72h: { booked: 0, total: 0 }, slots7d: { booked: 0, total: 0 }, daily: [] },
   }
@@ -103,13 +100,12 @@ export async function GET() {
       leads.push(row)
     }
 
-    // Build region data from leads
+    // Build region data from leads — single 8-bucket array per region
     const regionMap: Record<string, {
       newTotal: number
-      newBuckets: [number, number, number, number]
-      newCampaignId: string
       oldTotal: number
-      oldBuckets: [number, number, number, number]
+      buckets: number[]  // 8 buckets: [<24h, 1-3d, 3-7d, 7-30d, 30-45d, 45-60d, 60-90d, 90d+]
+      newCampaignId: string
       oldCampaignId: string
     }> = {}
 
@@ -117,10 +113,9 @@ export async function GET() {
     for (const r of REGIONS) {
       regionMap[r] = {
         newTotal: 0,
-        newBuckets: [0, 0, 0, 0],
-        newCampaignId: '',
         oldTotal: 0,
-        oldBuckets: [0, 0, 0, 0],
+        buckets: [0, 0, 0, 0, 0, 0, 0, 0],
+        newCampaignId: '',
         oldCampaignId: '',
       }
     }
@@ -137,17 +132,15 @@ export async function GET() {
       if (lead.campaign_type === 'New') {
         rm.newTotal++
         if (lead.campaign_id && !rm.newCampaignId) rm.newCampaignId = lead.campaign_id
-        if (leadDateMs > 0) {
-          const bucket = getBucketIndex(leadDateMs, now, NEW_BUCKET_RANGES)
-          if (bucket >= 0) rm.newBuckets[bucket]++
-        }
       } else if (lead.campaign_type === 'Old') {
         rm.oldTotal++
         if (lead.campaign_id && !rm.oldCampaignId) rm.oldCampaignId = lead.campaign_id
-        if (leadDateMs > 0) {
-          const bucket = getBucketIndex(leadDateMs, now, AGED_BUCKET_RANGES)
-          if (bucket >= 0) rm.oldBuckets[bucket]++
-        }
+      }
+
+      // Bucket by age regardless of campaign type
+      if (leadDateMs > 0) {
+        const bucket = getBucketIndex(leadDateMs, now)
+        if (bucket >= 0) rm.buckets[bucket]++
       }
     }
 
@@ -165,11 +158,11 @@ export async function GET() {
         totalContacts: rm.newTotal + rm.oldTotal,
         newPipeline: {
           hubspotCount: rm.newTotal,
-          ringcxCount: 0, // RingCX counts merged via sync view
+          ringcxCount: 0,
           delta: 0,
           campaignId: rm.newCampaignId,
           campaignName: `${region}-New`,
-          bucketCounts: rm.newBuckets,
+          bucketCounts: rm.buckets,
         },
         agedPipeline: {
           hubspotCount: rm.oldTotal,
@@ -177,7 +170,7 @@ export async function GET() {
           delta: 0,
           campaignId: rm.oldCampaignId,
           campaignName: `${region}-Old`,
-          bucketCounts: rm.oldBuckets,
+          bucketCounts: rm.buckets,
         },
         calendar: { slots72h: { booked: 0, total: 0 }, slots7d: { booked: 0, total: 0 }, daily: [] },
       }
