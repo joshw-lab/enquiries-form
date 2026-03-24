@@ -118,7 +118,22 @@ export default function CallTimelineChart({ chartCalls }: CallTimelineChartProps
     return { chartData, groups }
   }, [chartCalls])
 
+  const [cumulative, setCumulative] = useState(false)
   const [hidden, setHidden] = useState<Set<string>>(new Set(['No Answer']))
+
+  // Build cumulative version of chart data (running totals)
+  const displayData = useMemo(() => {
+    if (!cumulative) return chartData
+    const totals: Record<string, number> = {}
+    return chartData.map((row) => {
+      const cumRow: Record<string, string | number> = { time: row.time, label: row.label }
+      for (const group of groups) {
+        totals[group] = (totals[group] || 0) + (row[group] as number || 0)
+        cumRow[group] = totals[group]
+      }
+      return cumRow
+    })
+  }, [chartData, groups, cumulative])
 
   const toggleGroup = (group: string) => {
     setHidden((prev) => {
@@ -133,9 +148,21 @@ export default function CallTimelineChart({ chartCalls }: CallTimelineChartProps
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 px-5 py-4">
-      <h3 className="text-sm font-semibold text-[#111827] mb-3">Call Outcomes Timeline</h3>
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-sm font-semibold text-[#111827]">Call Outcomes Timeline</h3>
+        <button
+          onClick={() => setCumulative((v) => !v)}
+          className={`text-[11px] px-2.5 py-1 rounded-full border cursor-pointer transition-colors ${
+            cumulative
+              ? 'bg-gray-900 text-white border-gray-900'
+              : 'bg-white text-gray-500 border-gray-300 hover:border-gray-400'
+          }`}
+        >
+          {cumulative ? 'Cumulative' : 'Per interval'}
+        </button>
+      </div>
       <ResponsiveContainer width="100%" height={200}>
-        <AreaChart data={chartData} margin={{ top: 4, right: 0, left: -20, bottom: 0 }}>
+        <AreaChart data={displayData} margin={{ top: 4, right: 0, left: -20, bottom: 0 }}>
           <defs>
             {groups.map((group) => (
               <linearGradient key={group} id={`gradient-${group.replace(/\s/g, '')}`} x1="0" y1="0" x2="0" y2="1">
