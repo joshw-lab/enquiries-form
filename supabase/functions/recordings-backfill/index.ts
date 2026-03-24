@@ -142,6 +142,20 @@ async function listAllDriveFiles(
   return allFiles;
 }
 
+// Dispositions where no meaningful conversation occurred — skip recording backup
+const SKIP_DISPOSITIONS = new Set([
+  "No Answer",
+  "No-Answer",
+  "Busy",
+  "Dead Air",
+  "Dead-Air",
+  "Hang Up",
+  "Hang-Up",
+  "Machine",
+  "Answering Machine",
+  "Answering-Machine",
+]);
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -227,6 +241,163 @@ serve(async (req) => {
       );
     }
 
+    // ─── CRON MODE ────────────────────────────────────────────
+    // Lightweight version for 5-minute cron: only recent Drive files + recent pending recordings.
+    if (mode === "cron") {
+      const supabase = createClient(
+        Deno.env.get("SUPABASE_URL") ?? "",
+        Deno.env.get("SB_SERVICE_ROLE_KEY") ?? ""
+      );
+
+      // List Drive files created in the last 2 hours
+      const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+      const params = new URLSearchParams({
+        pageSize: "200",
+        fields: "files(id, name, createdTime, mimeType)",
+        supportsAllDrives: "true",
+        includeItemsFromAllDrives: "true",
+        q: `'${folderId}' in parents and trashed = false and createdTime > '${twoHoursAgo}'`,
+        orderBy: "createdTime desc",
+      });
+
+      const driveRes = await fetch(
+        `https://www.googleapis.com/drive/v3/files?${params}`,
+        { headers: { Authorization: `Bearer ${googleToken}` } }
+      );
+
+      if (!driveRes.ok) {
+        const err = await driveRes.text();
+        throw new Error(`Drive list failed (${driveRes.status}): ${err}`);
+      }
+
+      const driveData = await driveRes.json();
+      const recentFiles = (driveData.files || []).filter(
+        (f: { mimeType?: string }) => f.mimeType !== "application/vnd.google-apps.folder"
+      );
+
+      if (recentFiles.length === 0) {
+        return new Response(
+          JSON.stringify({ mode: "cron", message: "No recent Drive files", matched: 0 }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      console.log(`Cron: ${recentFiles.length} recent Drive files found`);
+
+      // Fetch pending recordings from last 7 days
+      const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+      const { data: pendingRecs, error: dbErr } = await supabase
+        .from("call_recordings")
+        .select("id, call_id, hubspot_contact_id, disposition")
+        .eq("backup_status", "pending")
+        .gte("call_start", sevenDaysAgo);
+
+      if (dbErr) throw new Error(`DB query failed: ${dbErr.message}`);
+
+      if (!pendingRecs || pendingRecs.length === 0) {
+        return new Response(
+          JSON.stringify({ mode: "cron", message: "No pending recordings", matched: 0, driveFiles: recentFiles.length }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      console.log(`Cron: ${pendingRecs.length} pending recordings to match`);
+
+      // Build recording index: contactId_MMDDHHMM → recording
+      const recByContactTime = new Map<string, typeof pendingRecs[0]>();
+      const recByTimeOnly = new Map<string, typeof pendingRecs>();
+
+      for (const rec of pendingRecs) {
+        if (rec.call_id.length >= 12) {
+          const timeKey = rec.call_id.substring(4, 12);
+          if (rec.hubspot_contact_id) {
+            recByContactTime.set(`${rec.hubspot_contact_id}_${timeKey}`, rec);
+          }
+          const existing = recByTimeOnly.get(timeKey) || [];
+          existing.push(rec);
+          recByTimeOnly.set(timeKey, existing);
+        }
+      }
+
+      // Match files to recordings
+      let matched = 0;
+      let matchedByTime = 0;
+      const updates: Array<{ id: string; disposition?: string; gdrive_file_id: string; gdrive_file_name: string }> = [];
+
+      for (const file of recentFiles) {
+        const nameNoExt = file.name.replace(/\.\w+$/, "");
+        const parts = nameNoExt.split("_");
+        if (parts.length < 5) continue;
+
+        const mm = parts[parts.length - 4];
+        const dd = parts[parts.length - 3];
+        const hh = parts[parts.length - 2];
+        const mn = parts[parts.length - 1];
+        const timeKey = `${mm}${dd}${hh}${mn}`;
+        const contactId = parts[2] || "";
+
+        let rec: typeof pendingRecs[0] | undefined;
+
+        if (contactId && contactId !== "null") {
+          rec = recByContactTime.get(`${contactId}_${timeKey}`);
+          if (!rec) {
+            const mnNum = parseInt(mn, 10);
+            for (const delta of [-1, 1]) {
+              const adjMn = String(mnNum + delta).padStart(2, "0");
+              rec = recByContactTime.get(`${contactId}_${mm}${dd}${hh}${adjMn}`);
+              if (rec) break;
+            }
+          }
+        }
+
+        if (!rec && (!contactId || contactId === "null" || contactId === "")) {
+          const candidates = recByTimeOnly.get(timeKey);
+          if (candidates && candidates.length === 1) {
+            rec = candidates[0];
+            matchedByTime++;
+          }
+        }
+
+        if (rec) {
+          updates.push({ id: rec.id, disposition: rec.disposition, gdrive_file_id: file.id, gdrive_file_name: file.name });
+          matched++;
+        }
+      }
+
+      // Apply updates
+      let updated = 0;
+      let skippedDisposition = 0;
+      for (const u of updates) {
+        // Check if this recording's disposition should skip backup
+        const shouldSkip = u.disposition && SKIP_DISPOSITIONS.has(u.disposition);
+
+        const { error } = await supabase
+          .from("call_recordings")
+          .update({
+            backup_status: shouldSkip ? "no_recording" : "uploaded",
+            gdrive_file_id: u.gdrive_file_id,
+            gdrive_file_url: `https://drive.google.com/file/d/${u.gdrive_file_id}/view`,
+            gdrive_file_name: u.gdrive_file_name,
+            backed_up_at: new Date().toISOString(),
+          })
+          .eq("id", u.id);
+
+        if (!error) {
+          updated++;
+          if (shouldSkip) skippedDisposition++;
+        } else {
+          console.error(`Update failed for ${u.id}: ${error.message}`);
+        }
+      }
+
+      console.log(`Cron complete: ${matched} matched, ${updated} updated, ${skippedDisposition} skipped (no conversation)`);
+
+      return new Response(
+        JSON.stringify({ mode: "cron", driveFiles: recentFiles.length, pendingRecordings: pendingRecs.length, matched, matchedByTime, updated }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     // ─── BACKFILL MODE ─────────────────────────────────────────
     // Matches GDrive files (uploaded by GCE VM SFTP) to call_recordings rows.
     //
@@ -308,7 +479,7 @@ serve(async (req) => {
       let unmatched = 0;
       let skippedFolders = 0;
       const unmatchedFiles: string[] = [];
-      const updates: Array<{ id: string; gdrive_file_id: string; gdrive_file_name: string }> = [];
+      const updates: Array<{ id: string; disposition?: string; gdrive_file_id: string; gdrive_file_name: string }> = [];
 
       for (const file of allFiles) {
         // Skip folders
@@ -368,6 +539,7 @@ serve(async (req) => {
         if (rec) {
           updates.push({
             id: rec.id,
+            disposition: rec.disposition,
             gdrive_file_id: file.id,
             gdrive_file_name: file.name,
           });
@@ -386,21 +558,25 @@ serve(async (req) => {
       let updated = 0;
       let updateErrors = 0;
 
+      let skippedDisposition = 0;
+
       if (!dryRun) {
         for (let i = 0; i < updates.length; i += 50) {
           const batch = updates.slice(i, i + 50);
-          const promises = batch.map((u) =>
-            supabase
+          const promises = batch.map((u) => {
+            const shouldSkip = u.disposition && SKIP_DISPOSITIONS.has(u.disposition);
+            if (shouldSkip) skippedDisposition++;
+            return supabase
               .from("call_recordings")
               .update({
-                backup_status: "uploaded",
+                backup_status: shouldSkip ? "no_recording" : "uploaded",
                 gdrive_file_id: u.gdrive_file_id,
                 gdrive_file_url: `https://drive.google.com/file/d/${u.gdrive_file_id}/view`,
                 gdrive_file_name: u.gdrive_file_name,
                 backed_up_at: new Date().toISOString(),
               })
-              .eq("id", u.id)
-          );
+              .eq("id", u.id);
+          });
 
           const results = await Promise.all(promises);
           for (const r of results) {
@@ -430,6 +606,7 @@ serve(async (req) => {
           unmatched,
           updated,
           updateErrors,
+          skippedDisposition,
           unmatchedFiles,
           sampleMatches: updates.slice(0, 5).map((u) => ({
             recordingId: u.id,

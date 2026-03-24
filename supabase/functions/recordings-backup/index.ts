@@ -365,6 +365,7 @@ serve(async (req) => {
         }
 
         // Update record with success
+        // (VM script handles WAV→MP3 conversion + Supabase Storage upload)
         await supabaseClient
           .from("call_recordings")
           .update({
@@ -376,36 +377,21 @@ serve(async (req) => {
           })
           .eq("id", recording.id);
 
-        // Update HubSpot call recording URL with streaming proxy (supports Range/206 for native player)
-        if (recording.hubspot_call_id && hubspotAccessToken) {
-          const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
-          const streamingUrl = `${supabaseUrl}/functions/v1/recording-stream?id=${uploadResult.fileId}`;
-          try {
-            const hsResponse = await fetch(
-              `https://api.hubapi.com/crm/v3/objects/calls/${recording.hubspot_call_id}`,
-              {
-                method: "PATCH",
-                headers: {
-                  Authorization: `Bearer ${hubspotAccessToken}`,
-                  "Content-Type": "application/json",
-                },
-                body: JSON.stringify({
-                  properties: {
-                    hs_call_recording_url: streamingUrl,
-                  },
-                }),
-              }
-            );
-            if (hsResponse.ok) {
-              console.log(`  📞 HubSpot call ${recording.hubspot_call_id} recording URL updated`);
-            } else {
-              const hsErr = await hsResponse.text();
-              console.error(`  ⚠️ HubSpot update failed (non-fatal): ${hsErr}`);
-            }
-          } catch (hsError) {
-            console.error(`  ⚠️ HubSpot update error (non-fatal): ${hsError.message}`);
+        // Look up HubSpot owner from agent_mappings
+        let hubspotOwnerId: string | null = null;
+        if (recording.agent_id) {
+          const { data: agentMap } = await supabaseClient
+            .from("agent_mappings")
+            .select("hubspot_owner_id")
+            .eq("ringcx_agent_id", recording.agent_id)
+            .maybeSingle();
+          hubspotOwnerId = agentMap?.hubspot_owner_id || null;
+          if (hubspotOwnerId) {
+            console.log(`  👤 Agent ${recording.agent_id} → HubSpot owner ${hubspotOwnerId}`);
           }
         }
+
+        // HubSpot sync is handled by recording-to-storage after VM converts WAV→MP3
 
         results.push({ call_id: recording.call_id, status: "uploaded" });
         succeeded++;

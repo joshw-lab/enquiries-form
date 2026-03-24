@@ -20,7 +20,8 @@ export async function GET(request: NextRequest) {
   // Determine the upstream URL to fetch
   let targetUrl: string
   if (fileId) {
-    targetUrl = `https://drive.google.com/uc?export=download&id=${fileId}`
+    // &confirm=t bypasses Google Drive's virus-scan confirmation page
+    targetUrl = `https://drive.google.com/uc?export=download&confirm=t&id=${fileId}`
   } else {
     // Validate it's actually a RingCX URL to prevent open proxy abuse
     if (!ringcxUrl!.startsWith('https://') || !ringcxUrl!.includes('ringcentral.com')) {
@@ -40,6 +41,15 @@ export async function GET(request: NextRequest) {
     }
 
     const contentType = res.headers.get('content-type') || 'audio/mpeg'
+
+    // Google Drive may still return HTML (quota exceeded, file not found, etc.)
+    if (contentType.includes('text/html')) {
+      return NextResponse.json(
+        { error: 'Google Drive returned HTML instead of audio — file may not exist or quota exceeded' },
+        { status: 502 },
+      )
+    }
+
     const contentLength = res.headers.get('content-length')
 
     const headers: Record<string, string> = {

@@ -766,7 +766,8 @@ async function createCallEngagement(
   contactId: string,
   data: FormData,
   noteContent: string,
-  accessToken: string
+  accessToken: string,
+  hubspotOwnerId?: string | null
 ): Promise<{ success: boolean; callId?: string; error?: string }> {
   try {
     const timestampMs = new Date(data.timestamp).getTime();
@@ -813,6 +814,7 @@ async function createCallEngagement(
         hs_call_duration: 0,
         ...(phone && { hs_call_to_number: phone }),
         hs_call_status: "COMPLETED",
+        ...(hubspotOwnerId && { hubspot_owner_id: hubspotOwnerId }),
       },
       associations: [
         {
@@ -1065,6 +1067,29 @@ serve(async (req) => {
         // Don't fail the entire request if note creation fails
       }
 
+      // Look up HubSpot owner ID from agent_mappings by agent name
+      let hubspotOwnerId: string | null = null;
+      if (payload.leadsRep) {
+        try {
+          const { data: agentMapping } = await supabaseClient
+            .from("agent_mappings")
+            .select("hubspot_owner_id")
+            .eq("agent_name", payload.leadsRep)
+            .not("hubspot_owner_id", "is", null)
+            .limit(1)
+            .maybeSingle();
+
+          if (agentMapping?.hubspot_owner_id) {
+            hubspotOwnerId = agentMapping.hubspot_owner_id;
+            console.log(`Mapped agent "${payload.leadsRep}" to HubSpot owner ${hubspotOwnerId}`);
+          } else {
+            console.log(`No agent mapping found for "${payload.leadsRep}"`);
+          }
+        } catch (err) {
+          console.warn("Error looking up agent mapping:", err);
+        }
+      }
+
       // Deduplication: Check if the RingCX webhook already created a call recording
       // for this contact within the last 15 minutes. If so, reuse that call ID
       // instead of creating a duplicate call engagement.
@@ -1106,7 +1131,8 @@ serve(async (req) => {
           contactId,
           payload,
           dispositionNote,
-          hubspotAccessToken
+          hubspotAccessToken,
+          hubspotOwnerId
         );
 
         if (callResult.success && callResult.callId) {

@@ -141,7 +141,7 @@ async function exchangeForRingCXToken(supabase: SupabaseClient, rcAccessToken: s
 export async function getRingCXToken(): Promise<string> {
   const supabase = createClient(
     Deno.env.get('SUPABASE_URL')!,
-    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+    Deno.env.get('SB_SERVICE_ROLE_KEY')!
   );
 
   const { data: auth, error } = await supabase

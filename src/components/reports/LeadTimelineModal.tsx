@@ -187,7 +187,7 @@ export default function LeadTimelineModal({ contactId, contactName, open, onClos
                 {events.map((event) => {
                   const config = EVENT_CONFIG[event.type] || EVENT_CONFIG.loaded
                   const meta = event.metadata
-                  const audioUrl = (meta.storageUrl as string) || (meta.gdriveFileId ? `/api/recording?id=${meta.gdriveFileId}` : null)
+                  const audioUrl = (meta.storageUrl as string) || null
 
                   return (
                     <div key={event.id} className="relative flex gap-3">
