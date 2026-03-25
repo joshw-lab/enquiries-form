@@ -25,6 +25,15 @@ interface RoutingState {
   moved_to_old_at: string | null
 }
 
+interface ContactContext {
+  region: string | null
+  postcode: string | null
+  leadCreatedAt: string | null
+  leadDate: string | null
+  firstCallAt: string | null
+  firstRecordingUrl: string | null
+}
+
 interface LeadTimelineModalProps {
   contactId: string
   contactName?: string | null
@@ -81,6 +90,7 @@ const TIER_BADGE: Record<string, string> = {
 export default function LeadTimelineModal({ contactId, contactName, open, onClose }: LeadTimelineModalProps) {
   const [events, setEvents] = useState<TimelineEvent[]>([])
   const [routing, setRouting] = useState<RoutingState | null>(null)
+  const [context, setContext] = useState<ContactContext | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
@@ -97,6 +107,7 @@ export default function LeadTimelineModal({ contactId, contactName, open, onClos
       .then((data) => {
         setEvents(data.events || [])
         setRouting(data.routing || null)
+        setContext(data.context || null)
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false))
@@ -131,12 +142,14 @@ export default function LeadTimelineModal({ contactId, contactName, open, onClos
                   {routing.current_tier}
                 </span>
               )}
+              {context?.region && (
+                <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-slate-100 text-slate-600 border border-slate-200">
+                  {context.region}{context.postcode ? ` ${context.postcode}` : ''}
+                </span>
+              )}
             </div>
             <div className="text-xs text-gray-500 mt-0.5">
               Contact {contactId}
-              {routing?.lead_date && (
-                <span> &middot; Lead date: {formatDateTime(routing.lead_date)}</span>
-              )}
             </div>
           </div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors p-1">
@@ -146,24 +159,82 @@ export default function LeadTimelineModal({ contactId, contactName, open, onClos
           </button>
         </div>
 
-        {/* Routing summary strip */}
-        {routing && (
-          <div className="px-6 py-2.5 bg-gray-50 border-b border-gray-200 flex items-center gap-4 text-[11px]">
-            <span className="text-gray-500">Pipeline:</span>
-            <span className={`px-1.5 py-0.5 rounded border font-medium ${routing.moved_to_new_at ? 'bg-gray-50 text-gray-400 border-gray-200 line-through' : TIER_BADGE.HOT}`}>
-              HOT {routing.hot_campaign_id}
-            </span>
-            <span className="text-gray-300">&rarr;</span>
-            <span className={`px-1.5 py-0.5 rounded border font-medium ${routing.moved_to_old_at ? 'bg-gray-50 text-gray-400 border-gray-200 line-through' : routing.moved_to_new_at && !routing.moved_to_old_at ? TIER_BADGE.NEW : 'bg-gray-50 text-gray-400 border-gray-200'}`}>
-              NEW {routing.new_campaign_id}
-            </span>
-            {routing.old_campaign_id && (
-              <>
-                <span className="text-gray-300">&rarr;</span>
-                <span className={`px-1.5 py-0.5 rounded border font-medium ${routing.moved_to_old_at ? TIER_BADGE.OLD : 'bg-gray-50 text-gray-400 border-gray-200'}`}>
-                  OLD {routing.old_campaign_id}
-                </span>
-              </>
+        {/* Key metrics strip */}
+        {!loading && (context || routing) && (
+          <div className="px-6 py-3 bg-gray-50 border-b border-gray-200">
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+              {(context?.leadDate || routing?.lead_date) && (
+                <div>
+                  <div className="text-[10px] text-gray-400 font-medium uppercase">Lead Date</div>
+                  <div className="text-[13px] font-medium text-gray-800">{formatDateTime(context?.leadDate || routing!.lead_date)}</div>
+                </div>
+              )}
+              {context?.leadCreatedAt && (
+                <div>
+                  <div className="text-[10px] text-gray-400 font-medium uppercase">Loaded</div>
+                  <div className="text-[13px] font-medium text-gray-800">{formatDateTime(context.leadCreatedAt)}</div>
+                  <div className="text-[10px] text-gray-400">{timeAgo(context.leadCreatedAt)}</div>
+                </div>
+              )}
+              {context?.firstCallAt && (
+                <div>
+                  <div className="text-[10px] text-gray-400 font-medium uppercase">First Contact</div>
+                  <div className="text-[13px] font-medium text-gray-800">{formatDateTime(context.firstCallAt)}</div>
+                  <div className="text-[10px] text-gray-400">{timeAgo(context.firstCallAt)}</div>
+                </div>
+              )}
+              {context?.leadCreatedAt && context?.firstCallAt && (() => {
+                const deltaMs = new Date(context.firstCallAt).getTime() - new Date(context.leadCreatedAt).getTime()
+                if (deltaMs < 0) return null
+                const totalSecs = Math.round(deltaMs / 1000)
+                const hrs = Math.floor(totalSecs / 3600)
+                const mins = Math.floor((totalSecs % 3600) / 60)
+                const secs = totalSecs % 60
+                let text: string
+                if (hrs > 0) text = `${hrs}h ${mins}m`
+                else if (mins > 0) text = `${mins}m ${secs}s`
+                else text = `${secs}s`
+                const totalMins = Math.floor(totalSecs / 60)
+                const color = totalMins < 5 ? 'text-green-600' : totalMins < 30 ? 'text-amber-600' : 'text-red-600'
+                return (
+                  <div>
+                    <div className="text-[10px] text-gray-400 font-medium uppercase">Speed to Lead</div>
+                    <div className={`text-[15px] font-bold ${color} tabular-nums`}>{text}</div>
+                    <div className="text-[10px] text-gray-400">Dialler load → first call</div>
+                  </div>
+                )
+              })()}
+              {routing && (
+                <div>
+                  <div className="text-[10px] text-gray-400 font-medium uppercase">Pipeline</div>
+                  <div className="flex items-center gap-1 mt-0.5">
+                    <span className={`px-1.5 py-0.5 rounded border text-[10px] font-medium ${routing.moved_to_new_at ? 'bg-gray-50 text-gray-400 border-gray-200 line-through' : TIER_BADGE.HOT}`}>
+                      HOT
+                    </span>
+                    <span className="text-gray-300 text-[10px]">&rarr;</span>
+                    <span className={`px-1.5 py-0.5 rounded border text-[10px] font-medium ${routing.moved_to_old_at ? 'bg-gray-50 text-gray-400 border-gray-200 line-through' : routing.moved_to_new_at && !routing.moved_to_old_at ? TIER_BADGE.NEW : 'bg-gray-50 text-gray-400 border-gray-200'}`}>
+                      NEW
+                    </span>
+                    {routing.old_campaign_id && (
+                      <>
+                        <span className="text-gray-300 text-[10px]">&rarr;</span>
+                        <span className={`px-1.5 py-0.5 rounded border text-[10px] font-medium ${routing.moved_to_old_at ? TIER_BADGE.OLD : 'bg-gray-50 text-gray-400 border-gray-200'}`}>
+                          OLD
+                        </span>
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+            {/* Recording player if available */}
+            {context?.firstRecordingUrl && (
+              <div className="mt-3 pt-3 border-t border-gray-200">
+                <div className="text-[10px] text-gray-400 font-medium uppercase mb-1">Latest Recording</div>
+                <audio controls preload="none" className="w-full" style={{ height: '36px' }}>
+                  <source src={context.firstRecordingUrl} type="audio/mpeg" />
+                </audio>
+              </div>
             )}
           </div>
         )}

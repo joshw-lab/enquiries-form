@@ -3,7 +3,7 @@ export const REGIONS = ['NSW', 'VIC', 'QLD', 'WA', 'SA', 'ACT'] as const
 export type Region = (typeof REGIONS)[number]
 
 // ── Dashboard tab identifiers ──
-export type DashboardTab = 'pipeline' | 'sync' | 'queue'
+export type DashboardTab = 'pipeline' | 'sync' | 'queue' | 'activity'
 
 // ── Pipeline data ──
 export interface PipelineData {
@@ -205,6 +205,10 @@ export interface CompletedCall {
   storageUrl: string | null
   callPosition: number
   notes: string | null
+  contactState: string | null
+  leadDate: string | null
+  bookingDate: string | null
+  speedToLeadSeconds: number | null
 }
 
 // ── Queue — Metrics ──

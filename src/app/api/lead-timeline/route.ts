@@ -197,10 +197,35 @@ export async function GET(request: NextRequest) {
   // Sort all events by timestamp
   events.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
 
+  // Build contact context from lead_loads
+  const firstLoad = loads && loads.length > 0 ? loads[0] : null
+  const { data: contactRow } = firstLoad
+    ? await supabase
+        .from('lead_loads')
+        .select('contact_state, contact_postcode, priority_context')
+        .eq('contact_id', contactId)
+        .order('created_at', { ascending: true })
+        .limit(1)
+        .maybeSingle()
+    : { data: null }
+
+  const firstCallEvent = events.find((e) => e.type === 'call')
+  const firstRecordingWithAudio = recordings?.find((r) => r.storage_url)
+
+  const context = {
+    region: contactRow?.contact_state || null,
+    postcode: contactRow?.contact_postcode || null,
+    leadCreatedAt: firstLoad?.created_at || null,
+    leadDate: (contactRow?.priority_context as Record<string, unknown>)?.lead_date || null,
+    firstCallAt: firstCallEvent?.timestamp || null,
+    firstRecordingUrl: firstRecordingWithAudio?.storage_url || null,
+  }
+
   return NextResponse.json({
     contactId,
     events,
     routing: routing || null,
+    context,
     totalEvents: events.length,
   })
 }

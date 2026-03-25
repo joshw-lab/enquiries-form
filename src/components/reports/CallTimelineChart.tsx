@@ -12,15 +12,26 @@ import {
   ReferenceLine,
 } from 'recharts'
 import type { ChartCall } from '@/lib/dashboard-types'
-import { getDispositionLabel, getDispositionColor } from '@/lib/reports-queries'
 
 interface CallTimelineChartProps {
   chartCalls: ChartCall[]
+  dateFrom?: string
+  dateTo?: string
 }
+
+// Single-leg booking dispositions
+const SINGLE_LEG_DISPOSITIONS = new Set([
+  'booked_test_single_leg', 'booked_single_leg', 'single_leg',
+  'Single Leg', 'Booked Test Single Leg',
+])
+
+// Full (non-single-leg) booking dispositions
+const BOOKED_TEST_DISPOSITIONS = new Set([
+  'Booked Test', 'book_water_test', 'booked_test', 'booked_water_test', 'booked',
+])
 
 // Group dispositions for cleaner chart lines
 const DISPOSITION_GROUPS: Record<string, string[]> = {
-  'Booked Test': ['Booked Test', 'book_water_test'],
   'Needs Call Back': ['Needs Call Back', 'call_back'],
   'Not Interested': ['Not interested', 'not_interested', 'Hang Up', 'Do Not Call'],
   'No Answer': ['No Answer', 'Left Voicemail', 'Busy', 'no_answer'],
@@ -28,9 +39,14 @@ const DISPOSITION_GROUPS: Record<string, string[]> = {
 }
 
 const TOTAL_KEY = 'Total Calls'
+const TOTAL_BOOKED_KEY = 'Total Booked'
+const BOOKED_KEY = 'Booked Test'
+const SINGLE_LEG_KEY = 'Single Leg'
 
 const GROUP_COLORS: Record<string, string> = {
-  'Booked Test': '#22c55e',
+  [BOOKED_KEY]: '#22c55e',
+  [SINGLE_LEG_KEY]: '#86efac',
+  [TOTAL_BOOKED_KEY]: '#15803d',
   'Needs Call Back': '#f59e0b',
   'Not Interested': '#ef4444',
   'No Answer': '#3b82f6',
@@ -39,6 +55,8 @@ const GROUP_COLORS: Record<string, string> = {
 }
 
 function getGroup(disposition: string): string {
+  if (SINGLE_LEG_DISPOSITIONS.has(disposition)) return SINGLE_LEG_KEY
+  if (BOOKED_TEST_DISPOSITIONS.has(disposition)) return BOOKED_KEY
   for (const [group, values] of Object.entries(DISPOSITION_GROUPS)) {
     if (values.includes(disposition)) return group
   }
@@ -48,17 +66,13 @@ function getGroup(disposition: string): string {
 // Generate 30-min time slots from 6am to 8pm Perth time for a given date
 function generateFixedSlots(dateStr: string): string[] {
   const slots: string[] = []
-  // Parse any date from the calls to get the correct calendar day in Perth
   const ref = new Date(dateStr)
-  // Get Perth date string (YYYY-MM-DD)
   const perthDate = ref.toLocaleDateString('en-CA', { timeZone: 'Australia/Perth' })
   const [y, m, d] = perthDate.split('-').map(Number)
 
-  // Build slots from 06:00 to 20:00 Perth time
-  // Perth is UTC+8, so 06:00 AWST = 22:00 UTC previous day
   for (let h = 6; h <= 20; h++) {
     for (let min = 0; min < 60; min += 30) {
-      if (h === 20 && min > 0) break // stop at 20:00
+      if (h === 20 && min > 0) break
       const utc = new Date(Date.UTC(y, m - 1, d, h - 8, min))
       slots.push(utc.toISOString())
     }
@@ -66,7 +80,19 @@ function generateFixedSlots(dateStr: string): string[] {
   return slots
 }
 
-// Get current time label in Perth timezone
+// Generate daily slots between two dates (inclusive)
+function generateDailySlots(fromStr: string, toStr: string): string[] {
+  const slots: string[] = []
+  const from = new Date(fromStr + 'T12:00:00')
+  const to = new Date(toStr + 'T12:00:00')
+  const current = new Date(from)
+  while (current <= to) {
+    slots.push(current.toLocaleDateString('en-CA', { timeZone: 'Australia/Perth' }))
+    current.setDate(current.getDate() + 1)
+  }
+  return slots
+}
+
 function getNowLabel(): string {
   return new Date().toLocaleTimeString('en-AU', {
     timeZone: 'Australia/Perth',
@@ -76,7 +102,6 @@ function getNowLabel(): string {
   })
 }
 
-// Get current Perth hour as a number (e.g. 14.5 for 2:30pm)
 function getPerthHourNow(): number {
   const now = new Date()
   const perthStr = now.toLocaleTimeString('en-AU', {
@@ -89,8 +114,13 @@ function getPerthHourNow(): number {
   return h + m / 60
 }
 
-export default function CallTimelineChart({ chartCalls }: CallTimelineChartProps) {
-  // Track current time for the "now" indicator — update every minute
+function getPerthDateStr(iso: string): string {
+  return new Date(iso).toLocaleDateString('en-CA', { timeZone: 'Australia/Perth' })
+}
+
+const GROUP_ORDER = [TOTAL_BOOKED_KEY, BOOKED_KEY, SINGLE_LEG_KEY, 'Needs Call Back', 'No Answer', 'Not Interested', 'Other']
+
+export default function CallTimelineChart({ chartCalls, dateFrom, dateTo }: CallTimelineChartProps) {
   const [nowLabel, setNowLabel] = useState(getNowLabel)
   const [nowHour, setNowHour] = useState(getPerthHourNow)
   useEffect(() => {
@@ -101,19 +131,77 @@ export default function CallTimelineChart({ chartCalls }: CallTimelineChartProps
     return () => clearInterval(id)
   }, [])
 
-  const { chartData, groups } = useMemo(() => {
-    // Use today in Perth as default if no calls
+  // Determine if this is a multi-day range
+  const isMultiDay = dateFrom && dateTo && dateFrom !== dateTo
+
+  // === MULTI-DAY MODE: bucket calls by date ===
+  const multiDayResult = useMemo(() => {
+    if (!isMultiDay) return null
+
+    const daySlots = generateDailySlots(dateFrom, dateTo)
+    const activeGroups = new Set<string>()
+    const buckets: Record<string, Record<string, number>> = {}
+    for (const slot of daySlots) {
+      buckets[slot] = {}
+    }
+
+    for (const call of chartCalls) {
+      const dayKey = getPerthDateStr(call.callStart)
+      const group = getGroup(call.disposition)
+      activeGroups.add(group)
+      if (!buckets[dayKey]) buckets[dayKey] = {}
+      buckets[dayKey][group] = (buckets[dayKey][group] || 0) + 1
+    }
+
+    // Add Total Booked as a computed group if any booking type exists
+    if (activeGroups.has(BOOKED_KEY) || activeGroups.has(SINGLE_LEG_KEY)) {
+      activeGroups.add(TOTAL_BOOKED_KEY)
+    }
+
+    const groups = GROUP_ORDER.filter((g) => activeGroups.has(g))
+    const displayGroups = groups.length > 0 ? groups : GROUP_ORDER
+
+    const chartData = daySlots.map((slot) => {
+      const d = new Date(slot + 'T12:00:00')
+      const label = d.toLocaleDateString('en-AU', {
+        timeZone: 'Australia/Perth',
+        weekday: 'short',
+        day: 'numeric',
+        month: 'short',
+      })
+
+      const row: Record<string, string | number | null> = {
+        time: slot,
+        label,
+      }
+      let slotTotal = 0
+      for (const group of displayGroups) {
+        if (group === TOTAL_BOOKED_KEY) continue // computed below
+        const val = buckets[slot]?.[group] || 0
+        row[group] = val
+        slotTotal += val
+      }
+      // Compute Total Booked = Booked Test + Single Leg
+      if (displayGroups.includes(TOTAL_BOOKED_KEY)) {
+        row[TOTAL_BOOKED_KEY] = (buckets[slot]?.[BOOKED_KEY] || 0) + (buckets[slot]?.[SINGLE_LEG_KEY] || 0)
+      }
+      row[TOTAL_KEY] = slotTotal
+      return row
+    })
+
+    return { chartData, groups: displayGroups }
+  }, [isMultiDay, dateFrom, dateTo, chartCalls])
+
+  // === SINGLE-DAY MODE: 30-min time slots ===
+  const singleDayResult = useMemo(() => {
+    if (isMultiDay) return null
+
     const refDate = chartCalls.length > 0
       ? chartCalls[0].callStart
       : new Date().toISOString()
 
-    // Generate fixed 6am–8pm slots
     const slots = generateFixedSlots(refDate)
-
-    // Track which groups appear in the data
     const activeGroups = new Set<string>()
-
-    // Bucket calls into 30-min slots by disposition group
     const buckets: Record<string, Record<string, number>> = {}
     for (const slot of slots) {
       buckets[slot] = {}
@@ -121,7 +209,6 @@ export default function CallTimelineChart({ chartCalls }: CallTimelineChartProps
 
     for (const call of chartCalls) {
       const callTime = new Date(call.callStart)
-      // Find the slot this call belongs to
       const slotTime = new Date(callTime)
       slotTime.setMinutes(Math.floor(slotTime.getMinutes() / 30) * 30, 0, 0)
       const slotKey = slotTime.toISOString()
@@ -133,16 +220,15 @@ export default function CallTimelineChart({ chartCalls }: CallTimelineChartProps
       buckets[slotKey][group] = (buckets[slotKey][group] || 0) + 1
     }
 
-    // Order groups: Booked first (green on top), then others
-    const groupOrder = ['Booked Test', 'Needs Call Back', 'No Answer', 'Not Interested', 'Other']
-    const groups = groupOrder.filter((g) => activeGroups.has(g))
-    // If no calls yet, still show all default groups so chart renders
-    const displayGroups = groups.length > 0 ? groups : groupOrder
+    // Add Total Booked as a computed group if any booking type exists
+    if (activeGroups.has(BOOKED_KEY) || activeGroups.has(SINGLE_LEG_KEY)) {
+      activeGroups.add(TOTAL_BOOKED_KEY)
+    }
 
-    // Current time boundary — slots after "now" should have no data
+    const groups = GROUP_ORDER.filter((g) => activeGroups.has(g))
+    const displayGroups = groups.length > 0 ? groups : GROUP_ORDER
     const currentPerthHour = getPerthHourNow()
 
-    // Build chart data — only populate slots up to current time
     const chartData = slots.map((slot) => {
       const slotLabel = new Date(slot).toLocaleTimeString('en-AU', {
         timeZone: 'Australia/Perth',
@@ -150,7 +236,6 @@ export default function CallTimelineChart({ chartCalls }: CallTimelineChartProps
         minute: '2-digit',
         hour12: true,
       })
-      // Get Perth hour for this slot
       const perthTime = new Date(slot).toLocaleTimeString('en-AU', {
         timeZone: 'Australia/Perth',
         hour: '2-digit',
@@ -167,20 +252,30 @@ export default function CallTimelineChart({ chartCalls }: CallTimelineChartProps
       }
       let slotTotal = 0
       for (const group of displayGroups) {
-        // Future slots get null so lines stop at current time
+        if (group === TOTAL_BOOKED_KEY) continue // computed below
         const val = isFuture ? null : (buckets[slot]?.[group] || 0)
         row[group] = val
         if (typeof val === 'number') slotTotal += val
+      }
+      // Compute Total Booked = Booked Test + Single Leg
+      if (displayGroups.includes(TOTAL_BOOKED_KEY)) {
+        if (isFuture) {
+          row[TOTAL_BOOKED_KEY] = null
+        } else {
+          row[TOTAL_BOOKED_KEY] = (buckets[slot]?.[BOOKED_KEY] || 0) + (buckets[slot]?.[SINGLE_LEG_KEY] || 0)
+        }
       }
       row[TOTAL_KEY] = isFuture ? null : slotTotal
       return row
     })
 
     return { chartData, groups: displayGroups }
-  }, [chartCalls, nowHour])
+  }, [isMultiDay, chartCalls, nowHour])
+
+  const { chartData, groups } = isMultiDay ? multiDayResult! : singleDayResult!
 
   const [cumulative, setCumulative] = useState(false)
-  const [hidden, setHidden] = useState<Set<string>>(new Set(['No Answer', TOTAL_KEY]))
+  const [hidden, setHidden] = useState<Set<string>>(new Set(['No Answer', TOTAL_KEY, BOOKED_KEY, SINGLE_LEG_KEY]))
 
   // Build cumulative version of chart data (running totals)
   const displayData = useMemo(() => {
@@ -209,10 +304,9 @@ export default function CallTimelineChart({ chartCalls }: CallTimelineChartProps
     })
   }
 
-  // Find the closest slot label to current time for the ReferenceLine
+  // "Now" reference line — only for single-day mode
   const nowRefLabel = useMemo(() => {
-    if (chartData.length === 0) return null
-    // Find the last slot that is at or before current time
+    if (isMultiDay || chartData.length === 0) return null
     let closest: string | null = null
     for (const row of chartData) {
       const perthTime = new Date(row.time as string).toLocaleTimeString('en-AU', {
@@ -226,7 +320,7 @@ export default function CallTimelineChart({ chartCalls }: CallTimelineChartProps
       if (slotHour <= nowHour) closest = row.label as string
     }
     return closest
-  }, [chartData, nowHour])
+  }, [isMultiDay, chartData, nowHour])
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 px-5 py-4">
@@ -240,7 +334,7 @@ export default function CallTimelineChart({ chartCalls }: CallTimelineChartProps
               : 'bg-white text-gray-500 border-gray-300 hover:border-gray-400'
           }`}
         >
-          {cumulative ? 'Cumulative' : 'Per interval'}
+          {cumulative ? 'Cumulative' : isMultiDay ? 'Per day' : 'Per interval'}
         </button>
       </div>
       <ResponsiveContainer width="100%" height={200}>
@@ -260,7 +354,7 @@ export default function CallTimelineChart({ chartCalls }: CallTimelineChartProps
             tickLine={false}
             axisLine={{ stroke: '#e5e7eb' }}
             interval="preserveStartEnd"
-            minTickGap={40}
+            minTickGap={isMultiDay ? 20 : 40}
           />
           <YAxis
             tick={{ fontSize: 10, fill: '#9ca3af' }}
@@ -278,13 +372,12 @@ export default function CallTimelineChart({ chartCalls }: CallTimelineChartProps
             }}
             labelStyle={{ fontSize: 11, fontWeight: 600, color: '#374151', marginBottom: 4 }}
             itemSorter={(item) => {
-              const order = ['Booked Test', 'Needs Call Back', 'No Answer', 'Not Interested', 'Other']
-              return order.indexOf(item.dataKey as string)
+              return GROUP_ORDER.indexOf(item.dataKey as string)
             }}
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             formatter={((value: any, name: any) => [String(value ?? 0), String(name ?? '')]) as any}
           />
-          {groups.map((group) => (
+          {groups.filter((g) => g !== TOTAL_BOOKED_KEY).map((group) => (
             <Area
               key={group}
               type="monotone"
@@ -292,12 +385,28 @@ export default function CallTimelineChart({ chartCalls }: CallTimelineChartProps
               stroke={hidden.has(group) ? 'transparent' : GROUP_COLORS[group]}
               strokeWidth={2}
               fill={hidden.has(group) ? 'transparent' : `url(#gradient-${group.replace(/\s/g, '')})`}
-              dot={false}
+              dot={isMultiDay ? !hidden.has(group) : false}
               activeDot={hidden.has(group) ? false : { r: 3, strokeWidth: 0 }}
               hide={hidden.has(group)}
               connectNulls={false}
             />
           ))}
+          {/* Total Booked — dashed aggregate line */}
+          {groups.includes(TOTAL_BOOKED_KEY) && (
+            <Area
+              type="monotone"
+              dataKey={TOTAL_BOOKED_KEY}
+              stroke={hidden.has(TOTAL_BOOKED_KEY) ? 'transparent' : GROUP_COLORS[TOTAL_BOOKED_KEY]}
+              strokeWidth={2}
+              strokeDasharray="4 2"
+              fill={hidden.has(TOTAL_BOOKED_KEY) ? 'transparent' : `url(#gradient-${TOTAL_BOOKED_KEY.replace(/\s/g, '')})`}
+              dot={isMultiDay ? !hidden.has(TOTAL_BOOKED_KEY) : false}
+              activeDot={hidden.has(TOTAL_BOOKED_KEY) ? false : { r: 3, strokeWidth: 0 }}
+              hide={hidden.has(TOTAL_BOOKED_KEY)}
+              connectNulls={false}
+            />
+          )}
+          {/* Total Calls — dashed aggregate line */}
           <Area
             type="monotone"
             dataKey={TOTAL_KEY}
@@ -305,7 +414,7 @@ export default function CallTimelineChart({ chartCalls }: CallTimelineChartProps
             strokeWidth={2}
             strokeDasharray="4 2"
             fill="none"
-            dot={false}
+            dot={isMultiDay ? !hidden.has(TOTAL_KEY) : false}
             activeDot={hidden.has(TOTAL_KEY) ? false : { r: 3, strokeWidth: 0 }}
             hide={hidden.has(TOTAL_KEY)}
             connectNulls={false}

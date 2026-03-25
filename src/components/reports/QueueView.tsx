@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import type { QueuedLead, CompletedCall, ChartCall, QueueMetrics, QueueSummary, QueueResponse, QueueCampaign } from '@/lib/dashboard-types'
 import { getDispositionLabel, getDispositionColor } from '@/lib/reports-queries'
 import QueueFilters, { type QueueFilterState } from './QueueFilters'
@@ -86,7 +86,12 @@ function getPriorityBadge(priority: string, reason: string): PriorityBadgeInfo |
   return null
 }
 
-export default function QueueView() {
+interface QueueViewProps {
+  selectedDate?: string
+  advancedSearch?: boolean
+}
+
+export default function QueueView({ selectedDate, advancedSearch = false }: QueueViewProps) {
   const [leads, setLeads] = useState<QueuedLead[]>([])
   const [calls, setCalls] = useState<CompletedCall[]>([])
   const [leadsTotal, setLeadsTotal] = useState(0)
@@ -114,7 +119,6 @@ export default function QueueView() {
 
   const [chartCalls, setChartCalls] = useState<ChartCall[]>([])
   const [disposition, setDisposition] = useState('connected')
-  const [playingCall, setPlayingCall] = useState<CompletedCall | null>(null)
   const [availableAgents, setAvailableAgents] = useState<string[]>([])
   const [availableCampaigns, setAvailableCampaigns] = useState<QueueCampaign[]>([])
   const [timelineContact, setTimelineContact] = useState<{ id: string; name?: string | null } | null>(null)
@@ -122,8 +126,8 @@ export default function QueueView() {
   const [filters, setFilters] = useState<QueueFilterState>(() => {
     const today = new Date()
     return {
-      from: perthDate(today),
-      to: perthDate(today),
+      from: selectedDate || perthDate(today),
+      to: selectedDate || perthDate(today),
       campaignType: '',
       campaignId: '',
       priority: '',
@@ -131,6 +135,15 @@ export default function QueueView() {
       search: '',
     }
   })
+
+  // Sync date from parent when not in advanced search mode
+  useEffect(() => {
+    if (!advancedSearch && selectedDate) {
+      setFilters((prev) => ({ ...prev, from: selectedDate, to: selectedDate }))
+      setLeadsPage(1)
+      setCallsPage(1)
+    }
+  }, [selectedDate, advancedSearch])
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -185,15 +198,17 @@ export default function QueueView() {
 
   return (
     <div className="space-y-3">
-      {/* Filter bar (top) */}
-      <div className="bg-white border border-gray-200 rounded-xl px-5 py-3">
-        <QueueFilters
-          filters={filters}
-          onChange={handleFilterChange}
-          availableAgents={availableAgents}
-          availableCampaigns={availableCampaigns}
-        />
-      </div>
+      {/* Filter bar — only visible in advanced search mode */}
+      {advancedSearch && (
+        <div className="bg-white border border-gray-200 rounded-xl px-5 py-3">
+          <QueueFilters
+            filters={filters}
+            onChange={handleFilterChange}
+            availableAgents={availableAgents}
+            availableCampaigns={availableCampaigns}
+          />
+        </div>
+      )}
 
       {/* Metrics strip */}
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-2">
@@ -218,7 +233,7 @@ export default function QueueView() {
       </div>
 
       {/* Call outcomes timeline chart */}
-      <CallTimelineChart chartCalls={chartCalls} />
+      <CallTimelineChart chartCalls={chartCalls} dateFrom={filters.from} dateTo={filters.to} />
 
       {/* Two-column layout: 33% queue / 67% completed */}
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_2fr] gap-4">
@@ -297,16 +312,11 @@ export default function QueueView() {
             ) : calls.length === 0 ? (
               <div className="px-4 py-8 text-center text-sm text-gray-500">No calls found.</div>
             ) : (
-              calls.map((call) => <CompletedCallRow key={call.id} call={call} onPlay={setPlayingCall} onTimeline={() => call.contactId && setTimelineContact({ id: call.contactId, name: call.contactName })} />)
+              calls.map((call) => <CompletedCallRow key={call.id} call={call} onTimeline={() => call.contactId && setTimelineContact({ id: call.contactId, name: call.contactName })} />)
             )}
           </div>
         </div>
       </div>
-
-      {/* Recording playback modal */}
-      {playingCall && (
-        <RecordingModal call={playingCall} onClose={() => setPlayingCall(null)} />
-      )}
 
       {/* Lead timeline modal */}
       <LeadTimelineModal
@@ -315,76 +325,6 @@ export default function QueueView() {
         open={!!timelineContact}
         onClose={() => setTimelineContact(null)}
       />
-    </div>
-  )
-}
-
-function RecordingModal({ call, onClose }: { call: CompletedCall; onClose: () => void }) {
-  const audioRef = useRef<HTMLAudioElement>(null)
-  const audioUrl = call.storageUrl || null
-  const displayName = call.contactName || call.contactId || 'Unknown'
-  const hubspotUrl = call.contactId
-    ? `https://app.hubspot.com/contacts/${HUBSPOT_PORTAL_ID}/record/0-1/${call.contactId}`
-    : null
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
-      <div
-        className="bg-white rounded-xl shadow-xl w-full max-w-lg mx-4 overflow-hidden"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="px-5 py-3 border-b border-gray-200 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div>
-              {hubspotUrl ? (
-                <a href={hubspotUrl} target="_blank" rel="noopener noreferrer" className="text-sm font-semibold text-blue-600 hover:text-blue-700 hover:underline">
-                  {displayName}
-                </a>
-              ) : (
-                <div className="text-sm font-semibold text-[#111827]">{displayName}</div>
-              )}
-              <div className="text-[11px] text-gray-500">
-                {formatDateTime(call.callStart)} &middot; {call.agentName || 'Unknown agent'}
-              </div>
-            </div>
-            {call.disposition && (
-              <span
-                className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium text-white"
-                style={{ backgroundColor: getDispositionColor(call.disposition) }}
-              >
-                {getDispositionLabel(call.disposition)}
-              </span>
-            )}
-          </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-lg cursor-pointer">&#10005;</button>
-        </div>
-
-        {/* Audio player + duration */}
-        <div className="px-5 py-4 bg-gray-50 border-b border-gray-200">
-          <div className="flex items-center gap-4 mb-3">
-            <div className="text-2xl font-bold text-[#111827] tabular-nums">{formatDuration(call.callDuration)}</div>
-            {call.storageUrl && (
-              <span className="text-[10px] text-gray-400 bg-gray-200 px-1.5 py-0.5 rounded">MP3</span>
-            )}
-          </div>
-          {audioUrl ? (
-            <audio ref={audioRef} controls autoPlay className="w-full" style={{ height: '40px' }}>
-              <source src={audioUrl} type="audio/mpeg" />
-            </audio>
-          ) : (
-            <div className="text-[12px] text-gray-400 italic">No recording available</div>
-          )}
-        </div>
-
-        {/* Notes */}
-        {call.notes && (
-          <div className="px-5 py-3">
-            <div className="text-[10px] text-gray-400 font-medium uppercase mb-1">Notes</div>
-            <div className="text-[12px] text-gray-600">{call.notes}</div>
-          </div>
-        )}
-      </div>
     </div>
   )
 }
@@ -440,55 +380,52 @@ function QueueLeadRow({ lead, onTimeline }: { lead: QueuedLead; onTimeline: () =
   )
 }
 
-function CompletedCallRow({ call, onPlay, onTimeline }: { call: CompletedCall; onPlay: (c: CompletedCall) => void; onTimeline: () => void }) {
-  const hubspotUrl = call.contactId
-    ? `https://app.hubspot.com/contacts/${HUBSPOT_PORTAL_ID}/record/0-1/${call.contactId}`
-    : null
+function formatShortDate(iso: string): string {
+  return new Date(iso).toLocaleDateString('en-AU', {
+    timeZone: 'Australia/Perth',
+    day: '2-digit',
+    month: '2-digit',
+  })
+}
 
+function formatSpeedToLead(seconds: number): { text: string; color: string } {
+  const hrs = Math.floor(seconds / 3600)
+  const mins = Math.floor((seconds % 3600) / 60)
+  const secs = seconds % 60
+  let text: string
+  if (hrs > 0) text = `${hrs}h ${mins}m`
+  else if (mins > 0) text = `${mins}m ${secs}s`
+  else text = `${secs}s`
+  // Color coding: green < 5min, amber 5-30min, red > 30min
+  const totalMins = Math.floor(seconds / 60)
+  const color = totalMins < 5 ? 'text-green-600' : totalMins < 30 ? 'text-amber-600' : 'text-red-600'
+  return { text, color }
+}
+
+function CompletedCallRow({ call, onTimeline }: { call: CompletedCall; onTimeline: () => void }) {
   const displayName = call.contactName || call.contactId || 'Unknown'
+  const hasRecording = !!call.storageUrl
 
   return (
-    <div className="px-3 py-1.5 hover:bg-gray-50/50 transition-colors">
-      {/* Row: Name + agent left, time + duration + player + disposition right */}
+    <div
+      className="px-3 py-1.5 hover:bg-blue-50/50 transition-colors cursor-pointer"
+      onClick={onTimeline}
+      title="View timeline"
+    >
+      {/* Line 1: Name + agent left, time + duration + recording icon + disposition right */}
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-1.5 min-w-0">
-          {call.contactId && (
-            <button
-              onClick={onTimeline}
-              className="text-gray-300 hover:text-blue-500 transition-colors flex-shrink-0 cursor-pointer"
-              title="View timeline"
-            >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            </button>
-          )}
-          {hubspotUrl ? (
-            <a
-              href={hubspotUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-[13px] font-medium text-blue-600 hover:text-blue-700 hover:underline truncate"
-            >
-              {displayName}
-            </a>
-          ) : (
-            <span className="text-[13px] font-medium text-[#111827] truncate">{displayName}</span>
-          )}
+          <span className="text-[13px] font-medium text-[#111827] truncate">{displayName}</span>
           <span className="text-[10px] text-gray-500 flex-shrink-0">{call.agentName || ''}</span>
         </div>
         <div className="flex items-center gap-1.5 flex-shrink-0">
           <span className="text-[10px] text-gray-400">{timeAgo(call.callStart)}</span>
           <span className="text-[12px] font-semibold text-gray-700 tabular-nums">{formatDuration(call.callDuration)}</span>
-          {call.storageUrl ? (
-            <audio controls preload="metadata" className="h-7" style={{ width: '180px' }}>
-              <source src={call.storageUrl} type="audio/mpeg" />
-            </audio>
-          ) : (call.backupStatus === 'pending' || call.backupStatus === 'downloading') ? (
-            <span className="text-[9px] text-gray-400 italic">Processing...</span>
-          ) : call.backupStatus === 'no_recording' ? (
-            <span className="text-[9px] text-gray-300">No recording</span>
-          ) : null}
+          {hasRecording && (
+            <svg className="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+            </svg>
+          )}
           {call.disposition && (
             <span
               className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium text-white"
@@ -499,9 +436,29 @@ function CompletedCallRow({ call, onPlay, onTimeline }: { call: CompletedCall; o
           )}
         </div>
       </div>
-      {call.notes && (
-        <div className="text-[10px] text-gray-500 truncate mt-0.5" title={call.notes}>{call.notes}</div>
-      )}
+      {/* Line 2: Speed to lead, lead date, booking date, region, notes */}
+      <div className="flex items-center gap-2 text-[10px] text-gray-400 mt-0.5">
+        {call.contactState && (
+          <span className="bg-slate-100 text-slate-600 px-1 py-0.5 rounded font-medium">{call.contactState}</span>
+        )}
+        {call.speedToLeadSeconds != null && (() => {
+          const stl = formatSpeedToLead(call.speedToLeadSeconds)
+          return (
+            <span className={`font-semibold ${stl.color}`} title="Speed to lead: time from dialler load to first call">
+              &#9889; {stl.text}
+            </span>
+          )
+        })()}
+        {call.leadDate && (
+          <span>Lead: {formatShortDate(call.leadDate)}</span>
+        )}
+        {call.bookingDate && (
+          <span className="text-green-600 font-medium">Booked: {formatShortDate(call.bookingDate)}</span>
+        )}
+        {call.notes && (
+          <span className="truncate" title={call.notes}>{call.notes}</span>
+        )}
+      </div>
     </div>
   )
 }

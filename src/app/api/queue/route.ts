@@ -202,23 +202,53 @@ export async function GET(request: NextRequest) {
     queuePosition: leadsOffset + idx + 1,
   }))
 
-  // ── Resolve contact names for calls via lead_loads ──
+  // ── Resolve contact names + lead context for calls via lead_loads ──
   const callContactIds = (callsResult.data || [])
     .map((r: Record<string, unknown>) => r.hubspot_contact_id as string)
     .filter(Boolean)
   const nameMap: Record<string, string> = {}
+  const stateMap: Record<string, string> = {}
+  const leadDateMap: Record<string, string> = {}
+  const loadedAtMap: Record<string, string> = {} // when lead was pushed to dialler
   if (callContactIds.length > 0) {
     const uniqueIds = [...new Set(callContactIds)]
     const { data: nameRows } = await supabase
       .from('lead_loads')
-      .select('contact_id, contact_first_name, contact_last_name')
+      .select('contact_id, contact_first_name, contact_last_name, contact_state, priority_context, created_at')
       .in('contact_id', uniqueIds)
-      .not('contact_first_name', 'is', null)
+      .order('created_at', { ascending: true })
       .limit(500)
     if (nameRows) {
       for (const r of nameRows) {
         const n = buildName(r.contact_first_name, r.contact_last_name)
         if (n && !nameMap[r.contact_id]) nameMap[r.contact_id] = n
+        if (r.contact_state && !stateMap[r.contact_id]) stateMap[r.contact_id] = r.contact_state
+        // Use lead_date from priority_context, fallback to created_at
+        if (!leadDateMap[r.contact_id]) {
+          const ctx = r.priority_context as Record<string, unknown> | null
+          leadDateMap[r.contact_id] = (ctx?.lead_date as string) || r.created_at
+        }
+        // Track earliest load time (dialler push time) for speed-to-lead
+        if (!loadedAtMap[r.contact_id]) {
+          loadedAtMap[r.contact_id] = r.created_at
+        }
+      }
+    }
+  }
+
+  // ── Resolve first call time per contact for speed-to-lead ──
+  const firstCallAtMap: Record<string, string> = {}
+  if (callContactIds.length > 0) {
+    const uniqueIds = [...new Set(callContactIds)]
+    const { data: firstCallRows } = await supabase
+      .from('call_recordings')
+      .select('hubspot_contact_id, call_start')
+      .in('hubspot_contact_id', uniqueIds)
+      .order('call_start', { ascending: true })
+    if (firstCallRows) {
+      for (const r of firstCallRows as Record<string, unknown>[]) {
+        const cid = r.hubspot_contact_id as string
+        if (cid && !firstCallAtMap[cid]) firstCallAtMap[cid] = r.call_start as string
       }
     }
   }
@@ -244,6 +274,24 @@ export async function GET(request: NextRequest) {
     }
   }
 
+  // ── Resolve booking dates: find earliest "Booked Test" form submission per contact ──
+  const bookingDateMap: Record<string, string> = {}
+  if (callContactIds.length > 0) {
+    const uniqueIds = [...new Set(callContactIds)]
+    const { data: bookingRows } = await supabase
+      .from('hubspot_form_submissions')
+      .select('hubspot_contact_id, created_at')
+      .in('hubspot_contact_id', uniqueIds)
+      .in('disposition', ['book_water_test', 'Booked Test', 'booked_test', 'booked_test_single_leg'])
+      .order('created_at', { ascending: true })
+    if (bookingRows) {
+      for (const r of bookingRows as Record<string, unknown>[]) {
+        const cid = r.hubspot_contact_id as string
+        if (cid && !bookingDateMap[cid]) bookingDateMap[cid] = r.created_at as string
+      }
+    }
+  }
+
   // ── Map calls to CompletedCall shape with daily position ──
   // Calls ordered DESC (newest first); position = total - offset - idx
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -261,6 +309,17 @@ export async function GET(request: NextRequest) {
     storageUrl: row.storage_url || null,
     callPosition: (callsResult.count ?? 0) - callsOffset - idx,
     notes: notesMap[row.hubspot_call_id as string] || null,
+    contactState: stateMap[row.hubspot_contact_id as string] || null,
+    leadDate: leadDateMap[row.hubspot_contact_id as string] || null,
+    bookingDate: bookingDateMap[row.hubspot_contact_id as string] || null,
+    speedToLeadSeconds: (() => {
+      const cid = row.hubspot_contact_id as string
+      const loaded = loadedAtMap[cid]
+      const firstCall = firstCallAtMap[cid]
+      if (!loaded || !firstCall) return null
+      const delta = (new Date(firstCall).getTime() - new Date(loaded).getTime()) / 1000
+      return delta >= 0 ? Math.round(delta) : null
+    })(),
   }))
 
   // ── Metrics: compute in parallel ──

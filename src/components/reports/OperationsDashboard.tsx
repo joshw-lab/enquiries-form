@@ -7,21 +7,34 @@ import SyncView from './SyncView'
 import QueueView from './QueueView'
 import AgentLeadsRepModal from './AgentLeadsRepModal'
 
-const LEFT_TABS: { id: DashboardTab; label: string }[] = [
-  { id: 'queue', label: 'Queue' },
-  { id: 'pipeline', label: 'Pipeline' },
-]
+function perthDate(d: Date): string {
+  return d.toLocaleDateString('en-CA', { timeZone: 'Australia/Perth' })
+}
 
-const RIGHT_TABS: { id: DashboardTab; label: string }[] = [
-  { id: 'sync', label: 'Sync' },
-]
+function formatDisplayDate(dateStr: string): string {
+  const today = perthDate(new Date())
+  if (dateStr === today) return 'Today'
+  const d = new Date(dateStr + 'T12:00:00')
+  const yesterday = new Date()
+  yesterday.setDate(yesterday.getDate() - 1)
+  if (dateStr === perthDate(yesterday)) return 'Yesterday'
+  return d.toLocaleDateString('en-AU', {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+  })
+}
 
 export default function OperationsDashboard() {
-  const [activeTab, setActiveTab] = useState<DashboardTab>('queue')
+  const [activeTab, setActiveTab] = useState<DashboardTab>('activity')
   const [clock, setClock] = useState('')
   const [lastFetched, setLastFetched] = useState<string | null>(null)
   const [leadsRepModalOpen, setLeadsRepModalOpen] = useState(false)
   const [isStale, setIsStale] = useState(false)
+  const [advancedSearch, setAdvancedSearch] = useState(false)
+
+  // Date navigation state (single day for default mode)
+  const [selectedDate, setSelectedDate] = useState(() => perthDate(new Date()))
 
   // Data state
   const [pipelineData, setPipelineData] = useState<PipelineResponse | null>(null)
@@ -29,6 +42,18 @@ export default function OperationsDashboard() {
   const [calendarData, setCalendarData] = useState<CalendarResponse | null>(null)
 
   const refreshTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  const todayStr = perthDate(new Date())
+  const isToday = selectedDate === todayStr
+
+  function navigateDate(direction: -1 | 1) {
+    const d = new Date(selectedDate + 'T12:00:00')
+    d.setDate(d.getDate() + direction)
+    const newDate = perthDate(d)
+    // Don't go into the future
+    if (newDate > todayStr) return
+    setSelectedDate(newDate)
+  }
 
   // Clock tick
   useEffect(() => {
@@ -108,11 +133,11 @@ export default function OperationsDashboard() {
 
   return (
     <div className="min-h-screen bg-[#f3f4f6]" style={{ fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif", fontSize: '13px' }}>
-      {/* Topbar */}
-      <div className="bg-white border-b border-gray-200 px-7 py-3.5 flex items-center justify-between">
-        <h1 className="text-lg font-bold text-[#111827] tracking-tight">Call Reports</h1>
+      {/* Top bar */}
+      <div className="bg-white border-b border-gray-200 px-7 py-3 flex items-center justify-between">
+        {/* Left: Title + Live chip */}
         <div className="flex items-center gap-4">
-          {/* Live chip */}
+          <h1 className="text-lg font-bold text-[#111827] tracking-tight">Call Reports</h1>
           <div className="flex items-center gap-1.5 bg-green-50 border border-green-300 text-green-600 rounded-full px-2.5 py-0.5 text-[11px] font-semibold">
             <span className="w-1.5 h-1.5 rounded-full bg-green-600 animate-pulse" />
             {isStale ? 'Stale' : 'Live'}
@@ -120,6 +145,56 @@ export default function OperationsDashboard() {
           {lastFetched && (
             <span className="text-[11px] text-gray-400">{lastFetched}</span>
           )}
+        </div>
+
+        {/* Center: Date navigation (only visible on Activity tab) */}
+        {activeTab === 'activity' && (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => navigateDate(-1)}
+              className="w-7 h-7 flex items-center justify-center rounded-md border border-gray-200 text-gray-500 hover:bg-gray-50 hover:text-gray-700 cursor-pointer transition-colors"
+              title="Previous day"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
+            <div className="flex items-center gap-2 min-w-[120px] justify-center">
+              <span className="text-sm font-semibold text-[#111827]">{formatDisplayDate(selectedDate)}</span>
+              {!isToday && (
+                <span className="text-[10px] text-gray-400">{selectedDate}</span>
+              )}
+            </div>
+            <button
+              onClick={() => navigateDate(1)}
+              disabled={isToday}
+              className="w-7 h-7 flex items-center justify-center rounded-md border border-gray-200 text-gray-500 hover:bg-gray-50 hover:text-gray-700 cursor-pointer transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              title="Next day"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </button>
+
+            {/* Advanced Search toggle */}
+            <button
+              onClick={() => setAdvancedSearch(!advancedSearch)}
+              className={`ml-3 flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium cursor-pointer transition-all border ${
+                advancedSearch
+                  ? 'bg-blue-50 text-blue-700 border-blue-200'
+                  : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'
+              }`}
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+              Advanced
+            </button>
+          </div>
+        )}
+
+        {/* Right: Actions */}
+        <div className="flex items-center gap-4">
           <button
             onClick={() => setLeadsRepModalOpen(true)}
             className="text-xs text-gray-500 hover:text-gray-700 border border-gray-200 rounded-md px-2.5 py-1 cursor-pointer hover:bg-gray-50 transition-colors"
@@ -135,42 +210,54 @@ export default function OperationsDashboard() {
         </div>
       </div>
 
-      {/* Nav tabs */}
-      <div className="bg-white border-b border-gray-200 px-7 flex justify-between">
-        <div className="flex">
-          {LEFT_TABS.map((tab) => (
+      {/* Tab toggle bar */}
+      <div className="bg-white border-b border-gray-200 px-7 flex items-center justify-between">
+        {/* Left spacer */}
+        <div className="w-[100px]" />
+
+        {/* Center: Activity / Pipeline toggle */}
+        <div className="flex items-center">
+          <div className="flex bg-gray-100 rounded-lg p-0.5 my-2">
             <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`px-4 py-2.5 text-[13px] font-medium cursor-pointer flex items-center gap-1.5 border-b-2 transition-all ${
-                activeTab === tab.id
-                  ? 'text-[#111827] border-[#111827]'
-                  : 'text-gray-400 border-transparent hover:text-gray-500'
+              onClick={() => setActiveTab('activity')}
+              className={`px-5 py-1.5 rounded-md text-[13px] font-medium cursor-pointer transition-all ${
+                activeTab === 'activity'
+                  ? 'bg-white text-[#111827] shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700'
               }`}
             >
-              {tab.label}
+              Activity
             </button>
-          ))}
+            <button
+              onClick={() => setActiveTab('pipeline')}
+              className={`px-5 py-1.5 rounded-md text-[13px] font-medium cursor-pointer transition-all ${
+                activeTab === 'pipeline'
+                  ? 'bg-white text-[#111827] shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              Pipeline
+            </button>
+          </div>
         </div>
-        <div className="flex">
-          {RIGHT_TABS.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`px-4 py-2.5 text-[13px] font-medium cursor-pointer flex items-center gap-1.5 border-b-2 transition-all ${
-                activeTab === tab.id
-                  ? 'text-[#111827] border-[#111827]'
-                  : 'text-gray-400 border-transparent hover:text-gray-500'
-              }`}
-            >
-              {tab.label}
-              {tab.id === 'sync' && syncIssueCount > 0 && (
-                <span className="text-[10px] font-bold px-1.5 py-px rounded-full bg-red-100 text-red-600">
-                  {syncIssueCount}
-                </span>
-              )}
-            </button>
-          ))}
+
+        {/* Right: Sync tab */}
+        <div className="flex items-center w-[100px] justify-end">
+          <button
+            onClick={() => setActiveTab('sync')}
+            className={`px-3 py-2.5 text-[13px] font-medium cursor-pointer flex items-center gap-1.5 border-b-2 transition-all ${
+              activeTab === 'sync'
+                ? 'text-[#111827] border-[#111827]'
+                : 'text-gray-400 border-transparent hover:text-gray-500'
+            }`}
+          >
+            Sync
+            {syncIssueCount > 0 && (
+              <span className="text-[10px] font-bold px-1.5 py-px rounded-full bg-red-100 text-red-600">
+                {syncIssueCount}
+              </span>
+            )}
+          </button>
         </div>
       </div>
 
@@ -186,7 +273,12 @@ export default function OperationsDashboard() {
         {activeTab === 'sync' && (
           <SyncView data={syncData} onRefresh={fetchDashboardData} />
         )}
-{activeTab === 'queue' && <QueueView />}
+        {activeTab === 'activity' && (
+          <QueueView
+            selectedDate={selectedDate}
+            advancedSearch={advancedSearch}
+          />
+        )}
       </div>
 
       <AgentLeadsRepModal open={leadsRepModalOpen} onClose={() => setLeadsRepModalOpen(false)} />
