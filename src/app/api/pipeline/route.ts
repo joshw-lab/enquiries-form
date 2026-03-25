@@ -71,7 +71,8 @@ async function fetchAllLeads(hs: HubSpotClient): Promise<Array<{ state: string; 
   let after: string | undefined
 
   // Only fetch leads from the last 270 days (covers all 8 buckets including 90d+)
-  const cutoffDate = new Date(Date.now() - 270 * MS_PER_DAY).toISOString().split('T')[0]
+  // HubSpot search requires epoch milliseconds for date property filters
+  const cutoffDate = String(Date.now() - 270 * MS_PER_DAY)
 
   // Paginate through results (HubSpot max 100 per page, cap at 30 pages = 3000 contacts)
   for (let page = 0; page < 30; page++) {

@@ -39,8 +39,8 @@ export async function GET() {
         if (!camp) return
 
         const checks: Array<{ type: 'New' | 'Aged'; prop: string; campaignId: string }> = []
-        if (camp.new) checks.push({ type: 'New', prop: 'ringcx_campaignid_new', campaignId: camp.new })
-        if (camp.old) checks.push({ type: 'Aged', prop: 'ringcx_campaignid_old', campaignId: camp.old })
+        if (camp.new) checks.push({ type: 'New', prop: 'n0_new_list_id', campaignId: camp.new })
+        if (camp.old) checks.push({ type: 'Aged', prop: 'n0_old_list_id', campaignId: camp.old })
 
         await Promise.all(
           checks.map(async ({ type, prop, campaignId }) => {
