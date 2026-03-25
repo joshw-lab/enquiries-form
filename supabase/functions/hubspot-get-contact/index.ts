@@ -3,6 +3,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 const ALLOWED_ORIGINS = [
   "https://chf-enquiries-map.vercel.app",
   "https://enquiries-form.vercel.app",
+  "http://localhost:3000",
 ];
 
 function getCorsHeaders(req: Request) {
