@@ -1,11 +1,19 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "https://enquiries-form.vercel.app",
-  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
-};
+const ALLOWED_ORIGINS = [
+  "https://chf-enquiries-map.vercel.app",
+  "https://enquiries-form.vercel.app",
+];
+
+function getCorsHeaders(req: Request) {
+  const origin = req.headers.get("origin") ?? "";
+  return {
+    "Access-Control-Allow-Origin": ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0],
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Headers":
+      "authorization, x-client-info, apikey, content-type",
+  };
+}
 
 // HubSpot API base URL
 const HUBSPOT_API_BASE = "https://api.hubapi.com";
@@ -293,7 +301,7 @@ function formatContactData(contact: Record<string, unknown>): Record<string, unk
 serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
+    return new Response("ok", { headers: getCorsHeaders(req) });
   }
 
   try {
@@ -315,7 +323,7 @@ serve(async (req) => {
           error: "contact_id is required",
         }),
         {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          headers: { ...getCorsHeaders(req), "Content-Type": "application/json" },
           status: 400,
         }
       );
@@ -332,7 +340,7 @@ serve(async (req) => {
           error: "HubSpot integration not configured",
         }),
         {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          headers: { ...getCorsHeaders(req), "Content-Type": "application/json" },
           status: 500,
         }
       );
@@ -348,7 +356,7 @@ serve(async (req) => {
           error: result.error || "Failed to fetch contact from HubSpot",
         }),
         {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          headers: { ...getCorsHeaders(req), "Content-Type": "application/json" },
           status: 404,
         }
       );
@@ -363,7 +371,7 @@ serve(async (req) => {
         contact: formattedContact,
       }),
       {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...getCorsHeaders(req), "Content-Type": "application/json" },
         status: 200,
       }
     );
@@ -376,7 +384,7 @@ serve(async (req) => {
         error: error.message || "Unknown error occurred",
       }),
       {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...getCorsHeaders(req), "Content-Type": "application/json" },
         status: 400,
       }
     );
