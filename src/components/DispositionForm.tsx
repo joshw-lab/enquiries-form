@@ -327,6 +327,7 @@ const LEADS_REP_TEAM = [
   'Dianne Waters',
   'Emily McCracken',
   'Engel Batterham',
+  'Gemma Elliss',
   'Joe Mercuri',
   'Joshua Webster',
   'Marika Somerville',

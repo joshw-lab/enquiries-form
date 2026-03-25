@@ -284,12 +284,12 @@ serve(async (req) => {
 
       console.log(`Cron: ${recentFiles.length} recent Drive files found`);
 
-      // Fetch pending recordings from last 7 days
+      // Fetch pending/awaiting_gdrive recordings from last 7 days
       const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
       const { data: pendingRecs, error: dbErr } = await supabase
         .from("call_recordings")
         .select("id, call_id, hubspot_contact_id, disposition")
-        .eq("backup_status", "pending")
+        .in("backup_status", ["pending", "awaiting_gdrive"])
         .gte("call_start", sevenDaysAgo);
 
       if (dbErr) throw new Error(`DB query failed: ${dbErr.message}`);
@@ -438,7 +438,7 @@ serve(async (req) => {
         const { data, error } = await supabase
           .from("call_recordings")
           .select("id, call_id, hubspot_contact_id, disposition")
-          .eq("backup_status", "pending")
+          .in("backup_status", ["pending", "awaiting_gdrive"])
           .range(from, from + pageSize - 1);
 
         if (error) throw new Error(`DB query failed: ${error.message}`);

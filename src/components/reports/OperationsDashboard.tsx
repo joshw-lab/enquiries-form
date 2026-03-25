@@ -5,6 +5,7 @@ import type { DashboardTab, PipelineResponse, SyncResponse, CalendarResponse } f
 import PipelineView from './pipeline/PipelineView'
 import SyncView from './SyncView'
 import QueueView from './QueueView'
+import AgentLeadsRepModal from './AgentLeadsRepModal'
 
 const LEFT_TABS: { id: DashboardTab; label: string }[] = [
   { id: 'queue', label: 'Queue' },
@@ -19,6 +20,7 @@ export default function OperationsDashboard() {
   const [activeTab, setActiveTab] = useState<DashboardTab>('queue')
   const [clock, setClock] = useState('')
   const [lastFetched, setLastFetched] = useState<string | null>(null)
+  const [leadsRepModalOpen, setLeadsRepModalOpen] = useState(false)
   const [isStale, setIsStale] = useState(false)
 
   // Data state
@@ -118,7 +120,12 @@ export default function OperationsDashboard() {
           {lastFetched && (
             <span className="text-[11px] text-gray-400">{lastFetched}</span>
           )}
-          <span className="text-[11px] text-gray-400">{clock}</span>
+          <button
+            onClick={() => setLeadsRepModalOpen(true)}
+            className="text-xs text-gray-500 hover:text-gray-700 border border-gray-200 rounded-md px-2.5 py-1 cursor-pointer hover:bg-gray-50 transition-colors"
+          >
+            Sync Leads Rep
+          </button>
           <button
             onClick={handleLogout}
             className="text-xs text-gray-400 hover:text-gray-600 cursor-pointer"
@@ -181,6 +188,8 @@ export default function OperationsDashboard() {
         )}
 {activeTab === 'queue' && <QueueView />}
       </div>
+
+      <AgentLeadsRepModal open={leadsRepModalOpen} onClose={() => setLeadsRepModalOpen(false)} />
     </div>
   )
 }

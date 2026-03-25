@@ -135,7 +135,7 @@ export async function GET(request: NextRequest) {
     callsQuery = callsQuery.not('hubspot_call_id', 'is', null)
     // When no specific disposition filter, exclude non-connected calls (No Answer, Voicemail, etc.)
     if (!dispositionFilter) {
-      callsQuery = callsQuery.not('disposition', 'in', `(${NOT_CONNECTED_DB.join(',')})`)
+      callsQuery = callsQuery.not('disposition', 'in', `("${NOT_CONNECTED_DB.join('","')}")`)
     }
   }
   if (dispositionFilter) {

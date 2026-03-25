@@ -958,6 +958,33 @@ serve(async (req) => {
       // Continue even if insert fails - HubSpot update is primary
     }
 
+    // Auto-resolve leadsRep from agent_mappings if not manually set
+    if (!payload.leadsRep && payload.contactInfo?.agent_id) {
+      try {
+        const agentId = payload.contactInfo.agent_id;
+        // Try matching by agent_name first, then agent_extern_id
+        const { data: agentMapping } = await supabaseClient
+          .from("agent_mappings")
+          .select("leads_rep, agent_name")
+          .or(`agent_name.eq.${agentId},agent_extern_id.eq.${agentId}`)
+          .limit(1)
+          .maybeSingle();
+
+        if (agentMapping) {
+          payload.leadsRep = agentMapping.leads_rep || agentMapping.agent_name || agentId;
+          console.log(`Auto-resolved leadsRep="${payload.leadsRep}" from agent_id="${agentId}"`);
+        } else {
+          // Fall back to using agent_id directly as leadsRep
+          payload.leadsRep = agentId;
+          console.log(`No agent mapping for "${agentId}", using agent_id as leadsRep`);
+        }
+      } catch (err) {
+        console.warn("Error resolving leadsRep from agent_id:", err);
+        // Fall back to agent_id
+        payload.leadsRep = payload.contactInfo.agent_id;
+      }
+    }
+
     // Build HubSpot properties
     const hubspotProperties = buildHubSpotProperties(payload);
 

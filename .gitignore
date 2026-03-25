@@ -43,3 +43,11 @@ next-env.d.ts
 # HubSpot config file
 hubspot.config.yml
 .env*.local
+
+# Scratch / data files
+.tmp-*.sql
+*.csv
+*.numbers
+hubspot-ringcx-poc.js
+dotted-repeater-*.json
+supabase/.temp/

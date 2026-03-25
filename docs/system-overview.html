@@ -1,0 +1,1599 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CHF Lead Management System — Technical Overview</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Nunito+Sans:opsz,wght@6..12,400;6..12,500;6..12,600;6..12,700;6..12,800;6..12,900&display=swap" rel="stylesheet">
+  <style>
+    /* ── CHF Design Tokens ─────────────────────────────── */
+    :root {
+      --primary-50:  #f0f8ff;
+      --primary-100: #dff0ff;
+      --primary-200: #b9e3fe;
+      --primary-300: #34b4fc;
+      --primary-500: #0a9ced;
+      --primary-600: #007bcb;
+      --primary-700: #005e9e;
+      --primary-800: #055387;
+      --primary-900: #1b385f;
+      --primary-950: #072c4a;
+
+      --secondary-200: #d0edc5;
+      --secondary-300: #aadd98;
+      --secondary-500: #63bb46;
+      --secondary-600: #458b2e;
+
+      --gray-50:  #f9fafb;
+      --gray-100: #f3f4f6;
+      --gray-200: #e5e7eb;
+      --gray-300: #d1d5dc;
+      --gray-400: #99a1af;
+      --gray-500: #6a7282;
+      --gray-600: #4a5565;
+      --gray-700: #364153;
+      --gray-800: #1e2939;
+      --gray-900: #101828;
+
+      --amber-50:  #fffbeb;
+      --amber-100: #fef3c7;
+      --amber-500: #f59e0b;
+      --amber-600: #d97706;
+
+      --red-50:  #fef2f2;
+      --red-100: #fee2e2;
+      --red-500: #ef4444;
+
+      --font-sans: "Nunito Sans", sans-serif;
+      --font-display: "Manrope", sans-serif;
+
+      --radius-sm: 0.25rem;
+      --radius-md: 0.375rem;
+      --radius-lg: 0.5rem;
+      --radius-xl: 0.75rem;
+      --radius-2xl: 1rem;
+      --radius-3xl: 1.5rem;
+      --radius-pill: 9999px;
+
+      --shadow-sm: 0 1px 2px rgba(0,0,0,0.05);
+      --shadow-md: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -2px rgba(0,0,0,0.1);
+      --shadow-lg: 0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -4px rgba(0,0,0,0.1);
+      --shadow-xl: 0 20px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1);
+    }
+
+    /* ── Reset & Base ──────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html {
+      font-size: 16px;
+      scroll-behavior: smooth;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    body {
+      font-family: var(--font-sans);
+      color: var(--gray-800);
+      line-height: 1.6;
+      background: var(--gray-50);
+    }
+
+    /* ── Hero ──────────────────────────────────────────── */
+    .hero {
+      background: linear-gradient(135deg, var(--primary-950) 0%, var(--primary-900) 40%, var(--primary-800) 100%);
+      color: #fff;
+      padding: 4rem 2rem 3rem;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .hero::before {
+      content: "";
+      position: absolute;
+      top: -50%;
+      right: -20%;
+      width: 600px;
+      height: 600px;
+      background: radial-gradient(circle, rgba(99, 187, 70, 0.08) 0%, transparent 70%);
+      pointer-events: none;
+    }
+
+    .hero::after {
+      content: "";
+      position: absolute;
+      bottom: -30%;
+      left: -10%;
+      width: 500px;
+      height: 500px;
+      background: radial-gradient(circle, rgba(10, 156, 237, 0.1) 0%, transparent 70%);
+      pointer-events: none;
+    }
+
+    .hero-inner {
+      max-width: 1200px;
+      margin: 0 auto;
+      position: relative;
+      z-index: 1;
+    }
+
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      background: rgba(255,255,255,0.1);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: var(--radius-pill);
+      padding: 0.375rem 1rem;
+      font-size: 0.8125rem;
+      font-weight: 600;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+      margin-bottom: 1.5rem;
+      color: var(--secondary-300);
+    }
+
+    .hero h1 {
+      font-family: var(--font-display);
+      font-weight: 800;
+      font-size: clamp(2rem, 4vw, 3.25rem);
+      line-height: 1.15;
+      margin-bottom: 1rem;
+      letter-spacing: -0.02em;
+    }
+
+    .hero h1 .gradient-text {
+      background: linear-gradient(to right, var(--primary-300), var(--secondary-500));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .hero p {
+      font-size: 1.125rem;
+      color: rgba(255,255,255,0.7);
+      max-width: 640px;
+      line-height: 1.7;
+    }
+
+    /* ── Table of Contents ─────────────────────────────── */
+    .toc {
+      background: #fff;
+      border: 1px solid var(--gray-200);
+      border-radius: var(--radius-2xl);
+      padding: 2rem;
+      margin: -2rem auto 3rem;
+      max-width: 1200px;
+      position: relative;
+      z-index: 2;
+      box-shadow: var(--shadow-xl);
+    }
+
+    .toc h2 {
+      font-family: var(--font-display);
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--gray-400);
+      margin-bottom: 1.25rem;
+    }
+
+    .toc-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+      gap: 0.5rem;
+    }
+
+    .toc a {
+      display: flex;
+      align-items: center;
+      gap: 0.625rem;
+      padding: 0.625rem 0.875rem;
+      border-radius: var(--radius-lg);
+      text-decoration: none;
+      color: var(--primary-700);
+      font-weight: 600;
+      font-size: 0.9375rem;
+      transition: all 0.15s ease;
+    }
+
+    .toc a:hover {
+      background: var(--primary-50);
+      color: var(--primary-600);
+    }
+
+    .toc a .toc-num {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 1.625rem;
+      height: 1.625rem;
+      border-radius: var(--radius-md);
+      background: var(--primary-50);
+      color: var(--primary-600);
+      font-size: 0.75rem;
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+
+    /* ── Main Content ──────────────────────────────────── */
+    .content {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 2rem 4rem;
+    }
+
+    /* ── Section ───────────────────────────────────────── */
+    .section {
+      margin-bottom: 3rem;
+      scroll-margin-top: 2rem;
+    }
+
+    .section-header {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 1.5rem;
+      padding-bottom: 0.75rem;
+      border-bottom: 2px solid var(--gray-200);
+    }
+
+    .section-number {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 2.25rem;
+      height: 2.25rem;
+      border-radius: var(--radius-lg);
+      background: linear-gradient(135deg, var(--primary-500), var(--secondary-500));
+      color: #fff;
+      font-family: var(--font-display);
+      font-weight: 800;
+      font-size: 0.875rem;
+      flex-shrink: 0;
+    }
+
+    .section h2 {
+      font-family: var(--font-display);
+      font-weight: 800;
+      font-size: 1.625rem;
+      color: var(--primary-700);
+      letter-spacing: -0.01em;
+    }
+
+    .section h3 {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 1.1875rem;
+      color: var(--primary-900);
+      margin: 1.75rem 0 0.75rem;
+    }
+
+    .section h4 {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 1rem;
+      color: var(--gray-700);
+      margin: 1.25rem 0 0.5rem;
+    }
+
+    .section p, .section li {
+      font-size: 0.9375rem;
+      line-height: 1.7;
+      color: var(--gray-700);
+    }
+
+    .section p {
+      margin-bottom: 0.75rem;
+    }
+
+    .section ul, .section ol {
+      padding-left: 1.5rem;
+      margin-bottom: 1rem;
+    }
+
+    .section li {
+      margin-bottom: 0.375rem;
+    }
+
+    /* ── Cards ─────────────────────────────────────────── */
+    .card {
+      background: #fff;
+      border: 1px solid var(--gray-200);
+      border-radius: var(--radius-xl);
+      padding: 1.5rem;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .card + .card {
+      margin-top: 1rem;
+    }
+
+    .card-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 1rem;
+      margin: 1rem 0;
+    }
+
+    .card-sm {
+      padding: 1.125rem;
+    }
+
+    .card-title {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 0.9375rem;
+      color: var(--primary-800);
+      margin-bottom: 0.5rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .card-icon {
+      width: 2rem;
+      height: 2rem;
+      border-radius: var(--radius-md);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1rem;
+      flex-shrink: 0;
+    }
+
+    .card-icon.blue { background: var(--primary-50); color: var(--primary-600); }
+    .card-icon.green { background: var(--secondary-200); color: var(--secondary-600); }
+    .card-icon.amber { background: var(--amber-100); color: var(--amber-600); }
+    .card-icon.red { background: var(--red-100); color: var(--red-500); }
+
+    /* ── Flow Diagram ──────────────────────────────────── */
+    .flow {
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+      margin: 1.5rem 0;
+    }
+
+    .flow-step {
+      display: flex;
+      align-items: stretch;
+      gap: 1rem;
+    }
+
+    .flow-line {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      width: 2.5rem;
+      flex-shrink: 0;
+    }
+
+    .flow-dot {
+      width: 0.875rem;
+      height: 0.875rem;
+      border-radius: 50%;
+      border: 3px solid var(--primary-500);
+      background: #fff;
+      flex-shrink: 0;
+      z-index: 1;
+    }
+
+    .flow-dot.green { border-color: var(--secondary-500); }
+    .flow-dot.amber { border-color: var(--amber-500); }
+    .flow-dot.filled { background: var(--primary-500); }
+    .flow-dot.filled.green { background: var(--secondary-500); }
+
+    .flow-connector {
+      width: 2px;
+      flex: 1;
+      background: var(--gray-200);
+      min-height: 1rem;
+    }
+
+    .flow-content {
+      flex: 1;
+      padding-bottom: 1.25rem;
+    }
+
+    .flow-label {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 0.875rem;
+      color: var(--primary-800);
+      margin-bottom: 0.25rem;
+    }
+
+    .flow-desc {
+      font-size: 0.8125rem;
+      color: var(--gray-500);
+      line-height: 1.5;
+    }
+
+    /* ── Waterfall Diagram ─────────────────────────────── */
+    .waterfall {
+      display: flex;
+      align-items: center;
+      gap: 0;
+      margin: 1.5rem 0;
+      flex-wrap: wrap;
+    }
+
+    .waterfall-stage {
+      flex: 1;
+      min-width: 180px;
+      text-align: center;
+      padding: 1.25rem 1rem;
+      border-radius: var(--radius-xl);
+      position: relative;
+    }
+
+    .waterfall-stage.hot {
+      background: linear-gradient(135deg, #fef3c7, #fde68a);
+      border: 2px solid var(--amber-500);
+    }
+
+    .waterfall-stage.new {
+      background: linear-gradient(135deg, var(--primary-50), var(--primary-100));
+      border: 2px solid var(--primary-500);
+    }
+
+    .waterfall-stage.old {
+      background: linear-gradient(135deg, var(--gray-50), var(--gray-100));
+      border: 2px solid var(--gray-400);
+    }
+
+    .waterfall-stage h4 {
+      font-family: var(--font-display);
+      font-size: 1.125rem;
+      font-weight: 800;
+      margin: 0 0 0.25rem;
+    }
+
+    .waterfall-stage.hot h4 { color: var(--amber-600); }
+    .waterfall-stage.new h4 { color: var(--primary-700); }
+    .waterfall-stage.old h4 { color: var(--gray-600); }
+
+    .waterfall-stage .time {
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--gray-500);
+    }
+
+    .waterfall-stage .priority {
+      display: inline-block;
+      margin-top: 0.5rem;
+      font-size: 0.6875rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 0.2rem 0.625rem;
+      border-radius: var(--radius-pill);
+    }
+
+    .waterfall-stage.hot .priority { background: var(--amber-500); color: #fff; }
+    .waterfall-stage.new .priority { background: var(--primary-500); color: #fff; }
+    .waterfall-stage.old .priority { background: var(--gray-400); color: #fff; }
+
+    .waterfall-arrow {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 0 0.5rem;
+      color: var(--gray-400);
+      flex-shrink: 0;
+    }
+
+    .waterfall-arrow svg {
+      width: 2rem;
+      height: 2rem;
+    }
+
+    .waterfall-arrow span {
+      font-size: 0.6875rem;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
+    /* ── Tables ────────────────────────────────────────── */
+    .table-wrap {
+      overflow-x: auto;
+      margin: 1rem 0;
+      border-radius: var(--radius-xl);
+      border: 1px solid var(--gray-200);
+      box-shadow: var(--shadow-sm);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.875rem;
+    }
+
+    thead {
+      background: var(--gray-50);
+    }
+
+    th {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--gray-500);
+      padding: 0.75rem 1rem;
+      text-align: left;
+      border-bottom: 2px solid var(--gray-200);
+      white-space: nowrap;
+    }
+
+    td {
+      padding: 0.625rem 1rem;
+      border-bottom: 1px solid var(--gray-100);
+      color: var(--gray-700);
+    }
+
+    tbody tr:hover {
+      background: var(--primary-50);
+    }
+
+    tbody tr:last-child td {
+      border-bottom: none;
+    }
+
+    /* ── Code / Mono ───────────────────────────────────── */
+    code {
+      font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+      font-size: 0.8125rem;
+      background: var(--gray-100);
+      color: var(--primary-800);
+      padding: 0.125rem 0.375rem;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--gray-200);
+    }
+
+    pre {
+      background: var(--gray-900);
+      color: #e2e8f0;
+      padding: 1.25rem;
+      border-radius: var(--radius-xl);
+      overflow-x: auto;
+      font-size: 0.8125rem;
+      line-height: 1.6;
+      margin: 1rem 0;
+    }
+
+    pre code {
+      background: none;
+      border: none;
+      padding: 0;
+      color: inherit;
+    }
+
+    /* ── Badges / Tags ─────────────────────────────────── */
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
+      font-size: 0.6875rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      padding: 0.2rem 0.5rem;
+      border-radius: var(--radius-sm);
+    }
+
+    .badge-blue { background: var(--primary-50); color: var(--primary-700); border: 1px solid var(--primary-200); }
+    .badge-green { background: var(--secondary-200); color: var(--secondary-600); border: 1px solid var(--secondary-300); }
+    .badge-amber { background: var(--amber-100); color: var(--amber-600); border: 1px solid #fde68a; }
+    .badge-gray { background: var(--gray-100); color: var(--gray-600); border: 1px solid var(--gray-200); }
+
+    /* ── Callouts ──────────────────────────────────────── */
+    .callout {
+      border-left: 4px solid;
+      border-radius: var(--radius-lg);
+      padding: 1rem 1.25rem;
+      margin: 1rem 0;
+      font-size: 0.875rem;
+    }
+
+    .callout-info {
+      background: var(--primary-50);
+      border-color: var(--primary-500);
+      color: var(--primary-800);
+    }
+
+    .callout-warn {
+      background: var(--amber-50);
+      border-color: var(--amber-500);
+      color: var(--amber-600);
+    }
+
+    .callout-danger {
+      background: var(--red-50);
+      border-color: var(--red-500);
+      color: #991b1b;
+    }
+
+    .callout strong {
+      display: block;
+      font-weight: 700;
+      margin-bottom: 0.25rem;
+    }
+
+    /* ── Architecture Boxes ────────────────────────────── */
+    .arch-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 1rem;
+      margin: 1rem 0;
+    }
+
+    .arch-box {
+      text-align: center;
+      padding: 1.5rem 1rem;
+      border-radius: var(--radius-xl);
+      border: 2px solid;
+    }
+
+    .arch-box.hubspot { border-color: #f97316; background: linear-gradient(135deg, #fff7ed, #ffedd5); }
+    .arch-box.ringcx { border-color: var(--primary-500); background: linear-gradient(135deg, var(--primary-50), var(--primary-100)); }
+    .arch-box.supabase { border-color: var(--secondary-500); background: linear-gradient(135deg, #f0fdf4, var(--secondary-200)); }
+    .arch-box.gdrive { border-color: #4285f4; background: linear-gradient(135deg, #eff6ff, #dbeafe); }
+
+    .arch-box .arch-icon {
+      font-size: 1.75rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .arch-box h4 {
+      font-family: var(--font-display);
+      font-weight: 800;
+      font-size: 1rem;
+      margin: 0 0 0.25rem;
+    }
+
+    .arch-box.hubspot h4 { color: #ea580c; }
+    .arch-box.ringcx h4 { color: var(--primary-700); }
+    .arch-box.supabase h4 { color: var(--secondary-600); }
+    .arch-box.gdrive h4 { color: #1d4ed8; }
+
+    .arch-box p {
+      font-size: 0.8125rem;
+      color: var(--gray-500);
+      margin: 0;
+    }
+
+    .arch-connector {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--gray-300);
+      font-size: 1.5rem;
+      padding: 0 0.25rem;
+    }
+
+    /* ── Cron Table Highlights ─────────────────────────── */
+    .cron-freq {
+      display: inline-block;
+      font-size: 0.6875rem;
+      font-weight: 600;
+      padding: 0.125rem 0.5rem;
+      border-radius: var(--radius-pill);
+      background: var(--primary-50);
+      color: var(--primary-600);
+      white-space: nowrap;
+    }
+
+    /* ── Footer ────────────────────────────────────────── */
+    .footer {
+      background: var(--primary-950);
+      color: rgba(255,255,255,0.5);
+      text-align: center;
+      padding: 2rem;
+      font-size: 0.8125rem;
+    }
+
+    .footer strong {
+      color: rgba(255,255,255,0.8);
+    }
+
+    /* ── Responsive ────────────────────────────────────── */
+    @media (max-width: 768px) {
+      .hero { padding: 3rem 1.25rem 2.5rem; }
+      .toc { margin: -1.5rem 1rem 2rem; padding: 1.25rem; }
+      .content { padding: 0 1.25rem 3rem; }
+      .toc-grid { grid-template-columns: 1fr; }
+      .waterfall { flex-direction: column; gap: 0.75rem; }
+      .waterfall-arrow { transform: rotate(90deg); padding: 0.25rem 0; }
+      .arch-row { grid-template-columns: 1fr; }
+      .card-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ════════════════════════════════════════════════════════
+     HERO
+     ════════════════════════════════════════════════════════ -->
+<header class="hero">
+  <div class="hero-inner">
+    <div class="hero-badge">&#9670; Internal Documentation</div>
+    <h1>Lead Management System<br><span class="gradient-text">Technical Overview</span></h1>
+    <p>How leads flow through HubSpot, RingCX, Supabase and Google Drive — from first enquiry to booked water test.</p>
+  </div>
+</header>
+
+<!-- ════════════════════════════════════════════════════════
+     TABLE OF CONTENTS
+     ════════════════════════════════════════════════════════ -->
+<nav class="toc">
+  <h2>Contents</h2>
+  <div class="toc-grid">
+    <a href="#architecture"><span class="toc-num">1</span> System Architecture</a>
+    <a href="#lead-entry"><span class="toc-num">2</span> Lead Entry Points</a>
+    <a href="#aging"><span class="toc-num">3</span> HOT → NEW → OLD Waterfall</a>
+    <a href="#lead-loaders"><span class="toc-num">4</span> RingCX Lead Loaders</a>
+    <a href="#campaigns"><span class="toc-num">5</span> Campaign ID Mapping</a>
+    <a href="#dispositions"><span class="toc-num">6</span> Dispositions &amp; Webhooks</a>
+    <a href="#recordings"><span class="toc-num">7</span> Recording Backup Pipeline</a>
+    <a href="#auth"><span class="toc-num">8</span> Token &amp; Auth Management</a>
+    <a href="#database"><span class="toc-num">9</span> Database Schema</a>
+    <a href="#crons"><span class="toc-num">10</span> Cron Job Schedule</a>
+    <a href="#edge-functions"><span class="toc-num">11</span> Edge Functions Inventory</a>
+    <a href="#known-issues"><span class="toc-num">12</span> Known Issues &amp; Gotchas</a>
+  </div>
+</nav>
+
+<main class="content">
+
+<!-- ══════ 1. SYSTEM ARCHITECTURE ══════════════════════════ -->
+<section class="section" id="architecture">
+  <div class="section-header">
+    <span class="section-number">1</span>
+    <h2>System Architecture</h2>
+  </div>
+
+  <p>The CHF lead management platform connects four core systems in a bidirectional data pipeline. Leads enter via HubSpot, are routed to RingCX dialing campaigns with age-based prioritisation, and call recordings are backed up to Google Drive via a GCE VM.</p>
+
+  <div class="arch-row">
+    <div class="arch-box hubspot">
+      <div class="arch-icon">&#128214;</div>
+      <h4>HubSpot</h4>
+      <p>CRM — lead entry, contact properties, call engagements, workflows</p>
+    </div>
+    <div class="arch-box ringcx">
+      <div class="arch-icon">&#128222;</div>
+      <h4>RingCX</h4>
+      <p>Dialer — campaigns, agents, call recordings, dispositions</p>
+    </div>
+    <div class="arch-box supabase">
+      <div class="arch-icon">&#9889;</div>
+      <h4>Supabase</h4>
+      <p>Data hub — edge functions, cron jobs, database, auth tokens</p>
+    </div>
+    <div class="arch-box gdrive">
+      <div class="arch-icon">&#128193;</div>
+      <h4>Google Drive</h4>
+      <p>Backup — call recordings via GCE VM + rclone SFTP</p>
+    </div>
+  </div>
+
+  <h3>Data Flow Summary</h3>
+  <div class="flow">
+    <div class="flow-step">
+      <div class="flow-line"><div class="flow-dot filled"></div><div class="flow-connector"></div></div>
+      <div class="flow-content">
+        <div class="flow-label">Lead Created in HubSpot</div>
+        <div class="flow-desc">Web form submission or manual entry. HubSpot workflow fires on <code>lead_date</code> property change.</div>
+      </div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-line"><div class="flow-dot"></div><div class="flow-connector"></div></div>
+      <div class="flow-content">
+        <div class="flow-label">Webhook → Supabase Edge Function</div>
+        <div class="flow-desc">HubSpot sends campaign IDs (<code>hotCampaignId</code>, <code>newCampaignId</code>, <code>oldCampaignId</code>) to <code>ringcx-lead-ingest</code>.</div>
+      </div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-line"><div class="flow-dot amber"></div><div class="flow-connector"></div></div>
+      <div class="flow-content">
+        <div class="flow-label">Tier Classification &amp; Campaign Injection</div>
+        <div class="flow-desc">Lead is classified HOT (≤72h old) or NEW (&gt;72h), pushed to the appropriate RingCX campaign via Lead Loader API.</div>
+      </div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-line"><div class="flow-dot"></div><div class="flow-connector"></div></div>
+      <div class="flow-content">
+        <div class="flow-label">Agent Dials &amp; Records Disposition</div>
+        <div class="flow-desc">RingCX agent calls the lead. On completion, a disposition webhook fires back to Supabase.</div>
+      </div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-line"><div class="flow-dot green"></div><div class="flow-connector"></div></div>
+      <div class="flow-content">
+        <div class="flow-label">HubSpot Call Engagement Created</div>
+        <div class="flow-desc"><code>ringcx-disposition-webhook</code> creates a call record in HubSpot associated with the contact.</div>
+      </div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-line"><div class="flow-dot filled green"></div></div>
+      <div class="flow-content">
+        <div class="flow-label">Recording Backed Up to Google Drive</div>
+        <div class="flow-desc">GCE VM downloads from RingCX → uploads to Drive via rclone → <code>recording-to-storage</code> syncs URL to HubSpot.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════ 2. LEAD ENTRY POINTS ════════════════════════════ -->
+<section class="section" id="lead-entry">
+  <div class="section-header">
+    <span class="section-number">2</span>
+    <h2>Lead Entry Points</h2>
+  </div>
+
+  <div class="card-grid">
+    <div class="card card-sm">
+      <div class="card-title">
+        <span class="card-icon blue">&#128221;</span>
+        Web Form Submissions
+      </div>
+      <p>Captured by <code>hubspot-form-submission</code> edge function. Handles 7 disposition types (Book Water Test, Call Back, Not Interested, etc.). Searches for existing contact by email/phone; creates new if not found.</p>
+    </div>
+    <div class="card card-sm">
+      <div class="card-title">
+        <span class="card-icon green">&#9881;</span>
+        HubSpot Workflows
+      </div>
+      <p>Property-change workflows fire webhooks when campaign IDs are set on a contact. These trigger the lead loader functions to push leads into RingCX campaigns.</p>
+    </div>
+    <div class="card card-sm">
+      <div class="card-title">
+        <span class="card-icon amber">&#128293;</span>
+        Lead Ingest (Tier Router)
+      </div>
+      <p>The <code>ringcx-lead-ingest</code> function receives HOT/NEW/OLD campaign IDs from HubSpot and classifies the lead based on age. Stores routing data in <code>ringcx_lead_routing</code> table.</p>
+    </div>
+  </div>
+
+  <h3>Key HubSpot Properties</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Property</th><th>Type</th><th>Purpose</th></tr></thead>
+      <tbody>
+        <tr><td><code>lead_date</code></td><td>Date</td><td>When lead became available for calling (ingest trigger)</td></tr>
+        <tr><td><code>num_contacted_notes</code></td><td>Number</td><td>Pass count — number of times contacted</td></tr>
+        <tr><td><code>n0_new_list_id</code></td><td>Number</td><td>RingCX campaign ID for NEW tier</td></tr>
+        <tr><td><code>n0_old_list_id</code></td><td>Number</td><td>RingCX campaign ID for OLD tier</td></tr>
+        <tr><td><code>n0_new_hitlist_id</code></td><td>Number</td><td>RingCX campaign ID for NEW Hitlist</td></tr>
+        <tr><td><code>n0_old_hitlist_id</code></td><td>Number</td><td>RingCX campaign ID for OLD Hitlist</td></tr>
+        <tr><td><code>n0_new_rc_campaign_leadid</code></td><td>Text</td><td>RingCX lead ID (written back after push)</td></tr>
+        <tr><td><code>ringcx_load_status</code></td><td>Text</td><td>Status messages from lead loader functions</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ══════ 3. HOT → NEW → OLD WATERFALL ════════════════════ -->
+<section class="section" id="aging">
+  <div class="section-header">
+    <span class="section-number">3</span>
+    <h2>HOT → NEW → OLD Waterfall</h2>
+  </div>
+
+  <p>Leads age through three tiers based on the time since their <code>lead_date</code>. Each tier maps to a different set of RingCX campaigns with different dial priorities.</p>
+
+  <div class="waterfall">
+    <div class="waterfall-stage hot">
+      <h4>&#128293; HOT</h4>
+      <span class="time">0–72 hours after lead_date</span><br>
+      <span class="priority">IMMEDIATE Priority</span>
+    </div>
+    <div class="waterfall-arrow">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+      <span>72 hours</span>
+    </div>
+    <div class="waterfall-stage new">
+      <h4>&#11088; NEW</h4>
+      <span class="time">72 hours – 90 days</span><br>
+      <span class="priority">NORMAL Priority</span>
+    </div>
+    <div class="waterfall-arrow">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+      <span>90 days</span>
+    </div>
+    <div class="waterfall-stage old">
+      <h4>&#128338; OLD</h4>
+      <span class="time">90+ days</span><br>
+      <span class="priority">NORMAL Priority</span>
+    </div>
+  </div>
+
+  <h3>Aging Cron Jobs</h3>
+  <div class="card-grid">
+    <div class="card card-sm">
+      <div class="card-title">
+        <span class="card-icon amber">&#128293;</span>
+        HOT → NEW Aging
+      </div>
+      <p><strong>Function:</strong> <code>ringcx-lead-aging-hot</code></p>
+      <p><strong>Schedule:</strong> Every 2 hours</p>
+      <p><strong>Logic:</strong> Finds HOT leads where <code>lead_date ≤ NOW() - 72 hours</code>. Uses RingCX <code>MOVE_TO_CAMPAIGN</code> API to move the lead from the HOT campaign to the NEW campaign. Updates <code>ringcx_lead_routing</code> table and notifies Google Chat.</p>
+    </div>
+    <div class="card card-sm">
+      <div class="card-title">
+        <span class="card-icon blue">&#11088;</span>
+        NEW → OLD Aging
+      </div>
+      <p><strong>Function:</strong> <code>ringcx-lead-aging-new</code></p>
+      <p><strong>Schedule:</strong> Daily at 9 PM Perth time</p>
+      <p><strong>Logic:</strong> Finds NEW leads where <code>lead_date ≤ NOW() - 90 days</code>. Moves from NEW campaign to OLD campaign. Updates routing table and notifies Google Chat.</p>
+    </div>
+  </div>
+
+  <h3>Dial Priority Logic</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Priority</th><th>Condition</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><span class="badge badge-amber">IMMEDIATE</span></td>
+          <td>Lead created today AND reconversion</td>
+          <td><code>lead_date</code> = today, but <code>createdate</code> is earlier (previously existed)</td>
+        </tr>
+        <tr>
+          <td><span class="badge badge-amber">IMMEDIATE</span></td>
+          <td>Lead created today AND re-contacted</td>
+          <td><code>lead_date</code> = today and <code>num_contacted &gt; 1</code></td>
+        </tr>
+        <tr>
+          <td><span class="badge badge-blue">NORMAL</span></td>
+          <td>All other leads</td>
+          <td>Aged leads, first-time contacts, standard queue order</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Routing Table Schema</h3>
+  <p>Each lead's journey is tracked in <code>ringcx_lead_routing</code>:</p>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Column</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td><code>contact_id</code></td><td>HubSpot contact ID (primary key)</td></tr>
+        <tr><td><code>hot_campaign_id</code></td><td>HOT campaign assigned at ingest</td></tr>
+        <tr><td><code>new_campaign_id</code></td><td>NEW campaign assigned at ingest</td></tr>
+        <tr><td><code>old_campaign_id</code></td><td>OLD campaign assigned at ingest</td></tr>
+        <tr><td><code>current_tier</code></td><td>Current tier: HOT | NEW | OLD</td></tr>
+        <tr><td><code>ringcx_lead_id</code></td><td>RingCX internal lead ID</td></tr>
+        <tr><td><code>lead_date</code></td><td>When the lead became available</td></tr>
+        <tr><td><code>moved_to_new_at</code></td><td>Timestamp when aged from HOT → NEW</td></tr>
+        <tr><td><code>moved_to_old_at</code></td><td>Timestamp when aged from NEW → OLD</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ══════ 4. RINGCX LEAD LOADERS ══════════════════════════ -->
+<section class="section" id="lead-loaders">
+  <div class="section-header">
+    <span class="section-number">4</span>
+    <h2>RingCX Lead Loaders</h2>
+  </div>
+
+  <p>Four Supabase edge functions share a common base (<code>ringcx-lead-loader-base.ts</code>) and differ only by which campaign type and HubSpot properties they reference.</p>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Function</th><th>Campaign Type</th><th>Campaign ID Field</th><th>Lead ID Field</th></tr></thead>
+      <tbody>
+        <tr><td><code>ringcx-lead-loader-new</code></td><td><span class="badge badge-blue">New</span></td><td><code>n0_new_list_id</code></td><td><code>n0_new_rc_campaign_leadid</code></td></tr>
+        <tr><td><code>ringcx-lead-loader-old</code></td><td><span class="badge badge-gray">Old</span></td><td><code>n0_old_list_id</code></td><td><code>n0_old_rc_campaign_leadid</code></td></tr>
+        <tr><td><code>ringcx-lead-loader-newhitlist</code></td><td><span class="badge badge-green">New Hitlist</span></td><td><code>n0_new_hitlist_id</code></td><td><code>new_hitlist_rc_campaign_leadid</code></td></tr>
+        <tr><td><code>ringcx-lead-loader-oldhitlist</code></td><td><span class="badge badge-gray">Old Hitlist</span></td><td><code>n0_old_hitlist_id</code></td><td><code>old_hitlist_rc_campaign_leadid</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Lead Loader Workflow</h3>
+  <div class="flow">
+    <div class="flow-step">
+      <div class="flow-line"><div class="flow-dot filled"></div><div class="flow-connector"></div></div>
+      <div class="flow-content">
+        <div class="flow-label">HubSpot Property Change Triggers Webhook</div>
+        <div class="flow-desc">Workflow detects campaign ID set on contact → sends webhook payload with contact ID and campaign IDs.</div>
+      </div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-line"><div class="flow-dot"></div><div class="flow-connector"></div></div>
+      <div class="flow-content">
+        <div class="flow-label">Deduplication Check</div>
+        <div class="flow-desc"><code>hasRecentFailure()</code> checks for duplicate attempts within a 60-minute window.</div>
+      </div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-line"><div class="flow-dot"></div><div class="flow-connector"></div></div>
+      <div class="flow-content">
+        <div class="flow-label">Fetch Contact &amp; Format Phones</div>
+        <div class="flow-desc">Gets contact from HubSpot API. Converts phone numbers to E.164 format (<code>+61XXXXXXXXX</code>).</div>
+      </div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-line"><div class="flow-dot amber"></div><div class="flow-connector"></div></div>
+      <div class="flow-content">
+        <div class="flow-label">Determine Dial Priority</div>
+        <div class="flow-desc">IMMEDIATE for reconversions and re-contacts created today. NORMAL for everything else.</div>
+      </div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-line"><div class="flow-dot"></div><div class="flow-connector"></div></div>
+      <div class="flow-content">
+        <div class="flow-label">Push to RingCX Lead Loader API</div>
+        <div class="flow-desc">Sends lead with <code>externId</code>, <code>leadPhone</code>, <code>auxPhone1</code>/<code>auxPhone2</code>, <code>firstName</code>, <code>lastName</code>, and campaign-specific timezone.</div>
+      </div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-line"><div class="flow-dot green"></div><div class="flow-connector"></div></div>
+      <div class="flow-content">
+        <div class="flow-label">Search &amp; Writeback</div>
+        <div class="flow-desc">Searches RingCX for the lead (retries with 2s delay if not indexed yet). Writes the RingCX lead ID back to HubSpot contact property.</div>
+      </div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-line"><div class="flow-dot filled green"></div></div>
+      <div class="flow-content">
+        <div class="flow-label">Log to <code>lead_loads</code> Table</div>
+        <div class="flow-desc">Records the load event with contact snapshot, campaign type, priority, and reason for reporting.</div>
+      </div>
+    </div>
+  </div>
+
+  <h3>Phone Number Formatting</h3>
+  <p>The system handles multiple Australian phone formats and normalises them to E.164:</p>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Input Format</th><th>Output</th></tr></thead>
+      <tbody>
+        <tr><td><code>+61412036166</code> (E.164)</td><td><code>+61412036166</code> ✓</td></tr>
+        <tr><td><code>0412036166</code> (local)</td><td><code>+61412036166</code></td></tr>
+        <tr><td><code>610412036166</code> (country code, no +)</td><td><code>+61412036166</code></td></tr>
+        <tr><td><code>612036166</code> (missing leading 0)</td><td><code>+61412036166</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ══════ 5. CAMPAIGN ID MAPPING ══════════════════════════ -->
+<section class="section" id="campaigns">
+  <div class="section-header">
+    <span class="section-number">5</span>
+    <h2>Campaign ID Mapping</h2>
+  </div>
+
+  <p>Each Australian state has its own set of RingCX campaigns across all tiers. 6 states &times; 5 campaign types = 30 campaigns.</p>
+
+  <h3>HOT Campaigns (First 72 Hours)</h3>
+  <div class="callout callout-info">
+    <strong>IMMEDIATE Dial Priority</strong>
+    HOT campaigns are used for leads within the first 72 hours of their <code>lead_date</code>. All leads in these campaigns are dialled with IMMEDIATE priority.
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>State</th><th>Campaign ID</th><th>Timezone</th></tr></thead>
+      <tbody>
+        <tr><td>ACT</td><td><strong>272</strong></td><td>ACT1</td></tr>
+        <tr><td>NSW</td><td><strong>273</strong></td><td>NSW1</td></tr>
+        <tr><td>QLD</td><td><strong>274</strong></td><td>QLD1</td></tr>
+        <tr><td>SA</td><td><strong>275</strong></td><td>SA01</td></tr>
+        <tr><td>VIC</td><td><strong>276</strong></td><td>VIC1</td></tr>
+        <tr><td>WA</td><td><strong>277</strong></td><td>WA01</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>NEW Campaigns (72 Hours – 90 Days)</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>State</th><th>New</th><th>New Hitlist</th><th>Timezone</th></tr></thead>
+      <tbody>
+        <tr><td>WA</td><td>222</td><td>224</td><td>WA01</td></tr>
+        <tr><td>QLD</td><td>226</td><td>228</td><td>QLD1</td></tr>
+        <tr><td>NSW</td><td>230</td><td>232</td><td>NSW1</td></tr>
+        <tr><td>ACT</td><td>234</td><td>236</td><td>ACT1</td></tr>
+        <tr><td>VIC</td><td>238</td><td>240</td><td>VIC1</td></tr>
+        <tr><td>SA</td><td>242</td><td>244</td><td>SA01</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>OLD Campaigns (90+ Days)</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>State</th><th>Old</th><th>Old Hitlist</th><th>Timezone</th></tr></thead>
+      <tbody>
+        <tr><td>WA</td><td>223</td><td>225</td><td>WA01</td></tr>
+        <tr><td>QLD</td><td>227</td><td>229</td><td>QLD1</td></tr>
+        <tr><td>NSW</td><td>231</td><td>233</td><td>NSW1</td></tr>
+        <tr><td>ACT</td><td>235</td><td>237</td><td>ACT1</td></tr>
+        <tr><td>VIC</td><td>239</td><td>241</td><td>VIC1</td></tr>
+        <tr><td>SA</td><td>243</td><td>245</td><td>SA01</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Campaign Timezone Map</h3>
+  <p>Used by the Lead Loader API to set the correct dialling window for each state:</p>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Campaign ID Range</th><th>State</th><th>Timezone Code</th></tr></thead>
+      <tbody>
+        <tr><td>222–225</td><td>WA</td><td><code>WA01</code></td></tr>
+        <tr><td>226–229</td><td>QLD</td><td><code>QLD1</code></td></tr>
+        <tr><td>230–233</td><td>NSW</td><td><code>NSW1</code></td></tr>
+        <tr><td>234–237</td><td>ACT</td><td><code>ACT1</code></td></tr>
+        <tr><td>238–241</td><td>VIC</td><td><code>VIC1</code></td></tr>
+        <tr><td>242–245</td><td>SA</td><td><code>SA01</code></td></tr>
+        <tr><td>272–277</td><td>ACT/NSW/QLD/SA/VIC/WA</td><td><em>Mapped per state</em></td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ══════ 6. DISPOSITIONS & WEBHOOKS ══════════════════════ -->
+<section class="section" id="dispositions">
+  <div class="section-header">
+    <span class="section-number">6</span>
+    <h2>Dispositions &amp; Webhooks</h2>
+  </div>
+
+  <h3>Disposition Webhook Flow</h3>
+  <p>When a RingCX agent completes a call, the platform sends a POST request to <code>ringcx-disposition-webhook</code> with template variables.</p>
+
+  <div class="flow">
+    <div class="flow-step">
+      <div class="flow-line"><div class="flow-dot filled"></div><div class="flow-connector"></div></div>
+      <div class="flow-content">
+        <div class="flow-label">Validate Required Fields</div>
+        <div class="flow-desc">Checks for <code>extern_id</code> (HubSpot contact ID), <code>call_id</code> (UII), <code>agent_id</code>. Skips unresolved template variables.</div>
+      </div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-line"><div class="flow-dot"></div><div class="flow-connector"></div></div>
+      <div class="flow-content">
+        <div class="flow-label">Map RingCX Disposition → HubSpot GUID</div>
+        <div class="flow-desc">Converts agent disposition text to HubSpot call disposition GUID for standardised reporting.</div>
+      </div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-line"><div class="flow-dot green"></div><div class="flow-connector"></div></div>
+      <div class="flow-content">
+        <div class="flow-label">Create HubSpot Call Engagement</div>
+        <div class="flow-desc">Creates an <code>hs_calls</code> object with title, duration, direction, disposition, and associates it to the contact (type 194).</div>
+      </div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-line"><div class="flow-dot"></div><div class="flow-connector"></div></div>
+      <div class="flow-content">
+        <div class="flow-label">Store in <code>call_recordings</code></div>
+        <div class="flow-desc">Inserts record with <code>backup_status = pending</code> and the pre-signed recording URL for later backup.</div>
+      </div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-line"><div class="flow-dot filled green"></div></div>
+      <div class="flow-content">
+        <div class="flow-label">Agent Mapping &amp; Owner Assignment</div>
+        <div class="flow-desc">Looks up <code>agent_mappings</code> table to set HubSpot call owner. If disposition is "Not Interested", assigns to CHF Promotions owner.</div>
+      </div>
+    </div>
+  </div>
+
+  <h3>Disposition → HubSpot GUID Mapping</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Disposition</th><th>HubSpot GUID</th></tr></thead>
+      <tbody>
+        <tr><td>Booked Test</td><td><code>f72848b8-6063-4591-9832-a4e4604864f5</code></td></tr>
+        <tr><td>Booked Test — Single Leg</td><td><code>0823d714-3974-4bb4-a65a-ecf3596f49ac</code></td></tr>
+        <tr><td>Call Back</td><td><code>4aa8b662-f76e-4557-8a24-ffae50519382</code></td></tr>
+        <tr><td>Not Interested</td><td><code>5e8c009f-db89-4e1a-9c9a-429b45faf0c0</code></td></tr>
+        <tr><td>Other Department</td><td><code>c5067c48-aaf1-4f67-9c56-6a749b666817</code></td></tr>
+        <tr><td>Unable to Service</td><td><code>109bdbfc-6552-40e0-8eb2-0e58c13208a1</code></td></tr>
+        <tr><td>No Answer</td><td><code>73a0d17f-1163-4015-bdd5-ec830791da20</code></td></tr>
+        <tr><td>Wrong Number</td><td><code>17b47fee-58de-441e-a44c-c6300d46f273</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ══════ 7. RECORDING BACKUP PIPELINE ════════════════════ -->
+<section class="section" id="recordings">
+  <div class="section-header">
+    <span class="section-number">7</span>
+    <h2>Recording Backup Pipeline</h2>
+  </div>
+
+  <p>Call recordings flow from RingCX through a GCE VM to Google Drive, then the storage URL is synced back to HubSpot.</p>
+
+  <div class="flow">
+    <div class="flow-step">
+      <div class="flow-line"><div class="flow-dot filled"></div><div class="flow-connector"></div></div>
+      <div class="flow-content">
+        <div class="flow-label">Agent Completes Call (RingCX)</div>
+        <div class="flow-desc">Call is recorded. Pre-signed recording URL is included in the disposition webhook payload. URL expires in ~2 hours.</div>
+      </div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-line"><div class="flow-dot"></div><div class="flow-connector"></div></div>
+      <div class="flow-content">
+        <div class="flow-label">Disposition Webhook → <code>call_recordings</code></div>
+        <div class="flow-desc">Recording URL stored in <code>ringcx_recording_url</code> column with <code>backup_status = pending</code>.</div>
+      </div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-line"><div class="flow-dot"></div><div class="flow-connector"></div></div>
+      <div class="flow-content">
+        <div class="flow-label">GCE VM Downloads &amp; Uploads</div>
+        <div class="flow-desc">
+          <code>ringcx-sftp-backup</code> VM (<code>35.189.5.13</code>, e2-micro, australia-southeast1-b) downloads from RingCX URL and uploads to Google Drive via rclone SFTP.
+          Updates <code>storage_url</code> in database.
+        </div>
+      </div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-line"><div class="flow-dot green"></div><div class="flow-connector"></div></div>
+      <div class="flow-content">
+        <div class="flow-label"><code>recording-to-storage</code> Cron (Every 5 min)</div>
+        <div class="flow-desc">Finds recordings with a <code>storage_url</code> but no <code>hubspot_updated_at</code>. PATCHes the HubSpot call engagement with <code>hs_call_recording_url</code>.</div>
+      </div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-line"><div class="flow-dot filled green"></div></div>
+      <div class="flow-content">
+        <div class="flow-label">Recording Playable in HubSpot</div>
+        <div class="flow-desc">Call engagement now links to the permanent Google Drive URL. Playable inline in HubSpot and the CHF queue dashboard.</div>
+      </div>
+    </div>
+  </div>
+
+  <h3>Backup Status Lifecycle</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Status</th><th>Meaning</th></tr></thead>
+      <tbody>
+        <tr><td><span class="badge badge-amber">pending</span></td><td>Webhook received, awaiting GCE download</td></tr>
+        <tr><td><span class="badge badge-blue">downloading</span></td><td>GCE VM actively downloading from RingCX</td></tr>
+        <tr><td><span class="badge badge-green">uploaded</span></td><td>Successfully on Google Drive</td></tr>
+        <tr><td><span class="badge badge-gray">no_recording</span></td><td>RingCX did not record this call</td></tr>
+        <tr><td><span class="badge" style="background:var(--red-100);color:var(--red-500);border:1px solid #fca5a5;">failed</span></td><td>Download or upload error (retried by backfill cron)</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>GCE VM Infrastructure</h3>
+  <div class="card">
+    <div class="table-wrap" style="border:none;box-shadow:none;">
+      <table>
+        <tbody>
+          <tr><td><strong>GCP Project</strong></td><td><code>ringcx-backup</code> (680458241862)</td></tr>
+          <tr><td><strong>VM Instance</strong></td><td><code>ringcx-sftp-backup</code> (e2-micro)</td></tr>
+          <tr><td><strong>Region</strong></td><td>australia-southeast1-b</td></tr>
+          <tr><td><strong>Static IP</strong></td><td><code>35.189.5.13</code></td></tr>
+          <tr><td><strong>SFTP Port</strong></td><td>2222</td></tr>
+          <tr><td><strong>Service Account</strong></td><td><code>ringcx-backup-sa@ringcx-backup.iam.gserviceaccount.com</code></td></tr>
+          <tr><td><strong>Drive Folder</strong></td><td><code>1D5NJWE9bG7CfxW9D3jEU5cyIF0eFhCX-</code></td></tr>
+          <tr><td><strong>Monitor Cron</strong></td><td>21:00 UTC (7 AM AEST)</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ══════ 8. TOKEN & AUTH MANAGEMENT ══════════════════════ -->
+<section class="section" id="auth">
+  <div class="section-header">
+    <span class="section-number">8</span>
+    <h2>Token &amp; Auth Management</h2>
+  </div>
+
+  <h3>RingCentral OAuth Flow</h3>
+  <div class="flow">
+    <div class="flow-step">
+      <div class="flow-line"><div class="flow-dot filled"></div><div class="flow-connector"></div></div>
+      <div class="flow-content">
+        <div class="flow-label">Manual: <code>ringcentral-auth-init</code></div>
+        <div class="flow-desc">Redirects to RingCentral OAuth endpoint with PKCE challenge. User logs in and authorises.</div>
+      </div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-line"><div class="flow-dot"></div><div class="flow-connector"></div></div>
+      <div class="flow-content">
+        <div class="flow-label"><code>ringcentral-auth-callback</code></div>
+        <div class="flow-desc">Exchanges authorisation code for access + refresh tokens. Stores in <code>ringcentral_auth</code> table.</div>
+      </div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-line"><div class="flow-dot green"></div><div class="flow-connector"></div></div>
+      <div class="flow-content">
+        <div class="flow-label">Cron: <code>ringcentral-token-refresh</code> (Every 30 min)</div>
+        <div class="flow-desc">Uses advisory lock to prevent race conditions. Exchanges single-use refresh token for new token pair.</div>
+      </div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-line"><div class="flow-dot filled green"></div></div>
+      <div class="flow-content">
+        <div class="flow-label">Token Available for All Functions</div>
+        <div class="flow-desc">Lead loaders and disposition webhook read the current access token from the <code>ringcentral_auth</code> table.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="callout callout-danger">
+    <strong>Single-Use Refresh Tokens</strong>
+    RingCentral refresh tokens can only be used once. If two systems attempt to refresh the same token simultaneously, the second will fail with OAU-210. The cron job is the <strong>sole</strong> mechanism for refreshing tokens — no just-in-time refresh to prevent race conditions.
+  </div>
+
+  <h3>RingCX Token Exchange</h3>
+  <p>Some RingCX APIs require a separate JWT token. The exchange flow:</p>
+  <ol>
+    <li>Get RC access token from database</li>
+    <li>POST to <code>https://ringcx.ringcentral.com/api/auth/login/rc/accesstoken</code></li>
+    <li>Body: <code>rcAccessToken={token}&amp;rcTokenType=Bearer</code> (form-urlencoded)</li>
+    <li>Returns RingCX JWT (expires ~5 minutes)</li>
+  </ol>
+
+  <h3>Supabase Service Role Key</h3>
+  <div class="callout callout-warn">
+    <strong>Key Format Issue</strong>
+    The auto-injected <code>SUPABASE_SERVICE_ROLE_KEY</code> uses a new <code>sb_secret_*</code> format (41 chars) that is incompatible with supabase-js v2. All edge functions use a custom env var <code>SB_SERVICE_ROLE_KEY</code> that stores the legacy JWT-format key (219 chars).
+  </div>
+</section>
+
+<!-- ══════ 9. DATABASE SCHEMA ══════════════════════════════ -->
+<section class="section" id="database">
+  <div class="section-header">
+    <span class="section-number">9</span>
+    <h2>Database Schema</h2>
+  </div>
+
+  <p>Core Supabase Postgres tables powering the system:</p>
+
+  <div class="card-grid">
+    <div class="card card-sm">
+      <div class="card-title"><span class="card-icon blue">&#128274;</span> ringcentral_auth</div>
+      <p>Single row. Stores RC OAuth credentials: <code>rc_access_token</code>, <code>rc_refresh_token</code>, expiry timestamps, last refresh error.</p>
+    </div>
+    <div class="card card-sm">
+      <div class="card-title"><span class="card-icon green">&#128203;</span> ringcx_lead_routing</div>
+      <p>Tracks each lead's tier journey. One row per contact with HOT/NEW/OLD campaign IDs, current tier, and aging timestamps.</p>
+    </div>
+    <div class="card card-sm">
+      <div class="card-title"><span class="card-icon blue">&#128222;</span> call_recordings</div>
+      <p>Call metadata + backup status. Tracks recording URL, storage URL, backup status lifecycle, HubSpot sync status.</p>
+    </div>
+    <div class="card card-sm">
+      <div class="card-title"><span class="card-icon amber">&#128200;</span> lead_loads</div>
+      <p>Reporting table. One row per lead load event with contact snapshot, campaign type, dial priority, and reason.</p>
+    </div>
+    <div class="card card-sm">
+      <div class="card-title"><span class="card-icon green">&#128101;</span> agent_mappings</div>
+      <p>Maps RingCX agent IDs to HubSpot owner IDs. Used for call ownership and form submission attribution.</p>
+    </div>
+    <div class="card card-sm">
+      <div class="card-title"><span class="card-icon blue">&#128221;</span> hubspot_form_submissions</div>
+      <p>Audit trail for all web form submissions. Captures source, submitted_by, disposition, form_data (JSONB).</p>
+    </div>
+    <div class="card card-sm">
+      <div class="card-title"><span class="card-icon amber">&#128466;</span> ringcx_webhook_logs</div>
+      <p>Disposition webhook audit trail. Stores full payload, processing status, HubSpot IDs, and error messages.</p>
+    </div>
+    <div class="card card-sm">
+      <div class="card-title"><span class="card-icon red">&#9888;</span> error_log</div>
+      <p>Centralised error tracking. Source (function name), error message, details (JSONB). Indexed by <code>created_at DESC</code>.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ══════ 10. CRON JOB SCHEDULE ═══════════════════════════ -->
+<section class="section" id="crons">
+  <div class="section-header">
+    <span class="section-number">10</span>
+    <h2>Cron Job Schedule</h2>
+  </div>
+
+  <p>All crons managed via Supabase pg_cron extension. Times shown are UTC (Perth = UTC+8).</p>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Schedule (UTC)</th><th>Function</th><th>Purpose</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><span class="cron-freq">Every 5 min</span><br><code>*/5 22-23,0-11 * * *</code></td>
+          <td><code>recording-to-storage</code></td>
+          <td>Sync recording URLs to HubSpot call engagements</td>
+        </tr>
+        <tr>
+          <td><span class="cron-freq">Every 5 min</span><br><code>*/5 22-23,0-11 * * *</code></td>
+          <td><code>recordings-backfill</code></td>
+          <td>Retry failed recording backups</td>
+        </tr>
+        <tr>
+          <td><span class="cron-freq">Every 30 min</span><br><code>*/30 * * * *</code></td>
+          <td><code>ringcentral-token-refresh</code></td>
+          <td>Keep RC access token fresh (sole refresher)</td>
+        </tr>
+        <tr>
+          <td><span class="cron-freq">Every 30 min</span><br><code>*/30 * * * *</code></td>
+          <td><code>auto-recovery-cron</code></td>
+          <td>Detect and fix stalled pipeline records</td>
+        </tr>
+        <tr>
+          <td><span class="cron-freq">Hourly</span><br><code>5 22-23,0-11 * * *</code></td>
+          <td><code>hourly-status-report</code></td>
+          <td>Metrics summary to Google Chat (Perth business hours)</td>
+        </tr>
+        <tr>
+          <td><span class="cron-freq">Every 2 hours</span><br><code>0 22,0,2,4,6,8,10 * * *</code></td>
+          <td><code>ringcx-lead-aging-hot</code></td>
+          <td>Age HOT leads → NEW after 72 hours</td>
+        </tr>
+        <tr>
+          <td><span class="cron-freq">Daily</span><br><code>0 21 * * *</code></td>
+          <td><code>ringcx-lead-aging-new</code></td>
+          <td>Age NEW leads → OLD after 90 days</td>
+        </tr>
+        <tr>
+          <td><span class="cron-freq">Daily</span><br><code>0 19 * * *</code></td>
+          <td><code>cleanup-old-recordings</code></td>
+          <td>Remove expired RingCX pre-signed URLs</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ══════ 11. EDGE FUNCTIONS INVENTORY ════════════════════ -->
+<section class="section" id="edge-functions">
+  <div class="section-header">
+    <span class="section-number">11</span>
+    <h2>Edge Functions Inventory</h2>
+  </div>
+
+  <h3>Lead Management</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Function</th><th>Trigger</th><th>Purpose</th></tr></thead>
+      <tbody>
+        <tr><td><code>ringcx-lead-ingest</code></td><td>HubSpot webhook</td><td>Determines HOT vs NEW tier, injects into pipeline</td></tr>
+        <tr><td><code>ringcx-lead-loader-new</code></td><td>HubSpot property change</td><td>Pushes lead to New campaign</td></tr>
+        <tr><td><code>ringcx-lead-loader-old</code></td><td>HubSpot property change</td><td>Pushes lead to Old campaign</td></tr>
+        <tr><td><code>ringcx-lead-loader-newhitlist</code></td><td>HubSpot property change</td><td>Pushes lead to New Hitlist campaign</td></tr>
+        <tr><td><code>ringcx-lead-loader-oldhitlist</code></td><td>HubSpot property change</td><td>Pushes lead to Old Hitlist campaign</td></tr>
+        <tr><td><code>ringcx-lead-aging-hot</code></td><td>Cron (every 2h)</td><td>Ages HOT → NEW after 72 hours</td></tr>
+        <tr><td><code>ringcx-lead-aging-new</code></td><td>Cron (daily 9 PM)</td><td>Ages NEW → OLD after 90 days</td></tr>
+        <tr><td><code>ringcx-lead-mover</code></td><td>HubSpot webhook</td><td>Manual lead movement between campaigns</td></tr>
+        <tr><td><code>remove-lead</code></td><td>Manual trigger</td><td>Removes lead from all RingCX campaigns</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Authentication</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Function</th><th>Trigger</th><th>Purpose</th></tr></thead>
+      <tbody>
+        <tr><td><code>ringcentral-auth-init</code></td><td>Manual</td><td>Initiates OAuth flow (redirect to RC login)</td></tr>
+        <tr><td><code>ringcentral-auth-callback</code></td><td>OAuth callback</td><td>Exchanges code for RC tokens</td></tr>
+        <tr><td><code>ringcentral-token-refresh</code></td><td>Cron (every 30m)</td><td>Keeps RC access token fresh</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Recording &amp; Sync</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Function</th><th>Trigger</th><th>Purpose</th></tr></thead>
+      <tbody>
+        <tr><td><code>ringcx-disposition-webhook</code></td><td>RingCX webhook</td><td>Receives call disposition, creates HubSpot call</td></tr>
+        <tr><td><code>ringcx-call-recovery</code></td><td>Cron</td><td>Retries failed disposition processing</td></tr>
+        <tr><td><code>recording-to-storage</code></td><td>Cron (every 5m)</td><td>Syncs storage URLs to HubSpot calls</td></tr>
+        <tr><td><code>recordings-backfill</code></td><td>Cron (every 5m)</td><td>Retries failed recording backups</td></tr>
+        <tr><td><code>recording-stream</code></td><td>Direct URL</td><td>Streams call recording audio (CORS-enabled)</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Reporting &amp; Monitoring</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Function</th><th>Trigger</th><th>Purpose</th></tr></thead>
+      <tbody>
+        <tr><td><code>hourly-status-report</code></td><td>Cron (hourly, Perth hours)</td><td>Sends metrics summary to Google Chat</td></tr>
+        <tr><td><code>ringcx-dial-stats</code></td><td>Cron (periodic)</td><td>Caches dial statistics by campaign</td></tr>
+        <tr><td><code>auto-recovery-cron</code></td><td>Cron (every 30m)</td><td>Detects and fixes stalled pipeline records</td></tr>
+        <tr><td><code>disposition-reconciliation</code></td><td>Manual/Cron</td><td>Ensures HubSpot ↔ RingCX sync</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Utility</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Function</th><th>Trigger</th><th>Purpose</th></tr></thead>
+      <tbody>
+        <tr><td><code>hubspot-form-submission</code></td><td>Web form POST</td><td>Processes disposition form submissions</td></tr>
+        <tr><td><code>hubspot-get-contact</code></td><td>API call</td><td>Fetches contact data from HubSpot</td></tr>
+        <tr><td><code>get-calendar-heatmap</code></td><td>API call</td><td>Heatmap data for water test availability</td></tr>
+        <tr><td><code>get-day-slots</code></td><td>API call</td><td>Available time slots for appointments</td></tr>
+        <tr><td><code>gchat-notify</code></td><td>Internal</td><td>Sends notifications to Google Chat</td></tr>
+        <tr><td><code>thank-you</code></td><td>Web (redirect)</td><td>Thank-you page with compiled call notes</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ══════ 12. KNOWN ISSUES & GOTCHAS ══════════════════════ -->
+<section class="section" id="known-issues">
+  <div class="section-header">
+    <span class="section-number">12</span>
+    <h2>Known Issues &amp; Gotchas</h2>
+  </div>
+
+  <div class="callout callout-danger">
+    <strong>OAU-210: Broken Token Chain</strong>
+    If the refresh token is used twice (e.g. by two competing systems), the second attempt fails with OAU-210 and the entire chain is broken. Requires manual re-authorisation via <code>ringcentral-auth-init</code>. Historically caused by a legacy Cloudflare Worker cron that has since been deleted.
+  </div>
+
+  <div class="callout callout-warn">
+    <strong>verify_jwt Deployment Bug</strong>
+    Supabase CLI v2.62+ has a bug where the <code>--no-verify-jwt</code> flag is not sent in the deploy API call. After deploying functions that need to accept unauthenticated requests, you must PATCH via the Management API:<br>
+    <code>PATCH /v1/projects/{ref}/functions/{slug}</code> with <code>{"verify_jwt": false}</code>
+  </div>
+
+  <div class="callout callout-info">
+    <strong>Recording URL Expiry</strong>
+    RingCX pre-signed recording URLs are valid for approximately 2 hours. The GCE VM must download recordings before expiry. The <code>recordings-backfill</code> cron retries failed downloads, but will fail permanently if the URL has expired.
+  </div>
+
+  <div class="callout callout-warn">
+    <strong>Lead Indexing Lag</strong>
+    Freshly uploaded leads may not be immediately searchable via the RingCX API. The lead loader functions retry with a 2-second delay to account for indexing lag.
+  </div>
+
+  <div class="callout callout-info">
+    <strong>Phone Format Sensitivity</strong>
+    RingCX requires E.164 format (<code>+61XXXXXXXXX</code>) for Australian numbers. Local formats must be converted before pushing. Leads without valid phone numbers are skipped with a non-retryable 200 response.
+  </div>
+
+  <h3>Key Constants</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Constant</th><th>Value</th><th>Context</th></tr></thead>
+      <tbody>
+        <tr><td><code>AGING_THRESHOLD_HOURS</code></td><td>72</td><td>HOT → NEW threshold</td></tr>
+        <tr><td><code>NEW_AGING_THRESHOLD_DAYS</code></td><td>90</td><td>NEW → OLD threshold</td></tr>
+        <tr><td><code>MIN_REFRESH_INTERVAL_SECONDS</code></td><td>120</td><td>RC token refresh lock window</td></tr>
+        <tr><td><code>BATCH_SIZE</code> (recordings)</td><td>20</td><td>Recording sync batch size</td></tr>
+        <tr><td><code>RINGCX_ACCOUNT_ID</code></td><td>44510001</td><td>RingCX API account</td></tr>
+        <tr><td><code>HUBSPOT_PORTAL_ID</code></td><td>5877625</td><td>HubSpot portal</td></tr>
+        <tr><td><code>REPORT_TIMEZONE</code></td><td>Australia/Perth</td><td>All date logic uses Perth time</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+</main>
+
+<!-- ════════════════════════════════════════════════════════
+     FOOTER
+     ════════════════════════════════════════════════════════ -->
+<footer class="footer">
+  <strong>Complete Home Filtration</strong> — Lead Management System Documentation<br>
+  Last updated: March 2026
+</footer>
+
+</body>
+</html>

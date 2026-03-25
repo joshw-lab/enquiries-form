@@ -967,44 +967,15 @@ serve(async (req) => {
     });
 
     if (!payload.agent_disposition || isUnresolvedTemplateVar(payload.agent_disposition)) {
-      const systemDisp = (payload.disposition || "").toLowerCase().trim();
+      let systemDisp = (payload.disposition || "").toLowerCase().trim();
 
       if (!systemDisp) {
-        // Truly empty — no disposition data at all, cannot process
-        const reason = !payload.agent_disposition
-          ? "no agent_disposition and no system disposition"
-          : `unresolved template var: "${payload.agent_disposition}", no system disposition`;
-        console.log(`⏭️ Skipping webhook with no disposition data (${reason})`);
-
-        try {
-          const skipClient = createClient(
-            Deno.env.get("SUPABASE_URL") ?? "",
-            Deno.env.get("SB_SERVICE_ROLE_KEY") ?? ""
-          );
-          await skipClient.from("ringcx_webhook_logs").insert({
-            call_id: payload.call_id,
-            contact_id: payload.extern_id,
-            payload: payload,
-            processed_at: new Date().toISOString(),
-            status: "skipped",
-            error_message: `Webhook skipped: ${reason}`,
-          });
-        } catch (logErr) {
-          console.error("Failed to log skipped webhook:", logErr);
-        }
-
-        return new Response(
-          JSON.stringify({
-            success: true,
-            skipped: true,
-            message: `Webhook ignored (${reason})`,
-            call_id: payload.call_id,
-          }),
-          {
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-            status: 200,
-          }
-        );
+        // Both agent_disposition and system disposition are empty.
+        // RingCX sometimes sends auto-fire webhooks with completely null disposition
+        // fields (e.g., 0-second calls where the contact didn't answer). Default to
+        // "no_answer" so these passes still create HubSpot call records.
+        console.log(`📞 Empty disposition fields — defaulting to "no_answer" (0-duration pass)`);
+        systemDisp = "no_answer";
       }
 
       // System disposition present — process it directly. For passes (no_answer, abandon,

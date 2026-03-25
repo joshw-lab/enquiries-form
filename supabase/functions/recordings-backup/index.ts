@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import lamejs from "https://esm.sh/lamejs@1.2.1";
 import { getRingCentralAccessToken } from "../_shared/ringcx-lead-loader-base.ts";
 
 const corsHeaders = {
@@ -28,6 +29,97 @@ const SKIP_DISPOSITIONS = new Set([
 
 // Max retry attempts before marking as failed
 const MAX_ATTEMPTS = 3;
+
+// Max call duration (seconds) for inline MP3 conversion in Edge Function.
+// Longer calls are left for the VM pipeline.
+const INLINE_CONVERT_MAX_SECONDS = 300; // 5 minutes
+
+/**
+ * Convert WAV (ArrayBuffer) to MP3 using lamejs.
+ * Handles mono/stereo, various sample rates from RingCX WAV files.
+ * Returns MP3 as Uint8Array.
+ */
+function wavToMp3(wavBuffer: ArrayBuffer): Uint8Array {
+  const view = new DataView(wavBuffer);
+
+  // Parse WAV header
+  const numChannels = view.getUint16(22, true);
+  const sampleRate = view.getUint32(24, true);
+  const bitsPerSample = view.getUint16(34, true);
+
+  // Find data chunk (skip past header — data starts after "data" + size)
+  let dataOffset = 12; // skip RIFF header
+  while (dataOffset < view.byteLength - 8) {
+    const chunkId = String.fromCharCode(
+      view.getUint8(dataOffset),
+      view.getUint8(dataOffset + 1),
+      view.getUint8(dataOffset + 2),
+      view.getUint8(dataOffset + 3)
+    );
+    const chunkSize = view.getUint32(dataOffset + 4, true);
+    if (chunkId === "data") {
+      dataOffset += 8;
+      break;
+    }
+    dataOffset += 8 + chunkSize;
+  }
+
+  // Read PCM samples as Int16
+  const bytesPerSample = bitsPerSample / 8;
+  const numSamples = Math.floor((wavBuffer.byteLength - dataOffset) / (bytesPerSample * numChannels));
+
+  // Extract samples per channel
+  const left = new Int16Array(numSamples);
+  const right = numChannels > 1 ? new Int16Array(numSamples) : null;
+
+  for (let i = 0; i < numSamples; i++) {
+    const offset = dataOffset + i * numChannels * bytesPerSample;
+    if (bitsPerSample === 16) {
+      left[i] = view.getInt16(offset, true);
+      if (right) right[i] = view.getInt16(offset + 2, true);
+    } else if (bitsPerSample === 8) {
+      // 8-bit WAV is unsigned, convert to signed 16-bit
+      left[i] = (view.getUint8(offset) - 128) << 8;
+      if (right) right[i] = (view.getUint8(offset + 1) - 128) << 8;
+    }
+  }
+
+  // Encode to MP3 (32kbps for phone-quality audio)
+  const mp3Encoder = new lamejs.Mp3Encoder(numChannels, sampleRate, 32);
+  const mp3Chunks: Uint8Array[] = [];
+  const blockSize = 1152;
+
+  for (let i = 0; i < numSamples; i += blockSize) {
+    const leftChunk = left.subarray(i, i + blockSize);
+    let mp3buf: Int8Array;
+    if (numChannels === 1) {
+      mp3buf = mp3Encoder.encodeBuffer(leftChunk);
+    } else {
+      const rightChunk = right!.subarray(i, i + blockSize);
+      mp3buf = mp3Encoder.encodeBuffer(leftChunk, rightChunk);
+    }
+    if (mp3buf.length > 0) {
+      mp3Chunks.push(new Uint8Array(mp3buf.buffer, mp3buf.byteOffset, mp3buf.byteLength));
+    }
+  }
+
+  // Flush remaining
+  const flushBuf = mp3Encoder.flush();
+  if (flushBuf.length > 0) {
+    mp3Chunks.push(new Uint8Array(flushBuf.buffer, flushBuf.byteOffset, flushBuf.byteLength));
+  }
+
+  // Concatenate all chunks
+  const totalLength = mp3Chunks.reduce((sum, c) => sum + c.length, 0);
+  const mp3Data = new Uint8Array(totalLength);
+  let offset = 0;
+  for (const chunk of mp3Chunks) {
+    mp3Data.set(chunk, offset);
+    offset += chunk.length;
+  }
+
+  return mp3Data;
+}
 
 /**
  * Generate a Google Drive access token from a service account key.
@@ -268,15 +360,9 @@ serve(async (req) => {
 
     console.log(`Processing ${pendingRecordings.length} pending recordings...`);
 
-    // Get Google Drive access token (reuse for entire batch)
-    const googleAccessToken = await getGoogleAccessToken(serviceAccountKey);
-
-    // Get RingCX access token for downloading recordings (requires auth)
-    const { token: ringcxToken, error: ringcxAuthError } =
-      await getRingCentralAccessToken(supabaseClient);
-    if (!ringcxToken) {
-      throw new Error(`RingCX auth failed: ${ringcxAuthError}`);
-    }
+    // This function now only handles disposition triage.
+    // Recording downloads come via SFTP → GDrive → VM pipeline.
+    // The recordings-backfill function matches GDrive files to call_recordings rows.
 
     let processed = 0;
     let succeeded = 0;
@@ -286,15 +372,6 @@ serve(async (req) => {
     for (const recording of pendingRecordings) {
       try {
         console.log(`\n📼 Processing: ${recording.call_id}`);
-
-        // Mark as downloading
-        await supabaseClient
-          .from("call_recordings")
-          .update({
-            backup_status: "downloading",
-            backup_attempts: (recording.backup_attempts || 0) + 1,
-          })
-          .eq("id", recording.id);
 
         // Skip non-conversation dispositions (No Answer, Busy, etc.)
         if (recording.disposition && SKIP_DISPOSITIONS.has(recording.disposition)) {
@@ -319,94 +396,22 @@ serve(async (req) => {
           continue;
         }
 
-        // Download the WAV from RingCX (requires authenticated session)
-        // Try X-Auth-Token first (RingCX native), fall back to Bearer
-        console.log(`  Downloading from RingCX...`);
-        let downloadResponse = await fetch(recording.ringcx_recording_url, {
-          headers: {
-            "X-Auth-Token": ringcxToken,
-          },
-        });
-
-        // If X-Auth-Token returns HTML or 401, try Bearer
-        const ct1 = downloadResponse.headers.get("content-type") || "";
-        if (!downloadResponse.ok || ct1.includes("text/html")) {
-          console.log(`  X-Auth-Token failed (${downloadResponse.status}, ${ct1}), trying Bearer...`);
-          downloadResponse = await fetch(recording.ringcx_recording_url, {
-            headers: {
-              Authorization: `Bearer ${ringcxToken}`,
-            },
-          });
-        }
-
-        if (!downloadResponse.ok) {
-          throw new Error(`Download failed: ${downloadResponse.status} ${downloadResponse.statusText}`);
-        }
-
-        // Verify we got audio, not an HTML login page
-        const contentType = downloadResponse.headers.get("content-type") || "";
-        if (contentType.includes("text/html")) {
-          const htmlSnippet = (await downloadResponse.text()).substring(0, 300);
-          throw new Error(`HTML(${downloadResponse.status}): ${htmlSnippet}`);
-        }
-
-        const audioData = await downloadResponse.arrayBuffer();
-        const fileSizeMB = (audioData.byteLength / 1024 / 1024).toFixed(2);
-        console.log(`  Downloaded ${fileSizeMB} MB (${contentType})`);
-
-        // Build filename
-        const fileName = buildFileName(recording);
-        console.log(`  Target: ${fileName}`);
-
-        // Upload to Google Drive (flat — all files in root folder)
-        console.log(`  Uploading to Google Drive...`);
-        const uploadResult = await uploadToGoogleDrive(
-          googleAccessToken,
-          audioData,
-          fileName,
-          driveFolderId
-        );
-
-        console.log(`  ✅ Uploaded: ${uploadResult.webViewLink}`);
-
-        // Set file-level permission: anyone with the link can view
-        const permResponse = await fetch(
-          `https://www.googleapis.com/drive/v3/files/${uploadResult.fileId}/permissions?supportsAllDrives=true`,
-          {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${googleAccessToken}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              role: "reader",
-              type: "anyone",
-            }),
-          }
-        );
-        if (!permResponse.ok) {
-          const permErr = await permResponse.text();
-          console.error(`  ⚠️ Failed to set public permission (non-fatal): ${permErr}`);
-        } else {
-          console.log(`  🔓 File set to "anyone with link can view"`);
-        }
-
-        // Update record with success
-        // (VM script handles WAV→MP3 conversion + Supabase Storage upload)
+        // Recording has a URL and a meaningful disposition — mark as awaiting_gdrive.
+        // The SFTP pipeline delivers WAV files to GDrive, and recordings-backfill
+        // matches them to this row (setting gdrive_file_id and backup_status=uploaded).
+        console.log(`  Awaiting GDrive match (disposition: ${recording.disposition}, ${recording.call_duration_seconds}s)`);
         await supabaseClient
           .from("call_recordings")
-          .update({
-            backup_status: "uploaded",
-            gdrive_file_id: uploadResult.fileId,
-            gdrive_file_url: uploadResult.webViewLink,
-            gdrive_file_name: fileName,
-            backed_up_at: new Date().toISOString(),
-          })
+          .update({ backup_status: "awaiting_gdrive" })
           .eq("id", recording.id);
 
-        // HubSpot sync is handled by recording-to-storage after VM converts WAV→MP3
+        // HubSpot sync is handled by the recording-to-storage function
+        // after the VM converts WAV→MP3 and sets storage_url.
 
-        results.push({ call_id: recording.call_id, status: "uploaded" });
+        results.push({
+          call_id: recording.call_id,
+          status: convertedInline ? "uploaded+mp3+synced" : "uploaded",
+        });
         succeeded++;
       } catch (err) {
         console.error(`  ❌ Failed: ${err.message}`);
