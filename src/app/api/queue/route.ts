@@ -57,10 +57,11 @@ function getCampaignState(campaignId: string): string {
   return campaignId
 }
 
-// Actual Title Case values from call_recordings table for Supabase filter
+// Values from call_recordings table — Title Case from RingCX, snake_case from form submissions
 const NOT_CONNECTED_DB = [
   'No Answer', 'Left Voicemail', 'Wrong Number',
   'Hang Up', 'Do Not Call', 'Busy',
+  'no_answer', 'wrong_number',
 ]
 
 export async function GET(request: NextRequest) {
