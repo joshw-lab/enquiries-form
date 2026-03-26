@@ -1,10 +1,7 @@
 import { NextResponse } from 'next/server'
 import type { SyncResponse, CampaignSync, SyncSummary, Region } from '@/lib/dashboard-types'
 import { REGIONS } from '@/lib/dashboard-types'
-import {
-  getRingCXClient,
-  type RingCXClient,
-} from '@/lib/server/api-clients'
+import { createClient } from '@supabase/supabase-js'
 
 // HubSpot List ID → RingCX Campaign mapping (authoritative source)
 const SYNC_CAMPAIGNS: {
@@ -41,8 +38,8 @@ async function getHubSpotListSize(listId: string, token: string): Promise<number
   return Number(data.size ?? 0)
 }
 
-function timeSince(startMs: number): string {
-  const elapsed = Date.now() - startMs
+function timeSince(ts: string): string {
+  const elapsed = Date.now() - new Date(ts).getTime()
   const mins = Math.round(elapsed / 60_000)
   if (mins < 1) return 'just now'
   if (mins < 60) return `${mins}m ago`
@@ -50,51 +47,64 @@ function timeSince(startMs: number): string {
 }
 
 export async function GET() {
-  const fetchStart = Date.now()
-
   try {
     const hubspotToken = process.env.HUBSPOT_API_KEY
     if (!hubspotToken) throw new Error('Missing HUBSPOT_API_KEY')
 
-    let rcx: RingCXClient | null = null
-    try {
-      rcx = await getRingCXClient()
-    } catch (e) {
-      console.warn('RingCX unavailable for sync:', (e as Error).message)
-    }
+    // Read RingCX counts from sync_counts table (written by reconcile cron)
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    )
+
+    const { data: syncRows } = await supabase
+      .from('sync_counts')
+      .select('*')
+
+    const syncMap = new Map<string, { ringcx_count: number; updated_at: string }>(
+      (syncRows || []).map((r: { campaign_id: number; ringcx_count: number; updated_at: string }) => [
+        String(r.campaign_id),
+        { ringcx_count: r.ringcx_count, updated_at: r.updated_at },
+      ])
+    )
 
     const campaigns: CampaignSync[] = []
 
-    // Process all campaigns in parallel
-    await Promise.all(
-      SYNC_CAMPAIGNS.map(async ({ region, listType, listId, campaignId }) => {
-        try {
-          // HubSpot: get list member count via Lists API
-          const hsCount = await getHubSpotListSize(listId, hubspotToken)
+    // Fetch HubSpot counts fresh (fast - just list size, no lead data)
+    // Process in batches of 4 to stay within rate limits
+    for (let i = 0; i < SYNC_CAMPAIGNS.length; i += 4) {
+      const batch = SYNC_CAMPAIGNS.slice(i, i + 4)
+      await Promise.all(
+        batch.map(async ({ region, listType, listId, campaignId }) => {
+          try {
+            const hsCount = await getHubSpotListSize(listId, hubspotToken!)
 
-          // RingCX: count leads in this campaign
-          const rcxCount = rcx ? await rcx.getCampaignLeadCount(campaignId) : 0
+            // RingCX count from sync_counts table (updated by reconcile cron every 3 min)
+            const syncEntry = syncMap.get(campaignId)
+            const rcxCount = syncEntry?.ringcx_count ?? -1
+            const rcxAvailable = rcxCount >= 0
 
-          const delta = hsCount - rcxCount
-          const absDelta = Math.abs(delta)
-          const status: CampaignSync['status'] =
-            absDelta > 20 ? 'err' : absDelta > 0 ? 'warn' : 'ok'
+            const delta = rcxAvailable ? hsCount - rcxCount : 0
+            const absDelta = Math.abs(delta)
+            const status: CampaignSync['status'] =
+              !rcxAvailable ? 'err' : absDelta > 20 ? 'err' : absDelta > 0 ? 'warn' : 'ok'
 
-          campaigns.push({
-            region,
-            listType,
-            campaignId,
-            hubspotCount: hsCount,
-            ringcxCount: rcxCount,
-            delta,
-            status,
-            lastSynced: timeSince(fetchStart),
-          })
-        } catch (e) {
-          console.warn(`Sync check failed for ${region} ${listType}:`, (e as Error).message)
-        }
-      })
-    )
+            campaigns.push({
+              region,
+              listType,
+              campaignId,
+              hubspotCount: hsCount,
+              ringcxCount: rcxAvailable ? rcxCount : -1,
+              delta,
+              status,
+              lastSynced: syncEntry ? timeSince(syncEntry.updated_at) : 'never',
+            })
+          } catch (e) {
+            console.warn(`Sync check failed for ${region} ${listType}:`, (e as Error).message)
+          }
+        })
+      )
+    }
 
     // Sort: region order, then New before Aged
     campaigns.sort((a, b) => {
@@ -104,7 +114,7 @@ export async function GET() {
       return a.listType === 'New' ? -1 : 1
     })
 
-    const inSync = campaigns.filter((c) => c.delta === 0).length
+    const inSync = campaigns.filter((c) => c.delta === 0 && c.ringcxCount >= 0).length
     const minorGaps = campaigns.filter((c) => c.delta !== 0 && Math.abs(c.delta) <= 20).length
     const missingContacts = campaigns
       .filter((c) => c.delta < 0)

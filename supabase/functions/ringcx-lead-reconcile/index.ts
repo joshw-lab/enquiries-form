@@ -263,6 +263,21 @@ async function reconcileCampaign(
     }
   }
 
+  // Write counts to sync_counts table for dashboard consumption
+  await supabaseClient
+    .from("sync_counts")
+    .upsert({
+      campaign_id: campaign.campaignId,
+      region: campaign.state,
+      tier: campaign.tier,
+      hubspot_count: listMembers.size,
+      ringcx_count: ringcxLeads.size - deleted, // reflect deletions made this run
+      excess: excess.length - deleted,
+      excess_in_sibling: excessInSibling,
+      excess_orphaned: excessOrphaned,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "campaign_id" });
+
   return {
     state: campaign.state,
     tier: campaign.tier,

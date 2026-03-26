@@ -117,18 +117,23 @@ export async function getRingCXClient(): Promise<RingCXClient> {
             headers,
             body: JSON.stringify({
               campaignIds: [Number(campaignId)],
-              campaignId: Number(campaignId),
+              page: 1,
+              maxRows: 1,
             }),
           }
         )
-        if (!res.ok) return 0
+        if (!res.ok) {
+          const errText = await res.text().catch(() => '')
+          console.error(`RingCX leadSearch ${res.status} for campaign ${campaignId}: ${errText}`)
+          return -1
+        }
         const result = await res.json()
-        // Try totalCount first (paginated response), then array length
         if (typeof result.totalCount === 'number') return result.totalCount
         const leads = Array.isArray(result) ? result : (result.leads || result.data || [])
         return leads.length
-      } catch {
-        return 0
+      } catch (e) {
+        console.error(`RingCX leadSearch error for campaign ${campaignId}:`, (e as Error).message)
+        return -1
       }
     },
   }

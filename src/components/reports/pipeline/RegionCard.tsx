@@ -152,9 +152,10 @@ export default function RegionCard({ data, syncCampaigns, isSelected, onClick }:
             List sync<Tip text="RingCX lists are updated regularly to sync, any discrepancy here is temporary and will be cleared asap" />
           </div>
           {syncCampaigns.map((sc) => {
-            const excess = sc.ringcxCount - sc.hubspotCount
-            const isOk = excess === 0
-            const isMinor = Math.abs(excess) > 0 && Math.abs(excess) <= 20
+            const rcxUnavailable = sc.ringcxCount < 0
+            const excess = rcxUnavailable ? 0 : sc.ringcxCount - sc.hubspotCount
+            const isOk = !rcxUnavailable && excess === 0
+            const isMinor = !rcxUnavailable && Math.abs(excess) > 0 && Math.abs(excess) <= 20
             return (
               <div key={sc.campaignId} className="flex items-center gap-1.5 text-[10px]">
                 <span className={`font-bold w-8 ${sc.listType === 'New' ? 'text-blue-600' : 'text-purple-600'}`}>
@@ -162,8 +163,14 @@ export default function RegionCard({ data, syncCampaigns, isSelected, onClick }:
                 </span>
                 <span className="text-gray-500">{sc.hubspotCount.toLocaleString()}</span>
                 <span className="text-gray-300">/</span>
-                <span className="text-gray-500">{sc.ringcxCount.toLocaleString()}</span>
-                {isOk ? (
+                {rcxUnavailable ? (
+                  <span className="text-gray-400 italic">err</span>
+                ) : (
+                  <span className="text-gray-500">{sc.ringcxCount.toLocaleString()}</span>
+                )}
+                {rcxUnavailable ? (
+                  <span className="text-gray-400 ml-auto" title="RingCX API unavailable">--</span>
+                ) : isOk ? (
                   <span className="text-green-600 font-bold ml-auto">{'\u2713'}</span>
                 ) : (
                   <span className={`font-bold ml-auto ${excess > 0 ? (isMinor ? 'text-amber-600' : 'text-red-600') : 'text-amber-600'}`}>
