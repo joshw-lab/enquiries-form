@@ -178,21 +178,7 @@ export default function DrillPanel({ data, syncCampaigns, todayLeads, onClose }:
             <div className="text-[11px] text-gray-400 py-4 text-center">No leads added today</div>
           ) : (
             <div className="flex flex-col gap-0.5 max-h-[320px] overflow-y-auto">
-              {/* Called leads first, sorted by speed */}
-              {calledLeads
-                .sort((a, b) => (a.speedToLeadSeconds ?? 0) - (b.speedToLeadSeconds ?? 0))
-                .map((lead) => (
-                  <div key={lead.contactId} className="flex items-center gap-2 py-1.5 border-b border-gray-50">
-                    <div className="flex-1 min-w-0">
-                      <div className="text-[11px] text-[#111827] font-medium truncate">{lead.name}</div>
-                      <div className="text-[10px] text-gray-400">{lead.postcode} &middot; {timeAgo(lead.loadedAt)}</div>
-                    </div>
-                    <div className={`text-[11px] font-bold whitespace-nowrap ${speedColor(lead.speedToLeadSeconds!)}`}>
-                      &#9889; {formatSpeed(lead.speedToLeadSeconds!)}
-                    </div>
-                  </div>
-                ))}
-              {/* Uncalled leads */}
+              {/* Awaiting call first */}
               {uncalledLeads.map((lead) => (
                 <div key={lead.contactId} className="flex items-center gap-2 py-1.5 border-b border-gray-50">
                   <div className="flex-1 min-w-0">
@@ -204,6 +190,20 @@ export default function DrillPanel({ data, syncCampaigns, todayLeads, onClose }:
                   </div>
                 </div>
               ))}
+              {/* Called leads, most recent call first */}
+              {calledLeads
+                .sort((a, b) => new Date(b.firstCallAt!).getTime() - new Date(a.firstCallAt!).getTime())
+                .map((lead) => (
+                  <div key={lead.contactId} className="flex items-center gap-2 py-1.5 border-b border-gray-50">
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[11px] text-[#111827] font-medium truncate">{lead.name}</div>
+                      <div className="text-[10px] text-gray-400">{lead.postcode} &middot; {timeAgo(lead.loadedAt)}</div>
+                    </div>
+                    <div className={`text-[11px] font-bold whitespace-nowrap ${speedColor(lead.speedToLeadSeconds!)}`}>
+                      &#9889; {formatSpeed(lead.speedToLeadSeconds!)}
+                    </div>
+                  </div>
+                ))}
             </div>
           )}
         </div>

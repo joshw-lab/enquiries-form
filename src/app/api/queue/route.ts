@@ -11,10 +11,6 @@ function endOfDayAWST(date: string): string {
   return `${date}T23:59:59${AWST_OFFSET}`
 }
 
-function todayAWST(): string {
-  return new Date().toLocaleDateString('en-CA', { timeZone: 'Australia/Perth' })
-}
-
 function buildName(first: string | null, last: string | null): string | null {
   const parts = [first, last].filter(Boolean)
   return parts.length > 0 ? parts.join(' ') : null
@@ -77,48 +73,16 @@ export async function GET(request: NextRequest) {
 
   const from = params.get('from')
   const to = params.get('to')
-  const campaignType = params.get('campaign_type')
-  const campaignId = params.get('campaign_id')
-  const priority = params.get('priority')
   const operatorFilter = params.get('operator')
-  const search = params.get('search')
-  const leadsPage = parseInt(params.get('leads_page') || '1', 10)
   const callsPage = parseInt(params.get('calls_page') || '1', 10)
   const pageSize = parseInt(params.get('pageSize') || '50', 10)
   const showAll = params.get('show_all') === '1'
   const dispositionFilter = params.get('disposition')
 
-  // ── Left column: lead_loads (mirrors RingCX dial order) ──
-  // IMMEDIATE first, then NORMAL; within each group newest first
-  let leadsQuery = supabase
-    .from('lead_loads')
-    .select(
-      'id, contact_id, campaign_id, campaign_type, created_at, dial_priority, ' +
-      'priority_reason, priority_context, contact_first_name, contact_last_name, ' +
-      'contact_state, contact_postcode',
-      { count: 'exact' },
-    )
-    .order('dial_priority', { ascending: true })
-    .order('priority_context->num_contacted', { ascending: true, nullsFirst: false })
-    .order('created_at', { ascending: false })
-
-  if (from) leadsQuery = leadsQuery.gte('created_at', startOfDayAWST(from))
-  if (to) leadsQuery = leadsQuery.lte('created_at', endOfDayAWST(to))
-  if (campaignType) leadsQuery = leadsQuery.eq('campaign_type', campaignType)
-  if (campaignId) leadsQuery = leadsQuery.eq('campaign_id', campaignId)
-  if (priority) leadsQuery = leadsQuery.eq('dial_priority', priority)
-  if (search) {
-    leadsQuery = leadsQuery.or(
-      `contact_id.eq.${search},` +
-      `contact_first_name.ilike.%${search}%,` +
-      `contact_last_name.ilike.%${search}%,` +
-      `contact_email.ilike.%${search}%,` +
-      `contact_phone.ilike.%${search}%`,
-    )
-  }
-
-  const leadsOffset = (leadsPage - 1) * pageSize
-  leadsQuery = leadsQuery.range(leadsOffset, leadsOffset + pageSize - 1)
+  // ── Left column: today's uncalled leads (awaiting first call) ──
+  // Uses the today_new_leads RPC, filtered to only those without a call record
+  const todayAWST = new Date().toLocaleDateString('en-CA', { timeZone: 'Australia/Perth' })
+  const todayStart = `${todayAWST}T00:00:00${AWST_OFFSET}`
 
   // ── Right column: call_recordings (newest first for activity log) ──
   let callsQuery = supabase
@@ -171,35 +135,44 @@ export async function GET(request: NextRequest) {
     return { data: allRows, error: null }
   }
 
-  // ── Run leads + calls + chart + agent/campaign lookups in parallel ──
-  const [leadsResult, callsResult, chartResult, agentResult, campaignResult] = await Promise.all([
-    leadsQuery,
+  // ── Run uncalled leads RPC + calls + chart + agent/campaign lookups in parallel ──
+  const [todayLeadsResult, callsResult, chartResult, agentResult, campaignResult] = await Promise.all([
+    supabase.rpc('today_new_leads', { today_start: todayStart, today_date: todayAWST }),
     callsQuery,
     fetchAllChartData(),
     supabase.from('agent_mappings').select('agent_name').order('agent_name'),
     supabase.from('lead_loads').select('campaign_id, campaign_type'),
   ])
 
-  if (leadsResult.error) {
-    return NextResponse.json({ error: leadsResult.error.message }, { status: 500 })
+  if (todayLeadsResult.error) {
+    console.error('today_new_leads RPC error:', todayLeadsResult.error)
   }
 
-  // ── Map leads to QueuedLead shape with daily queue position ──
-  // Ordered ASC (chronological): first lead of day = #1 at top
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const leads = ((leadsResult.data || []) as any[]).map((row: Record<string, unknown>, idx: number) => ({
-    id: row.id,
+  // Filter to only uncalled leads (no first_call_at) and map to QueuedLead shape
+  const allTodayLeads = (todayLeadsResult.data ?? []) as {
+    contact_id: string
+    contact_name: string
+    contact_state: string
+    contact_postcode: string
+    lead_date: string
+    loaded_at: string
+    first_call_at: string | null
+    speed_to_lead_seconds: number | null
+  }[]
+  const uncalledLeads = allTodayLeads.filter((r) => r.first_call_at === null)
+  const leads = uncalledLeads.map((row, idx) => ({
+    id: `today-${row.contact_id}`,
     contactId: row.contact_id,
-    contactName: buildName(row.contact_first_name as string | null, row.contact_last_name as string | null),
+    contactName: row.contact_name,
     contactState: row.contact_state || null,
     contactPostcode: row.contact_postcode || null,
-    campaignId: row.campaign_id,
-    campaignType: row.campaign_type,
-    loadedAt: row.created_at,
-    dialPriority: row.dial_priority || 'UNKNOWN',
-    priorityReason: row.priority_reason || '',
-    priorityContext: row.priority_context || null,
-    queuePosition: leadsOffset + idx + 1,
+    campaignId: null,
+    campaignType: null,
+    loadedAt: row.loaded_at,
+    dialPriority: 'NORMAL',
+    priorityReason: '',
+    priorityContext: { lead_date: row.lead_date },
+    queuePosition: idx + 1,
   }))
 
   // ── Resolve contact names + lead context for calls via lead_loads ──
@@ -323,21 +296,18 @@ export async function GET(request: NextRequest) {
   }))
 
   // ── Metrics: compute in parallel ──
-  const today = todayAWST()
   const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString()
 
   const [
     todayCallsResult,
     recentCallsResult,
     recentLeadsResult,
-    summaryResult,
   ] = await Promise.all([
     // Today's calls (for callsToday + connect/booking rates)
-    // Use exact count + large limit to avoid Supabase default 1000-row cap
     supabase
       .from('call_recordings')
       .select('disposition', { count: 'exact' })
-      .gte('call_start', startOfDayAWST(today))
+      .gte('call_start', startOfDayAWST(todayAWST))
       .limit(10000),
     // Calls in last hour
     supabase
@@ -349,8 +319,6 @@ export async function GET(request: NextRequest) {
       .from('lead_loads')
       .select('id', { count: 'exact', head: true })
       .gte('created_at', oneHourAgo),
-    // Summary counts (filtered)
-    getSummary(supabase, from, to, campaignType, priority, search),
   ])
 
   // Calculate rates from today's calls
@@ -382,7 +350,7 @@ export async function GET(request: NextRequest) {
     connectRate: callsToday > 0 ? Math.round((connectedCount / callsToday) * 100) : null,
     bookingRate: connectedCount > 0 ? Math.round((bookedCount / connectedCount) * 100) : null,
     bookingsPerHour: bookingsLastHour ?? 0,
-    avgLeadToCallMinutes: summaryResult.avgLeadToCallMinutes,
+    avgLeadToCallMinutes: null as number | null,
   }
 
   // ── Build available agents list ──
@@ -416,19 +384,24 @@ export async function GET(request: NextRequest) {
     disposition: (row.disposition as string) || 'Unknown',
   }))
 
+  // Compute summary from today's leads RPC data
+  const totalAddedToday = allTodayLeads.length
+  const awaitingCallCount = uncalledLeads.length
+  const calledTodayCount = allTodayLeads.filter((r) => r.first_call_at !== null).length
+
   return NextResponse.json({
     leads,
-    leadsTotal: leadsResult.count ?? 0,
-    leadsPage,
+    leadsTotal: awaitingCallCount,
+    leadsPage: 1,
     calls,
     callsTotal: callsResult.count ?? 0,
     callsPage,
     metrics,
     summary: {
-      totalLoaded: summaryResult.totalLoaded,
-      immediateCount: summaryResult.immediateCount,
-      normalCount: summaryResult.normalCount,
-      calledCount: summaryResult.calledCount,
+      totalLoaded: totalAddedToday,
+      immediateCount: awaitingCallCount,
+      normalCount: 0,
+      calledCount: calledTodayCount,
     },
     availableAgents,
     availableCampaigns,
@@ -436,92 +409,3 @@ export async function GET(request: NextRequest) {
   })
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function getSummary(
-  supabase: any,
-  from: string | null,
-  to: string | null,
-  campaignType: string | null,
-  priority: string | null,
-  search: string | null,
-) {
-  let baseQuery = supabase.from('lead_loads').select('dial_priority, created_at, contact_id', { count: 'exact' })
-  if (from) baseQuery = baseQuery.gte('created_at', startOfDayAWST(from))
-  if (to) baseQuery = baseQuery.lte('created_at', endOfDayAWST(to))
-  if (campaignType) baseQuery = baseQuery.eq('campaign_type', campaignType)
-  if (priority) baseQuery = baseQuery.eq('dial_priority', priority)
-  if (search) {
-    baseQuery = baseQuery.or(
-      `contact_id.eq.${search},` +
-      `contact_first_name.ilike.%${search}%,` +
-      `contact_last_name.ilike.%${search}%,` +
-      `contact_email.ilike.%${search}%,` +
-      `contact_phone.ilike.%${search}%`,
-    )
-  }
-
-  const { data: allLeads, count: totalLoaded } = await baseQuery
-
-  let immediateCount = 0
-  let normalCount = 0
-  if (allLeads) {
-    for (const l of allLeads) {
-      if ((l as Record<string, unknown>).dial_priority === 'IMMEDIATE') immediateCount++
-      else normalCount++
-    }
-  }
-
-  const contactIds = allLeads
-    ? [...new Set(allLeads.map((l: Record<string, unknown>) => l.contact_id as string))]
-    : []
-
-  let calledCount = 0
-  let totalWaitMinutes = 0
-  let waitCount = 0
-
-  if (contactIds.length > 0 && allLeads) {
-    const earliestLoad = allLeads.reduce(
-      (min: string, l: Record<string, unknown>) => ((l.created_at as string) < min ? (l.created_at as string) : min),
-      allLeads[0].created_at as string,
-    )
-
-    const { data: calls } = await supabase
-      .from('call_recordings')
-      .select('hubspot_contact_id, call_start')
-      .in('hubspot_contact_id', contactIds)
-      .gte('call_start', earliestLoad)
-
-    if (calls) {
-      const calledSet = new Set(calls.map((c: Record<string, unknown>) => c.hubspot_contact_id))
-      calledCount = calledSet.size
-
-      const callLookup: Record<string, string> = {}
-      for (const c of calls) {
-        const cid = c.hubspot_contact_id as string
-        if (!callLookup[cid] || (c.call_start as string) < callLookup[cid]) {
-          callLookup[cid] = c.call_start as string
-        }
-      }
-
-      for (const lead of allLeads) {
-        const cid = (lead as Record<string, unknown>).contact_id as string
-        const loadedAt = (lead as Record<string, unknown>).created_at as string
-        if (callLookup[cid]) {
-          const wait = (new Date(callLookup[cid]).getTime() - new Date(loadedAt).getTime()) / 60000
-          if (wait >= 0) {
-            totalWaitMinutes += wait
-            waitCount++
-          }
-        }
-      }
-    }
-  }
-
-  return {
-    totalLoaded: totalLoaded ?? 0,
-    immediateCount,
-    normalCount,
-    calledCount,
-    avgLeadToCallMinutes: waitCount > 0 ? Math.round(totalWaitMinutes / waitCount) : null,
-  }
-}

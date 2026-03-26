@@ -46,46 +46,6 @@ function timeAgo(iso: string): string {
   return `${days}d ago`
 }
 
-interface PriorityBadgeInfo {
-  label: string
-  bg: string
-  text: string
-  border: string
-  tooltip: string
-}
-
-function getPriorityBadge(priority: string, reason: string): PriorityBadgeInfo | null {
-  if (priority === 'IMMEDIATE' && reason === 'reconversion') {
-    return {
-      label: 'Reconversion',
-      bg: 'bg-amber-50',
-      text: 'text-amber-700',
-      border: 'border-amber-200',
-      tooltip: 'Lead date is today but contact was created earlier',
-    }
-  }
-  if (priority === 'IMMEDIATE' && reason === 'recontacted') {
-    return {
-      label: 'Re-contacted',
-      bg: 'bg-amber-50',
-      text: 'text-amber-700',
-      border: 'border-amber-200',
-      tooltip: 'Lead date is today and previously contacted',
-    }
-  }
-  if (priority === 'IMMEDIATE') {
-    return {
-      label: 'Immediate',
-      bg: 'bg-amber-50',
-      text: 'text-amber-700',
-      border: 'border-amber-200',
-      tooltip: 'Immediate priority',
-    }
-  }
-  // New and Standard are the default states — no badge needed
-  return null
-}
-
 interface QueueViewProps {
   selectedDate?: string
   advancedSearch?: boolean
@@ -226,10 +186,7 @@ export default function QueueView({ selectedDate, advancedSearch = false }: Queu
           accent="green"
         />
         <MetricCard label="Bookings / hr" value={metrics.bookingsPerHour} accent="green" />
-        <MetricCard
-          label="Avg Wait"
-          value={metrics.avgLeadToCallMinutes !== null ? `${metrics.avgLeadToCallMinutes}m` : '-'}
-        />
+        <MetricCard label="Awaiting Call" value={summary.immediateCount} accent="amber" />
       </div>
 
       {/* Call outcomes timeline chart */}
@@ -242,10 +199,13 @@ export default function QueueView({ selectedDate, advancedSearch = false }: Queu
           <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <h3 className="text-sm font-semibold text-[#111827]">
-                Queue ({leadsTotal.toLocaleString()})
+                Awaiting Call ({leadsTotal.toLocaleString()})
               </h3>
-              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium">
-                {summary.immediateCount} priority
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 font-medium">
+                {summary.totalLoaded} added today
+              </span>
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">
+                {summary.calledCount} called
               </span>
             </div>
             <div className="flex items-center gap-3">
@@ -259,9 +219,6 @@ export default function QueueView({ selectedDate, advancedSearch = false }: Queu
                   {PAGE_SIZES.map((s) => <option key={s} value={s}>{s}</option>)}
                 </select>
               </div>
-              {leadsTotalPages > 1 && (
-                <Pagination page={leadsPage} totalPages={leadsTotalPages} onPageChange={setLeadsPage} />
-              )}
             </div>
           </div>
           <div className="divide-y divide-gray-100 overflow-y-auto" style={{ maxHeight: '70vh' }}>
@@ -330,12 +287,11 @@ export default function QueueView({ selectedDate, advancedSearch = false }: Queu
 }
 
 function QueueLeadRow({ lead, onTimeline }: { lead: QueuedLead; onTimeline: () => void }) {
-  const badge = getPriorityBadge(lead.dialPriority, lead.priorityReason)
   const hubspotUrl = `https://app.hubspot.com/contacts/${HUBSPOT_PORTAL_ID}/record/0-1/${lead.contactId}`
 
   return (
     <div className="px-3 py-1.5 hover:bg-gray-50/50 transition-colors">
-      {/* Line 1: Name (time ago) — badge */}
+      {/* Line 1: Name (time ago) */}
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-1.5 min-w-0">
           <button
@@ -357,24 +313,14 @@ function QueueLeadRow({ lead, onTimeline }: { lead: QueuedLead; onTimeline: () =
           </a>
           <span className="text-[10px] text-gray-400 flex-shrink-0">{timeAgo(lead.loadedAt)}</span>
         </div>
-        {badge && (
-          <span
-            className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium border flex-shrink-0 ${badge.bg} ${badge.text} ${badge.border}`}
-            title={badge.tooltip}
-          >
-            {badge.label}
-          </span>
-        )}
+        <span className="text-[10px] text-gray-300 flex-shrink-0">awaiting call</span>
       </div>
-      {/* Line 2: Campaign | State Postcode | Lead/Create dates | Contacted */}
+      {/* Line 2: State Postcode */}
       <div className="flex items-center gap-2 text-[10px] text-gray-400">
-        <span className="bg-slate-100 text-slate-600 px-1 py-0.5 rounded font-medium">{lead.campaignType}</span>
         {(lead.contactState || lead.contactPostcode) && (
           <span>{[lead.contactState, lead.contactPostcode].filter(Boolean).join(' ')}</span>
         )}
-        {lead.priorityContext?.lead_date && <span>L:{lead.priorityContext.lead_date}</span>}
-        {lead.priorityContext?.createdate && <span>C:{lead.priorityContext.createdate}</span>}
-        <span>{lead.priorityContext?.num_contacted ?? 0}x contacted</span>
+        {lead.priorityContext?.lead_date && <span>Lead: {new Date(lead.priorityContext.lead_date).toLocaleDateString('en-AU', { timeZone: 'Australia/Perth', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: true })}</span>}
       </div>
     </div>
   )
