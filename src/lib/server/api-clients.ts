@@ -156,12 +156,25 @@ export function getGoogleCalendarClient(): GoogleCalendarClient {
   const saJsonRaw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON
   if (!saJsonRaw) throw new Error('Missing GOOGLE_SERVICE_ACCOUNT_JSON')
 
-  // Handle escaped newlines in env var (e.g. literal \n from .env files)
-  const saJson = saJsonRaw.replace(/\\n/g, '\n')
-  const sa = JSON.parse(saJson) as {
-    client_email: string
-    private_key: string
-    token_uri: string
+  // Parse the service account JSON. The env var may be:
+  // 1. Valid JSON (Vercel) — JSON.parse works directly
+  // 2. Single-line with literal \n (dotenv .env files) — needs special handling
+  let sa: { client_email: string; private_key: string; token_uri: string }
+  try {
+    sa = JSON.parse(saJsonRaw)
+  } catch {
+    // Extract fields directly — handles any \n / quoting format from .env files
+    const emailMatch = saJsonRaw.match(/"client_email"\s*:\s*"([^"]+)"/)
+    const keyMatch = saJsonRaw.match(/"private_key"\s*:\s*"((?:[^"\\]|\\.)*)"/)
+    const uriMatch = saJsonRaw.match(/"token_uri"\s*:\s*"([^"]+)"/)
+    if (!emailMatch || !keyMatch || !uriMatch) {
+      throw new Error('Failed to parse GOOGLE_SERVICE_ACCOUNT_JSON — could not extract required fields')
+    }
+    sa = {
+      client_email: emailMatch[1],
+      private_key: keyMatch[1].replace(/\\n/g, '\n'),
+      token_uri: uriMatch[1],
+    }
   }
 
   let cachedToken: { token: string; expiry: number } | null = null

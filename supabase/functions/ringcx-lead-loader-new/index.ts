@@ -88,6 +88,52 @@ serve(async (req) => {
 
     console.log(`[${CAMPAIGN_TYPE}] Contact has campaign ID: ${campaignId}`);
 
+    // ── Guard: skip if contact is already active in another campaign (especially HOT) ──
+    // Prevents HOT leads from being duplicated into NEW, which would bypass the 72h priority window
+    const { data: existingRouting } = await supabaseClient
+      .from("ringcx_lead_routing")
+      .select("ringcx_lead_id, current_campaign_id, current_tier")
+      .eq("contact_id", contactId)
+      .is("removed_at", null)
+      .maybeSingle();
+
+    if (existingRouting?.ringcx_lead_id) {
+      const msg = `Contact ${contactId} already active in ${existingRouting.current_tier} campaign ${existingRouting.current_campaign_id} (lead ${existingRouting.ringcx_lead_id}) — skipping ${CAMPAIGN_TYPE} loader to prevent duplicate`;
+      console.log(`[${CAMPAIGN_TYPE}] ${msg}`);
+
+      await supabaseClient.from("lead_routing_events").insert({
+        contact_id: contactId,
+        event_type: "skipped_duplicate",
+        from_campaign_id: null,
+        to_campaign_id: campaignId,
+        from_tier: existingRouting.current_tier,
+        to_tier: CAMPAIGN_TYPE.toUpperCase(),
+        ringcx_lead_id: existingRouting.ringcx_lead_id,
+        details: {
+          source: `ringcx-lead-loader-${CAMPAIGN_TYPE.toLowerCase()}`,
+          reason: "contact_already_active_in_campaign",
+          existing_tier: existingRouting.current_tier,
+          existing_campaign: existingRouting.current_campaign_id,
+        },
+      }).then(() => {}).catch((e: unknown) => console.warn("Failed to log routing event:", e));
+
+      await updateHubSpotContact(contactId, hubspotAccessToken, {
+        ringcx_load_status: `[${CAMPAIGN_TYPE}] Skipped — already in ${existingRouting.current_tier} campaign ${existingRouting.current_campaign_id} (lead ${existingRouting.ringcx_lead_id})`,
+      });
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          skipped: true,
+          reason: "contact_already_active",
+          existingTier: existingRouting.current_tier,
+          existingCampaign: existingRouting.current_campaign_id,
+          contactId,
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200 }
+      );
+    }
+
     const { token: ringcxAccessToken, error: tokenError } = await getRingCentralAccessToken(supabaseClient);
 
     if (!ringcxAccessToken) {
