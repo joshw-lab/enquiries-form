@@ -3,7 +3,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import type { DashboardTab, PipelineResponse, SyncResponse, CalendarResponse } from '@/lib/dashboard-types'
 import PipelineView from './pipeline/PipelineView'
-import SyncView from './SyncView'
 import QueueView from './QueueView'
 import AgentLeadsRepModal from './AgentLeadsRepModal'
 
@@ -55,9 +54,9 @@ export default function OperationsDashboard() {
     setSelectedDate(newDate)
   }
 
-  // Snap to Activity when Pipeline/Sync become unavailable
+  // Snap to Activity when Pipeline becomes unavailable
   useEffect(() => {
-    if ((!isToday || advancedSearch) && (activeTab === 'pipeline' || activeTab === 'sync')) {
+    if ((!isToday || advancedSearch) && activeTab === 'pipeline') {
       setActiveTab('activity')
     }
   }, [isToday, advancedSearch, activeTab])
@@ -115,7 +114,7 @@ export default function OperationsDashboard() {
       refreshTimerRef.current = null
     }
 
-    if (activeTab === 'pipeline' || activeTab === 'sync') {
+    if (activeTab === 'pipeline') {
       refreshTimerRef.current = setInterval(fetchDashboardData, 60_000)
     }
 
@@ -123,11 +122,6 @@ export default function OperationsDashboard() {
       if (refreshTimerRef.current) clearInterval(refreshTimerRef.current)
     }
   }, [activeTab, fetchDashboardData])
-
-  // Sync badge count
-  const syncIssueCount = syncData
-    ? syncData.campaigns.filter((c) => c.delta !== 0).length
-    : 0
 
   async function handleLogout() {
     await fetch('/api/reports/auth', {
@@ -180,29 +174,6 @@ export default function OperationsDashboard() {
                   title={pipelineDisabled ? 'Only available for today' : undefined}
                 >
                   Pipeline
-                </button>
-              )
-            })()}
-            {(() => {
-              const syncDisabled = !isToday || advancedSearch
-              return (
-                <button
-                  onClick={() => !syncDisabled && setActiveTab('sync')}
-                  className={`px-4 py-1.5 rounded-md text-[12px] font-medium transition-all flex items-center gap-1.5 ${
-                    syncDisabled
-                      ? 'text-gray-300 cursor-default'
-                      : activeTab === 'sync'
-                        ? 'bg-white text-[#111827] shadow-sm cursor-pointer'
-                        : 'text-gray-500 hover:text-gray-700 cursor-pointer'
-                  }`}
-                  title={syncDisabled ? 'Only available for today' : undefined}
-                >
-                  Sync
-                  {!syncDisabled && syncIssueCount > 0 && (
-                    <span className="text-[10px] font-bold px-1.5 py-px rounded-full bg-red-100 text-red-600">
-                      {syncIssueCount}
-                    </span>
-                  )}
                 </button>
               )
             })()}
@@ -281,9 +252,6 @@ export default function OperationsDashboard() {
             syncData={syncData}
             onRefresh={fetchDashboardData}
           />
-        )}
-        {activeTab === 'sync' && (
-          <SyncView data={syncData} onRefresh={fetchDashboardData} />
         )}
         {activeTab === 'activity' && (
           <QueueView
