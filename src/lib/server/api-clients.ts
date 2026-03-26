@@ -153,9 +153,11 @@ export interface GoogleCalendarClient {
 }
 
 export function getGoogleCalendarClient(): GoogleCalendarClient {
-  const saJson = process.env.GOOGLE_SERVICE_ACCOUNT_JSON
-  if (!saJson) throw new Error('Missing GOOGLE_SERVICE_ACCOUNT_JSON')
+  const saJsonRaw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON
+  if (!saJsonRaw) throw new Error('Missing GOOGLE_SERVICE_ACCOUNT_JSON')
 
+  // Handle escaped newlines in env var (e.g. literal \n from .env files)
+  const saJson = saJsonRaw.replace(/\\n/g, '\n')
   const sa = JSON.parse(saJson) as {
     client_email: string
     private_key: string
