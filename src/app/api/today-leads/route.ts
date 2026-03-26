@@ -18,7 +18,8 @@ export async function GET() {
   const todayStart = `${todayAWST}T00:00:00${AWST_OFFSET}`
 
   // Fetch today's new leads with their first call time
-  const { data, error } = await supabase.rpc('today_new_leads', { today_start: todayStart })
+  // Pass today_date explicitly to avoid UTC timezone cast issues in Postgres
+  const { data, error } = await supabase.rpc('today_new_leads', { today_start: todayStart, today_date: todayAWST })
 
   if (error) {
     console.error('today_new_leads RPC error:', error)

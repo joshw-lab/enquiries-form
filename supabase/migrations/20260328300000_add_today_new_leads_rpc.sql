@@ -1,6 +1,7 @@
 -- Returns today's new leads with their first call time for speed-to-lead display.
 -- Used by the DrillPanel modal third column.
-CREATE OR REPLACE FUNCTION today_new_leads(today_start timestamptz)
+-- Accepts today_date as a plain date to avoid UTC timezone cast issues.
+CREATE OR REPLACE FUNCTION today_new_leads(today_start timestamptz, today_date date DEFAULT NULL)
 RETURNS TABLE (
   contact_id text,
   contact_name text,
@@ -15,6 +16,8 @@ LANGUAGE plpgsql
 STABLE
 SET statement_timeout = '10s'
 AS $$
+DECLARE
+  filter_date date := COALESCE(today_date, today_start::date);
 BEGIN
   RETURN QUERY
   SELECT
@@ -41,7 +44,7 @@ BEGIN
       l.created_at
     FROM lead_loads l
     WHERE l.priority_context->>'lead_date' IS NOT NULL
-      AND (l.priority_context->>'lead_date')::date >= today_start::date
+      AND (l.priority_context->>'lead_date')::date >= filter_date
       AND l.contact_state IS NOT NULL
     ORDER BY l.contact_id, l.created_at DESC
   ) ll
