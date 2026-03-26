@@ -107,8 +107,8 @@ export default function RegionCard({ data, syncCampaigns, isSelected, onClick }:
         </div>
         <div className="flex flex-col items-end gap-0.5">
           <span className={`w-2 h-2 rounded-full mt-0.5 ${statusDot}`} />
-          <div className="flex items-center gap-1 text-[11px] text-gray-600">
-            <span>avg&nbsp;resp:</span>
+          <div className="flex items-center gap-1 text-[11px] text-gray-600" title="Today's avg time from lead loaded to first call">
+            <span>speed&nbsp;to&nbsp;lead:</span>
             <span className={`text-[12px] font-bold ${respClass(data.avgResponseHours)}`}>{data.avgResponseTime}</span>
           </div>
         </div>
