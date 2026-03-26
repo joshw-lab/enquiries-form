@@ -32,6 +32,7 @@ serve(async (req) => {
       .select("*")
       .eq("current_tier", "NEW")
       .is("moved_to_old_at", null)
+      .is("removed_at", null)
       .lte("lead_date", cutoff)
       .limit(BATCH_SIZE);
 
@@ -144,6 +145,19 @@ serve(async (req) => {
             updated_at: now,
           })
           .eq("id", lead.id);
+
+        // Log routing event
+        const { error: evtErr } = await supabaseClient.from("lead_routing_events").insert({
+          contact_id: lead.contact_id,
+          event_type: "moved_new_to_old",
+          from_campaign_id: sourceCampaign,
+          to_campaign_id: destCampaign,
+          from_tier: "NEW",
+          to_tier: "OLD",
+          ringcx_lead_id: lead.ringcx_lead_id,
+          details: { lead_date: lead.lead_date, source: "aging_cron" },
+        });
+        if (evtErr) console.warn("Failed to log routing event:", evtErr);
 
         // Update HubSpot: set old campaign ID + clear status
         if (hubspotAccessToken) {

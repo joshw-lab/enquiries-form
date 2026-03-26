@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   corsHeaders,
+  CAMPAIGN_TIMEZONE,
   HubSpotListWebhookPayload,
   RingCXLeadData,
   getRingCentralAccessToken,
@@ -16,6 +17,17 @@ import {
 import { notifyGChatError } from "../_shared/gchat-notify.ts";
 
 const AGING_THRESHOLD_HOURS = 72;
+const OLD_THRESHOLD_HOURS = 90 * 24; // 2160 hours = 90 days
+
+// Fallback mapping: New campaign ID → Old campaign ID (by state)
+const NEW_TO_OLD: Record<string, string> = {
+  "222": "223", // WA
+  "226": "227", // QLD
+  "230": "231", // NSW
+  "234": "235", // ACT
+  "238": "239", // VIC
+  "242": "243", // SA
+};
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -108,9 +120,9 @@ serve(async (req) => {
       );
     }
 
-    // Determine tier: HOT if lead_date < 72h ago, otherwise push straight to NEW
+    // Determine tier: HOT (<72h), NEW (72h–90d), OLD (>90d)
     const leadDateStr = properties.lead_date || properties.createdate;
-    let tier: "HOT" | "NEW" = "HOT";
+    let tier: "HOT" | "NEW" | "OLD" = "HOT";
     let targetCampaignId = hotCampaignId;
     let dialPriority: "IMMEDIATE" | "NORMAL" = "IMMEDIATE";
     let ageHours: number | null = null;
@@ -119,7 +131,11 @@ serve(async (req) => {
       const leadDateMs = new Date(leadDateStr).getTime();
       ageHours = Math.round(((Date.now() - leadDateMs) / (1000 * 60 * 60)) * 10) / 10;
 
-      if (ageHours >= AGING_THRESHOLD_HOURS) {
+      if (ageHours >= OLD_THRESHOLD_HOURS) {
+        tier = "OLD";
+        targetCampaignId = oldCampaignId || NEW_TO_OLD[newCampaignId] || newCampaignId;
+        dialPriority = "NORMAL";
+      } else if (ageHours >= AGING_THRESHOLD_HOURS) {
         tier = "NEW";
         targetCampaignId = newCampaignId;
         dialPriority = "NORMAL";
@@ -147,6 +163,109 @@ serve(async (req) => {
       );
     }
 
+    // Pre-check: look up existing routing in Supabase first (fast, no RingCX API calls)
+    const { data: existingRouting } = await supabaseClient
+      .from("ringcx_lead_routing")
+      .select("ringcx_lead_id, current_campaign_id, current_tier")
+      .eq("contact_id", contactId)
+      .is("removed_at", null)
+      .maybeSingle();
+
+    if (existingRouting?.ringcx_lead_id) {
+      console.log(`[LeadIngest] Lead already exists in ${existingRouting.current_tier} campaign ${existingRouting.current_campaign_id} (leadId=${existingRouting.ringcx_lead_id}) — skipping push to preserve RingCX state`);
+
+      // Log duplicate skip event
+      const { error: evtErr } = await supabaseClient.from("lead_routing_events").insert({
+        contact_id: contactId,
+        event_type: "skipped_duplicate",
+        from_campaign_id: null,
+        to_campaign_id: existingRouting.current_campaign_id,
+        from_tier: null,
+        to_tier: existingRouting.current_tier,
+        ringcx_lead_id: existingRouting.ringcx_lead_id,
+        details: {
+          requested_tier: tier,
+          requested_campaign: targetCampaignId,
+          age_hours: ageHours,
+          reason: "lead_already_exists_in_ringcx",
+        },
+      });
+      if (evtErr) console.warn("Failed to log routing event:", evtErr);
+
+      await updateHubSpotContact(contactId, hubspotAccessToken, {
+        ringcx_load_status: `[Ingest] Skipped — already in ${existingRouting.current_tier} campaign ${existingRouting.current_campaign_id} (lead ${existingRouting.ringcx_lead_id}). Preserved existing RingCX state.`,
+      });
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          skipped: true,
+          reason: "lead_already_exists",
+          existingCampaignId: existingRouting.current_campaign_id,
+          existingLeadId: existingRouting.ringcx_lead_id,
+          existingTier: existingRouting.current_tier,
+          contactId,
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200 }
+      );
+    }
+
+    // Check for recently archived terminal dispositions — prevent re-ingestion loop
+    const { data: archivedRouting } = await supabaseClient
+      .from("ringcx_lead_routing")
+      .select("contact_id, removal_reason, removed_at, current_campaign_id, ringcx_lead_id")
+      .eq("contact_id", contactId)
+      .not("removed_at", "is", null)
+      .like("removal_reason", "disposition:%")
+      .order("removed_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (archivedRouting?.removed_at) {
+      const daysSinceRemoval = (Date.now() - new Date(archivedRouting.removed_at).getTime()) / (1000 * 60 * 60 * 24);
+      const REINGEST_COOLDOWN_DAYS = 30;
+
+      if (daysSinceRemoval < REINGEST_COOLDOWN_DAYS) {
+        const disposition = archivedRouting.removal_reason?.replace("disposition:", "") || "unknown";
+        console.log(`[LeadIngest] Contact ${contactId} was disposed "${disposition}" ${Math.round(daysSinceRemoval)}d ago — blocking re-ingestion (cooldown ${REINGEST_COOLDOWN_DAYS}d)`);
+
+        await supabaseClient.from("lead_routing_events").insert({
+          contact_id: contactId,
+          event_type: "skipped_previously_disposed",
+          from_campaign_id: null,
+          to_campaign_id: targetCampaignId,
+          from_tier: "ARCHIVED",
+          to_tier: tier,
+          ringcx_lead_id: archivedRouting.ringcx_lead_id,
+          details: {
+            original_disposition: disposition,
+            days_since_removal: Math.round(daysSinceRemoval),
+            cooldown_days: REINGEST_COOLDOWN_DAYS,
+            archived_from_campaign: archivedRouting.current_campaign_id,
+          },
+        }).then(() => {}).catch((e: unknown) => console.warn("Failed to log skip event:", e));
+
+        await updateHubSpotContact(contactId, hubspotAccessToken, {
+          ringcx_load_status: `[Ingest] Blocked — previously disposed "${disposition}" ${Math.round(daysSinceRemoval)}d ago. Cooldown ${REINGEST_COOLDOWN_DAYS}d.`,
+        });
+
+        return new Response(
+          JSON.stringify({
+            success: true,
+            skipped: true,
+            reason: "previously_disposed",
+            disposition,
+            daysSinceRemoval: Math.round(daysSinceRemoval),
+            cooldownDays: REINGEST_COOLDOWN_DAYS,
+            contactId,
+          }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200 }
+        );
+      }
+    }
+
+    console.log(`[LeadIngest] No existing routing found — proceeding with push`);
+
     // Build lead data
     const numContacted = parseInt(properties.num_contacted_notes || "0", 10);
     const leadData: RingCXLeadData = {
@@ -163,8 +282,11 @@ serve(async (req) => {
       numContacted,
     };
 
+    // Resolve timezone from newCampaignId as fallback (always in CAMPAIGN_TIMEZONE map)
+    const tzOverride = CAMPAIGN_TIMEZONE[Number(newCampaignId)];
+
     // Push to RingCX
-    const result = await pushLeadToRingCX(targetCampaignId, leadData, ringcxToken, dialPriority);
+    const result = await pushLeadToRingCX(targetCampaignId, leadData, ringcxToken, dialPriority, tzOverride);
 
     if (!result.success) {
       await supabaseClient.from("error_log").insert({
@@ -194,6 +316,24 @@ serve(async (req) => {
     const searchResult = await searchLeadInCampaign(targetCampaignId, contactId, ringcxToken);
     const leadId = searchResult.success ? searchResult.leadId : result.leadId;
 
+    // Log routing event
+    const { error: ingestEvtErr } = await supabaseClient.from("lead_routing_events").insert({
+      contact_id: contactId,
+      event_type: "ingested",
+      from_campaign_id: null,
+      to_campaign_id: targetCampaignId,
+      from_tier: null,
+      to_tier: tier,
+      ringcx_lead_id: leadId || null,
+      details: {
+        dial_priority: dialPriority,
+        age_hours: ageHours,
+        lead_date: leadDateStr || null,
+        num_contacted: parseInt(properties.num_contacted_notes || "0", 10),
+      },
+    });
+    if (ingestEvtErr) console.warn("Failed to log routing event:", ingestEvtErr);
+
     // Record in lead_loads (existing pattern for hourly reporting)
     await supabaseClient.from("lead_loads").insert({
       contact_id: contactId,
@@ -201,7 +341,7 @@ serve(async (req) => {
       campaign_type: tier,
       lead_id: leadId || null,
       dial_priority: dialPriority,
-      priority_reason: tier === "HOT" ? "hot_lead" : "aged_into_new",
+      priority_reason: tier === "HOT" ? "hot_lead" : tier === "OLD" ? "aged_into_old" : "aged_into_new",
       priority_context: { lead_date: leadDateStr || null, age_hours: ageHours, tier },
       contact_first_name: properties.firstname || null,
       contact_last_name: properties.lastname || null,
@@ -209,7 +349,8 @@ serve(async (req) => {
       contact_postcode: properties.zip || null,
       contact_email: properties.email || null,
       contact_phone: phone1 || phone2 || null,
-    }).then(() => {}).catch((err: unknown) => console.warn("Failed to log lead load:", err));
+    });
+    // lead_loads insert is non-critical — errors logged but don't block
 
     // Upsert into ringcx_lead_routing
     const now = new Date().toISOString();
@@ -223,7 +364,8 @@ serve(async (req) => {
       ringcx_lead_id: leadId || null,
       lead_date: leadDateStr || now,
       ingested_at: now,
-      moved_to_new_at: tier === "NEW" ? now : null,
+      moved_to_new_at: tier === "NEW" || tier === "OLD" ? now : null,
+      moved_to_old_at: tier === "OLD" ? now : null,
       contact_state: properties.state || null,
       contact_phone: phone1 || phone2 || null,
       updated_at: now,

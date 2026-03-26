@@ -1094,14 +1094,14 @@ serve(async (req) => {
         // Don't fail the entire request if note creation fails
       }
 
-      // Look up HubSpot owner ID from agent_mappings by agent name
+      // Look up HubSpot owner ID from agent_mappings by leads_rep or agent_name
       let hubspotOwnerId: string | null = null;
       if (payload.leadsRep) {
         try {
           const { data: agentMapping } = await supabaseClient
             .from("agent_mappings")
             .select("hubspot_owner_id")
-            .eq("agent_name", payload.leadsRep)
+            .or(`leads_rep.eq.${payload.leadsRep},agent_name.eq.${payload.leadsRep}`)
             .not("hubspot_owner_id", "is", null)
             .limit(1)
             .maybeSingle();

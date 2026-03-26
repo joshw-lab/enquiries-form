@@ -50,3 +50,15 @@ verify_jwt = false
 
 [functions.ringcx-lead-aging-new]
 verify_jwt = false
+
+[functions.hubspot-get-contact]
+verify_jwt = false
+
+[functions.hubspot-form-submission]
+verify_jwt = false
+
+[functions.check-hubspot-properties]
+verify_jwt = false
+
+[functions.ringcx-lead-reconcile]
+verify_jwt = false

@@ -4,6 +4,7 @@ import {
   RINGCX_ACCOUNT_ID,
   RINGCX_API_BASE,
   getRingCentralAccessToken,
+  searchLeadInCampaign,
 } from "../_shared/ringcx-lead-loader-base.ts";
 
 const corsHeaders = {
@@ -496,10 +497,10 @@ function mapDispositionToHubSpot(disposition: string): string {
 async function verifyContactExists(
   contactId: string,
   accessToken: string
-): Promise<{ exists: boolean; contact?: { firstname?: string; lastname?: string; phone?: string; num_contacted_notes?: string } }> {
+): Promise<{ exists: boolean; contact?: { firstname?: string; lastname?: string; phone?: string } }> {
   try {
     const response = await fetch(
-      `${HUBSPOT_API_BASE}/crm/v3/objects/contacts/${contactId}?properties=firstname,lastname,phone,num_contacted_notes`,
+      `${HUBSPOT_API_BASE}/crm/v3/objects/contacts/${contactId}?properties=firstname,lastname,phone`,
       {
         method: "GET",
         headers: {
@@ -517,7 +518,6 @@ async function verifyContactExists(
           firstname: data.properties?.firstname,
           lastname: data.properties?.lastname,
           phone: data.properties?.phone,
-          num_contacted_notes: data.properties?.num_contacted_notes,
         }
       };
     }
@@ -1205,11 +1205,7 @@ serve(async (req) => {
         n0_ringcx_call_notes: "Yes",
       };
 
-      // Increment num_contacted_notes (syncs RingCX pass count with HubSpot)
-      const currentCount = parseInt(contactVerification.contact?.num_contacted_notes || "0", 10);
-      const newCount = (isNaN(currentCount) ? 0 : currentCount) + 1;
-      contactProperties.num_contacted_notes = String(newCount);
-      console.log(`📊 Incrementing num_contacted_notes: ${currentCount} → ${newCount}`);
+      // num_contacted_notes is now a read-only calculated property in HubSpot — skip update
 
       // Only set leads_rep if we have a real agent (not system-level pass)
       const hasRealAgent = agentMapping.leadsRep ||
@@ -1258,62 +1254,226 @@ serve(async (req) => {
       // Non-fatal — don't fail the webhook response
     }
 
-    // ── HOT lead priority maintenance ──────────────────────────
-    // If this contact is in the HOT tier, re-push the lead with IMMEDIATE priority
-    // so it doesn't get deprioritized after a no-answer pass.
-    try {
-      const { data: routing } = await supabaseClient
-        .from("ringcx_lead_routing")
-        .select("current_tier, current_campaign_id, ringcx_lead_id")
-        .eq("contact_id", contactId)
-        .eq("current_tier", "HOT")
-        .maybeSingle();
+    // ── Terminal disposition → move lead to archive campaign ──────────
+    // When an agent dispositions a call as booked, not interested, wrong number,
+    // etc., move the lead to the archive campaign so they stop being called
+    // but retain history for potential reactivation.
+    const ARCHIVE_CAMPAIGN_ID = 289;
+    const TERMINAL_DISPOSITIONS = new Set([
+      "booked_test", "booked", "book_water_test", "booked_water_test",
+      "booked_test_single_leg", "booked_single_leg", "single_leg",
+      "not_interested", "not_intrested", "ni",
+      "wrong_number", "wrongnumber", "wrong", "invalid_number",
+      "other_departments", "other_department", "transfer",
+      "unable_to_service", "cannot_service", "out_of_area",
+      "do_not_call", "donotcall", "dnc", "do_not_register",
+      "not_qualified", "notqualified", "nq",
+      "internal_closed_deal", "closed_deal",
+      "internal_deposit_taken", "deposit_taken", "deposit",
+    ]);
 
-      if (routing) {
-        console.log(`🔥 HOT lead ${contactId} — re-pushing with IMMEDIATE priority after ${disposition}`);
-        const { token: ringcxToken } = await getRingCentralAccessToken(supabaseClient);
-        if (ringcxToken) {
-          // Re-upload the lead with REMOVE_ALL_EXISTING + IMMEDIATE to reset priority
-          const reloadUrl = `${RINGCX_API_BASE}/admin/accounts/${RINGCX_ACCOUNT_ID}/campaigns/${routing.current_campaign_id}/leadLoader/direct`;
-          const reloadBody = {
-            description: `Priority reset after ${disposition}`,
-            listState: "ACTIVE",
-            fileType: "COMMA",
-            duplicateHandling: "REMOVE_ALL_EXISTING",
-            timeZoneOption: "NPA_NXX",
-            dialPriority: "IMMEDIATE",
-            phoneNumbersI18nEnabled: true,
-            internationalNumberFormat: true,
-            numberOriginCountry: "e164",
-            uploadLeads: [{
-              externId: contactId,
-              leadPhone: customerPhone || formatPhoneNumber(payload.ani),
-            }],
-            dncTags: [],
-          };
+    const normalizedDisposition = (payload.disposition || "")
+      .toLowerCase().replace(/\s+/g, "_").replace(/-/g, "_");
 
-          const reloadResp = await fetch(reloadUrl, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${ringcxToken}`,
-            },
-            body: JSON.stringify(reloadBody),
-          });
+    if (TERMINAL_DISPOSITIONS.has(normalizedDisposition)) {
+      try {
+        // Look up the lead's current routing to get campaign + lead ID
+        const { data: routing } = await supabaseClient
+          .from("ringcx_lead_routing")
+          .select("current_campaign_id, ringcx_lead_id, current_tier")
+          .eq("contact_id", contactId)
+          .is("removed_at", null)
+          .maybeSingle();
 
-          const reloadText = await reloadResp.text();
-          if (reloadResp.ok) {
-            console.log(`✅ HOT lead ${contactId} priority reset to IMMEDIATE (campaign ${routing.current_campaign_id})`);
+        if (routing?.current_campaign_id) {
+          const sourceCampaignId = parseInt(routing.current_campaign_id, 10);
+          let leadId = routing.ringcx_lead_id ? parseInt(routing.ringcx_lead_id, 10) : 0;
+
+          // If we have the campaign but no lead ID, search for it
+          if (!leadId && sourceCampaignId !== ARCHIVE_CAMPAIGN_ID) {
+            const { token: searchToken } = await getRingCentralAccessToken(supabaseClient);
+            if (searchToken) {
+              const searchResult = await searchLeadInCampaign(String(sourceCampaignId), contactId, searchToken);
+              if (searchResult.success && searchResult.leadId) {
+                leadId = parseInt(searchResult.leadId, 10);
+                console.log(`📦 Found lead ID ${leadId} for ${contactId} in campaign ${sourceCampaignId} via search`);
+              }
+            }
+          }
+
+          if (!leadId) {
+            console.log(`📦 Terminal disposition "${payload.disposition}" for ${contactId} — routing exists (campaign ${sourceCampaignId}) but lead not found in RingCX`);
+          } else
+
+          if (sourceCampaignId === ARCHIVE_CAMPAIGN_ID) {
+            console.log(`📦 Lead ${contactId} already in archive campaign — skipping move`);
           } else {
-            console.error(`⚠️ HOT lead priority reset failed: ${reloadResp.status} ${reloadText}`);
+            console.log(`📦 Terminal disposition "${payload.disposition}" — moving contact ${contactId} (lead ${leadId}) from campaign ${sourceCampaignId} to archive ${ARCHIVE_CAMPAIGN_ID}`);
+
+            const { token: ringcxToken } = await getRingCentralAccessToken(supabaseClient);
+            if (ringcxToken) {
+              const moveUrl = `${RINGCX_API_BASE}/admin/accounts/${RINGCX_ACCOUNT_ID}/campaignLeads/actions?leadAction=MOVE_TO_CAMPAIGN`;
+              const moveBody = {
+                campaignLeadSearchCriteria: {
+                  campaignId: sourceCampaignId,
+                  leadIds: [leadId],
+                  listIds: [],
+                  agentDispositions: [],
+                  systemDispositions: [],
+                  leadStates: [],
+                  physicalStates: [],
+                  leadTimezones: [],
+                  campaignIds: [sourceCampaignId],
+                },
+                leadActionParams: {
+                  paramMap: {
+                    CAMPAIGN_ID: ARCHIVE_CAMPAIGN_ID.toString(),
+                    LIST_ID: "0",
+                    LIST_NAME: `Archived — ${payload.disposition}`,
+                    CREATE_COPY_SETTING: "false",
+                    DUPLICATE_ACTION_SETTING: "MOVE",
+                  },
+                },
+              };
+
+              const moveResp = await fetch(moveUrl, {
+                method: "PUT",
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization: `Bearer ${ringcxToken}`,
+                },
+                body: JSON.stringify(moveBody),
+              });
+
+              const moveText = await moveResp.text();
+              if (moveResp.ok) {
+                console.log(`✅ Lead ${contactId} moved to archive campaign ${ARCHIVE_CAMPAIGN_ID} after "${payload.disposition}"`);
+
+                // Update routing record
+                await supabaseClient
+                  .from("ringcx_lead_routing")
+                  .update({
+                    removed_at: new Date().toISOString(),
+                    removal_reason: `disposition:${normalizedDisposition}`,
+                    current_tier: "ARCHIVED",
+                    current_campaign_id: ARCHIVE_CAMPAIGN_ID.toString(),
+                  })
+                  .eq("contact_id", contactId)
+                  .is("removed_at", null);
+
+                // Log routing event
+                await supabaseClient.from("lead_routing_events").insert({
+                  contact_id: contactId,
+                  event_type: "disposition_archived",
+                  from_campaign_id: sourceCampaignId.toString(),
+                  to_campaign_id: ARCHIVE_CAMPAIGN_ID.toString(),
+                  from_tier: routing.current_tier,
+                  to_tier: "ARCHIVED",
+                  ringcx_lead_id: routing.ringcx_lead_id,
+                  details: { reason: `terminal_disposition:${normalizedDisposition}` },
+                }).then(() => {}).catch((e: unknown) => console.warn("Failed to log archive event:", e));
+              } else {
+                console.error(`⚠️ Move to archive failed for ${contactId}: ${moveResp.status} ${moveText}`);
+              }
+            } else {
+              console.warn("⚠️ Could not get RingCX token for archive move");
+            }
           }
         } else {
-          console.warn("⚠️ Could not get RingCX token for HOT lead priority reset");
+          // Fallback: no routing record (pre-routing leads). Search RingCX directly.
+          console.log(`📦 Terminal disposition "${payload.disposition}" for ${contactId} — no routing record, searching RingCX campaigns directly`);
+
+          // All active campaigns: HOT (272-277) + NEW (222,226,230,234,238,242) + OLD (223,227,231,235,239,243) + legacy (182)
+          const ALL_ACTIVE_CAMPAIGN_IDS = [182, 222, 223, 226, 227, 230, 231, 234, 235, 238, 239, 242, 243, 272, 273, 274, 275, 276, 277];
+          const { token: fallbackToken } = await getRingCentralAccessToken(supabaseClient);
+
+          if (fallbackToken) {
+            // Search all campaigns in parallel for the lead
+            const searchResults = await Promise.all(
+              ALL_ACTIVE_CAMPAIGN_IDS.map(async (cid) => {
+                const result = await searchLeadInCampaign(String(cid), contactId, fallbackToken);
+                return result.success ? { campaignId: cid, leadId: result.leadId! } : null;
+              })
+            );
+
+            const found = searchResults.find((r) => r !== null);
+            if (found) {
+              console.log(`📦 Found lead ${contactId} in campaign ${found.campaignId} (leadId=${found.leadId}) — moving to archive`);
+
+              const moveUrl = `${RINGCX_API_BASE}/admin/accounts/${RINGCX_ACCOUNT_ID}/campaignLeads/actions?leadAction=MOVE_TO_CAMPAIGN`;
+              const moveBody = {
+                campaignLeadSearchCriteria: {
+                  campaignId: found.campaignId,
+                  leadIds: [parseInt(found.leadId, 10)],
+                  listIds: [],
+                  agentDispositions: [],
+                  systemDispositions: [],
+                  leadStates: [],
+                  physicalStates: [],
+                  leadTimezones: [],
+                  campaignIds: [found.campaignId],
+                },
+                leadActionParams: {
+                  paramMap: {
+                    CAMPAIGN_ID: ARCHIVE_CAMPAIGN_ID.toString(),
+                    LIST_ID: "0",
+                    LIST_NAME: `Archived — ${payload.disposition} (fallback)`,
+                    CREATE_COPY_SETTING: "false",
+                    DUPLICATE_ACTION_SETTING: "MOVE",
+                  },
+                },
+              };
+
+              const moveResp = await fetch(moveUrl, {
+                method: "PUT",
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization: `Bearer ${fallbackToken}`,
+                },
+                body: JSON.stringify(moveBody),
+              });
+
+              const moveText = await moveResp.text();
+              if (moveResp.ok) {
+                console.log(`✅ Fallback: Lead ${contactId} moved to archive from campaign ${found.campaignId}`);
+
+                // Create retroactive routing record
+                await supabaseClient.from("ringcx_lead_routing").insert({
+                  contact_id: contactId,
+                  current_campaign_id: ARCHIVE_CAMPAIGN_ID.toString(),
+                  current_tier: "ARCHIVED",
+                  ringcx_lead_id: found.leadId,
+                  removed_at: new Date().toISOString(),
+                  removal_reason: `disposition:${normalizedDisposition}`,
+                  lead_date: new Date().toISOString(),
+                  ingested_at: new Date().toISOString(),
+                }).then(() => {}).catch((e: unknown) => console.warn("Failed to create retroactive routing:", e));
+
+                // Log routing event
+                await supabaseClient.from("lead_routing_events").insert({
+                  contact_id: contactId,
+                  event_type: "disposition_archived_fallback",
+                  from_campaign_id: found.campaignId.toString(),
+                  to_campaign_id: ARCHIVE_CAMPAIGN_ID.toString(),
+                  from_tier: "UNKNOWN",
+                  to_tier: "ARCHIVED",
+                  ringcx_lead_id: found.leadId,
+                  details: { reason: `terminal_disposition:${normalizedDisposition}`, fallback: true },
+                }).then(() => {}).catch((e: unknown) => console.warn("Failed to log fallback archive event:", e));
+              } else {
+                console.error(`⚠️ Fallback move to archive failed for ${contactId}: ${moveResp.status} ${moveText}`);
+              }
+            } else {
+              console.log(`📦 Lead ${contactId} not found in any active campaign — may have been removed already`);
+            }
+          } else {
+            console.warn("⚠️ Could not get RingCX token for fallback archive search");
+          }
         }
+      } catch (archiveErr) {
+        console.error(`Error archiving lead ${contactId} after terminal disposition:`, archiveErr);
+        // Non-fatal — don't fail the webhook response
       }
-    } catch (priorityErr) {
-      console.error("Error in HOT lead priority reset:", priorityErr);
-      // Non-fatal — don't fail the webhook response
     }
 
     // Update webhook log status to processed

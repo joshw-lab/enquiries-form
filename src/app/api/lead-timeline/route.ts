@@ -50,7 +50,7 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  // 2. Lead routing — tier changes (HOT→NEW→OLD)
+  // 2. Lead routing state (for header/context)
   const { data: routing } = await supabase
     .from('ringcx_lead_routing')
     .select('*')
@@ -58,8 +58,70 @@ export async function GET(request: NextRequest) {
     .limit(1)
     .maybeSingle()
 
-  if (routing) {
-    // Ingest event
+  // 2b. Lead routing events — granular activity log
+  const { data: routingEvents } = await supabase
+    .from('lead_routing_events')
+    .select('*')
+    .eq('contact_id', contactId)
+    .order('created_at', { ascending: true })
+
+  if (routingEvents) {
+    for (const evt of routingEvents) {
+      const details = (evt.details as Record<string, unknown>) || {}
+
+      let eventType: TimelineEvent['type'] = 'loaded'
+      let title = ''
+      let description = ''
+
+      switch (evt.event_type) {
+        case 'ingested':
+          eventType = 'loaded'
+          title = `Ingested into ${evt.to_tier} campaign ${evt.to_campaign_id}`
+          description = `${details.dial_priority || 'NORMAL'} priority — ${details.age_hours != null ? `${details.age_hours}h old` : 'age unknown'}`
+          break
+        case 'skipped_duplicate':
+          eventType = 'loaded'
+          title = `Duplicate skipped — already in ${evt.to_tier} campaign ${evt.to_campaign_id}`
+          description = `Requested ${details.requested_tier} campaign ${details.requested_campaign}. Existing RingCX state preserved.`
+          break
+        case 'moved_hot_to_new':
+          eventType = 'moved'
+          title = 'Moved HOT → NEW'
+          description = `Campaign ${evt.from_campaign_id} → ${evt.to_campaign_id}`
+          break
+        case 'moved_new_to_old':
+          eventType = 'moved'
+          title = 'Moved NEW → OLD'
+          description = `Campaign ${evt.from_campaign_id} → ${evt.to_campaign_id}`
+          break
+        case 'moved_manual':
+          eventType = 'moved'
+          title = `Manual move ${evt.from_tier || '?'} → ${evt.to_tier || '?'}`
+          description = `Campaign ${evt.from_campaign_id} → ${evt.to_campaign_id}`
+          break
+      }
+
+      events.push({
+        id: `route-evt-${evt.id}`,
+        type: eventType,
+        timestamp: evt.created_at,
+        title,
+        description,
+        metadata: {
+          eventType: evt.event_type,
+          fromCampaign: evt.from_campaign_id,
+          toCampaign: evt.to_campaign_id,
+          fromTier: evt.from_tier,
+          toTier: evt.to_tier,
+          ringcxLeadId: evt.ringcx_lead_id,
+          ...details,
+        },
+      })
+    }
+  }
+
+  // Fallback: if no routing events yet, derive from routing timestamps (backwards compat)
+  if ((!routingEvents || routingEvents.length === 0) && routing) {
     if (routing.ingested_at) {
       events.push({
         id: `route-ingest-${routing.id}`,
@@ -75,7 +137,6 @@ export async function GET(request: NextRequest) {
         },
       })
     }
-    // HOT→NEW move
     if (routing.moved_to_new_at) {
       events.push({
         id: `route-new-${routing.id}`,
@@ -91,7 +152,6 @@ export async function GET(request: NextRequest) {
         },
       })
     }
-    // NEW→OLD move
     if (routing.moved_to_old_at) {
       events.push({
         id: `route-old-${routing.id}`,
@@ -211,6 +271,7 @@ export async function GET(request: NextRequest) {
 
   const firstCallEvent = events.find((e) => e.type === 'call')
   const firstRecordingWithAudio = recordings?.find((r) => r.storage_url)
+  const firstRecordingUrl = firstRecordingWithAudio?.storage_url || null
 
   const context = {
     region: contactRow?.contact_state || null,
@@ -218,7 +279,7 @@ export async function GET(request: NextRequest) {
     leadCreatedAt: firstLoad?.created_at || null,
     leadDate: (contactRow?.priority_context as Record<string, unknown>)?.lead_date || null,
     firstCallAt: firstCallEvent?.timestamp || null,
-    firstRecordingUrl: firstRecordingWithAudio?.storage_url || null,
+    firstRecordingUrl,
   }
 
   return NextResponse.json({

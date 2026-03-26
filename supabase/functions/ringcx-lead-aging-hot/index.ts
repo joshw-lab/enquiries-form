@@ -32,6 +32,7 @@ serve(async (req) => {
       .select("*")
       .eq("current_tier", "HOT")
       .is("moved_to_new_at", null)
+      .is("removed_at", null)
       .lte("lead_date", cutoff)
       .limit(BATCH_SIZE);
 
@@ -132,7 +133,7 @@ serve(async (req) => {
         continue;
       }
 
-      // Update routing rows
+      // Update routing rows and log events
       const now = new Date().toISOString();
       for (const lead of group) {
         await supabaseClient
@@ -144,6 +145,18 @@ serve(async (req) => {
             updated_at: now,
           })
           .eq("id", lead.id);
+
+        const { error: evtErr } = await supabaseClient.from("lead_routing_events").insert({
+          contact_id: lead.contact_id,
+          event_type: "moved_hot_to_new",
+          from_campaign_id: sourceCampaign,
+          to_campaign_id: destCampaign,
+          from_tier: "HOT",
+          to_tier: "NEW",
+          ringcx_lead_id: lead.ringcx_lead_id,
+          details: { lead_date: lead.lead_date, source: "aging_cron" },
+        });
+        if (evtErr) console.warn("Failed to log routing event:", evtErr);
 
         // Update HubSpot status
         if (hubspotAccessToken) {

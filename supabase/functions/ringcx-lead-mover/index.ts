@@ -28,32 +28,46 @@ serve(async (req) => {
     const payload = await req.json();
     console.log("[LeadMover] Received webhook:", JSON.stringify(payload, null, 2));
 
-    // Extract required fields from HubSpot workflow webhook payload
     const contactId = (payload.objectId || payload.contactId || payload.hubspotContactId)?.toString();
-    const leadId = parseInt(payload.leadId || payload.n0_new_rc_campaign_leadid || "0", 10);
-    const sourceCampaignId = parseInt(payload.sourceCampaignId || payload.n0_new_list_id || "0", 10);
-    const destCampaignId = parseInt(payload.destCampaignId || payload.n0_old_list_id || "0", 10)
-      || NEW_TO_OLD[sourceCampaignId] || 0;
-
     if (!contactId) {
       throw new Error("contactId is required");
     }
-    if (!leadId) {
-      throw new Error("leadId is required (RingCX lead ID from n0_new_rc_campaign_leadid)");
-    }
-    if (!sourceCampaignId) {
-      throw new Error("sourceCampaignId is required (n0_new_list_id)");
-    }
-    if (!destCampaignId) {
-      throw new Error(`destCampaignId is required or sourceCampaignId ${sourceCampaignId} has no mapping`);
-    }
-
-    console.log(`[LeadMover] Contact ${contactId}: moving lead ${leadId} from campaign ${sourceCampaignId} to ${destCampaignId}`);
 
     const supabaseClient = createClient(
       Deno.env.get("SUPABASE_URL") ?? "",
       Deno.env.get("SB_SERVICE_ROLE_KEY") ?? ""
     );
+
+    // Look up lead routing from Supabase (single source of truth)
+    const { data: routing, error: routingError } = await supabaseClient
+      .from("ringcx_lead_routing")
+      .select("*")
+      .eq("contact_id", contactId)
+      .is("removed_at", null)
+      .single();
+
+    if (routingError || !routing) {
+      throw new Error(`No routing record found for contact ${contactId}: ${routingError?.message || "not found"}`);
+    }
+
+    const leadId = parseInt(routing.ringcx_lead_id || "0", 10);
+    const sourceCampaignId = parseInt(routing.current_campaign_id || "0", 10);
+
+    // Determine destination: payload override, or derive from NEW_TO_OLD mapping
+    const destCampaignId = parseInt(payload.destCampaignId || "0", 10)
+      || NEW_TO_OLD[sourceCampaignId] || 0;
+
+    if (!leadId) {
+      throw new Error(`Contact ${contactId} has no ringcx_lead_id in routing table`);
+    }
+    if (!sourceCampaignId) {
+      throw new Error(`Contact ${contactId} has no current_campaign_id in routing table`);
+    }
+    if (!destCampaignId) {
+      throw new Error(`No destination campaign for contact ${contactId} — sourceCampaignId ${sourceCampaignId} has no mapping`);
+    }
+
+    console.log(`[LeadMover] Contact ${contactId}: moving lead ${leadId} from campaign ${sourceCampaignId} to ${destCampaignId}`);
 
     // Get RingCX access token
     const { token: ringcxToken, error: tokenError } = await getRingCentralAccessToken(supabaseClient);
@@ -123,18 +137,38 @@ serve(async (req) => {
       moveResult = { raw: moveResponseText };
     }
 
-    // Update HubSpot properties
+    // Update routing table — Supabase is source of truth
+    const now = new Date().toISOString();
+    await supabaseClient
+      .from("ringcx_lead_routing")
+      .update({
+        current_campaign_id: destCampaignId.toString(),
+        current_tier: "OLD",
+        moved_to_old_at: now,
+        updated_at: now,
+      })
+      .eq("contact_id", contactId);
+
+    // Log routing event
+    const { error: evtErr } = await supabaseClient.from("lead_routing_events").insert({
+      contact_id: contactId,
+      event_type: "moved_new_to_old",
+      from_campaign_id: sourceCampaignId.toString(),
+      to_campaign_id: destCampaignId.toString(),
+      from_tier: "NEW",
+      to_tier: "OLD",
+      ringcx_lead_id: leadId.toString(),
+      details: { source: "lead_mover" },
+    });
+    if (evtErr) console.warn("Failed to log routing event:", evtErr);
+
+    // Update HubSpot status
     const hubspotAccessToken = Deno.env.get("HUBSPOT_ACCESS_TOKEN");
     if (hubspotAccessToken) {
-      const now = new Date().toISOString().replace("T", " ").substring(0, 19);
-      const writebackProps: Record<string, string> = {
-        n0_old_list_id: destCampaignId.toString(),
-        n0_new_rc_campaign_leadid: "",
-        ringcx_load_status: `[Move] Moved lead ${leadId} from New campaign ${sourceCampaignId} to Old campaign ${destCampaignId} at ${now}`,
-      };
-
-      console.log(`[LeadMover] Updating HubSpot contact ${contactId}:`, writebackProps);
-      const writebackResult = await updateHubSpotContact(contactId, hubspotAccessToken, writebackProps);
+      const nowFormatted = now.replace("T", " ").substring(0, 19);
+      const writebackResult = await updateHubSpotContact(contactId, hubspotAccessToken, {
+        ringcx_load_status: `[Move] Moved lead ${leadId} from campaign ${sourceCampaignId} to ${destCampaignId} at ${nowFormatted}`,
+      });
       if (!writebackResult.success) {
         console.error(`[LeadMover] Failed to update HubSpot:`, writebackResult.error);
       }

@@ -38,6 +38,13 @@ const CAMPAIGN_MAP: Record<number, { state: string; timezone: string; type: stri
   243: { state: "SA", timezone: "SA01", type: "Old" },
   244: { state: "SA", timezone: "SA01", type: "HitList (New)" },
   245: { state: "SA", timezone: "SA01", type: "HitList (Old)" },
+  // HOT (72 hours)
+  272: { state: "ACT", timezone: "ACT1", type: "Hot" },
+  273: { state: "NSW", timezone: "NSW1", type: "Hot" },
+  274: { state: "QLD", timezone: "QLD1", type: "Hot" },
+  275: { state: "SA", timezone: "SA01", type: "Hot" },
+  276: { state: "VIC", timezone: "VIC1", type: "Hot" },
+  277: { state: "WA", timezone: "WA01", type: "Hot" },
 };
 
 // ── Types ──
@@ -270,6 +277,9 @@ async function reloadCleanLeads(
       duplicateHandling: "RETAIN_ALL",
       timeZoneOption: "EXPLICIT",
       dialPriority: "NORMAL",
+      phoneNumbersI18nEnabled: true,
+      internationalNumberFormat: true,
+      numberOriginCountry: "e164",
       uploadLeads,
       dncTags: [],
     };

@@ -10,7 +10,7 @@ export const RINGCX_AUTH_BASE = "https://ringcx.ringcentral.com/api";
  * Campaign ID → timezone code mapping.
  * Each state has 4 campaigns: New, Old, HitList (New), HitList (Old).
  */
-const CAMPAIGN_TIMEZONE: Record<number, string> = {
+export const CAMPAIGN_TIMEZONE: Record<number, string> = {
   // WA
   222: "WA01", 223: "WA01", 224: "WA01", 225: "WA01",
   // QLD
@@ -23,6 +23,8 @@ const CAMPAIGN_TIMEZONE: Record<number, string> = {
   238: "VIC1", 239: "VIC1", 240: "VIC1", 241: "VIC1",
   // SA
   242: "SA01", 243: "SA01", 244: "SA01", 245: "SA01",
+  // HOT (72 hours)
+  272: "ACT1", 273: "NSW1", 274: "QLD1", 275: "SA01", 276: "VIC1", 277: "WA01",
 };
 
 export const corsHeaders = {
@@ -162,6 +164,21 @@ export async function getRingCentralAccessToken(
       return { token: rcAccessToken };
     }
 
+    // Check for cached RingCX token (valid for ~5 min, reuse if > 30s remaining)
+    const cachedRingCXToken = authData.ringcx_access_token;
+    const cachedRingCXExpires = authData.ringcx_token_expires_at
+      ? new Date(authData.ringcx_token_expires_at)
+      : null;
+
+    if (cachedRingCXToken && cachedRingCXExpires) {
+      const ringcxTimeRemaining = cachedRingCXExpires.getTime() - now.getTime();
+      if (ringcxTimeRemaining > 30 * 1000) {
+        console.log(`Using cached RingCX token (${Math.round(ringcxTimeRemaining / 1000)}s remaining)`);
+        return { token: cachedRingCXToken };
+      }
+      console.log(`Cached RingCX token expired or expiring (${Math.round(ringcxTimeRemaining / 1000)}s remaining) — exchanging new one`);
+    }
+
     // Exchange RC access token for a RingCX access token
     console.log("Exchanging RC token for RingCX token...");
     const ringcxAuthResponse = await fetch(
@@ -219,6 +236,18 @@ export async function getRingCentralAccessToken(
       });
 
       return { token: null, error: errorMsg };
+    }
+
+    // Cache the new RingCX token (expires in ~5 min, store with 4.5 min TTL for safety)
+    const ringcxExpiresAt = new Date(now.getTime() + 4.5 * 60 * 1000).toISOString();
+    try {
+      await supabaseClient
+        .from("ringcentral_auth")
+        .update({ ringcx_access_token: ringcxToken, ringcx_token_expires_at: ringcxExpiresAt })
+        .eq("id", authData.id);
+      console.log(`Cached RingCX token (expires ${ringcxExpiresAt})`);
+    } catch (cacheErr) {
+      console.warn("Failed to cache RingCX token (non-fatal):", cacheErr);
     }
 
     console.log(`RingCX token obtained (length=${ringcxToken.length}, dots=${(ringcxToken.match(/\./g) || []).length})`);
@@ -441,7 +470,8 @@ export async function pushLeadToRingCX(
   campaignId: string,
   leadData: RingCXLeadData,
   accessToken: string,
-  dialPriority: "IMMEDIATE" | "NORMAL" = "IMMEDIATE"
+  dialPriority: "IMMEDIATE" | "NORMAL" = "IMMEDIATE",
+  timezoneOverride?: string
 ): Promise<{ success: boolean; leadId?: string; error?: string; diagnostic?: string }> {
   try {
     // ── Pre-flight validation ──────────────────────────────────
@@ -483,7 +513,7 @@ export async function pushLeadToRingCX(
     }
 
     // Determine timezone from campaign → state mapping (AU numbers have no NPA/NXX)
-    const tzCode = CAMPAIGN_TIMEZONE[Number(campaignId)];
+    const tzCode = timezoneOverride || CAMPAIGN_TIMEZONE[Number(campaignId)];
     if (tzCode) {
       leadRecord.leadTimezone = tzCode;
     }

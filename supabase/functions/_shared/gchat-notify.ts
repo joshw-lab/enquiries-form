@@ -100,8 +100,8 @@ export async function notifyGChatError(params: {
     );
   }
 
-  // Email notification via Resend
-  promises.push(sendEmailAlert(params));
+  // Email notification via Resend — disabled (daily quota exceeded on free tier)
+  // promises.push(sendEmailAlert(params));
 
   await Promise.allSettled(promises);
 }
