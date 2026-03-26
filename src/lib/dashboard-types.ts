@@ -170,6 +170,22 @@ export interface SyncResponse {
   lastFetched: string
 }
 
+// ── Today's new leads (for DrillPanel third column) ──
+export interface TodayLead {
+  contactId: string
+  name: string
+  region: string
+  postcode: string
+  leadDate: string           // ISO timestamp
+  loadedAt: string           // ISO timestamp (when pushed to RingCX)
+  firstCallAt: string | null // ISO timestamp of first call, null if not yet called
+  speedToLeadSeconds: number | null // lead_date → first_call, null if no call yet
+}
+
+export interface TodayLeadsResponse {
+  leads: TodayLead[]
+}
+
 // ── Queue — Left column (queued leads) ──
 export interface QueuedLead {
   id: string

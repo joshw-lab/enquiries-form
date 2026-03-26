@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
-import type { PipelineResponse, CalendarResponse, SyncResponse, Region, ServiceAreaCalendar } from '@/lib/dashboard-types'
+import { useState, useEffect } from 'react'
+import type { PipelineResponse, CalendarResponse, SyncResponse, Region, ServiceAreaCalendar, TodayLead } from '@/lib/dashboard-types'
 import RegionCard from './RegionCard'
 import DrillPanel from './DrillPanel'
 
@@ -14,7 +14,15 @@ interface PipelineViewProps {
 
 export default function PipelineView({ data, calendarData, syncData, onRefresh }: PipelineViewProps) {
   const [selectedRegion, setSelectedRegion] = useState<Region | null>(null)
-  const drillRef = useRef<HTMLDivElement>(null)
+  const [todayLeads, setTodayLeads] = useState<TodayLead[]>([])
+
+  // Fetch today's leads once (shared across all region modals)
+  useEffect(() => {
+    fetch('/api/today-leads')
+      .then((r) => r.ok ? r.json() : { leads: [] })
+      .then((d) => setTodayLeads(d.leads ?? []))
+      .catch(() => setTodayLeads([]))
+  }, [])
 
   // Group service-area calendars by region
   const calendarByRegion: Record<string, ServiceAreaCalendar[]> = {}
@@ -51,15 +59,6 @@ export default function PipelineView({ data, calendarData, syncData, onRefresh }
     ? regions.find((r) => r.region === selectedRegion) ?? null
     : null
 
-  // Scroll drill panel into view when opened
-  useEffect(() => {
-    if (selectedData && drillRef.current) {
-      setTimeout(() => {
-        drillRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
-      }, 50)
-    }
-  }, [selectedData])
-
   if (!data) {
     return (
       <div className="flex items-center justify-center py-20 text-sm text-gray-500">
@@ -92,15 +91,14 @@ export default function PipelineView({ data, calendarData, syncData, onRefresh }
         })}
       </div>
 
-      {/* Drill panel */}
+      {/* Drill modal */}
       {selectedData && (
-        <div ref={drillRef}>
-          <DrillPanel
-            data={selectedData}
-            syncCampaigns={syncData?.campaigns.filter((c) => c.region === selectedRegion) ?? []}
-            onClose={() => setSelectedRegion(null)}
-          />
-        </div>
+        <DrillPanel
+          data={selectedData}
+          syncCampaigns={syncData?.campaigns.filter((c) => c.region === selectedRegion) ?? []}
+          todayLeads={todayLeads.filter((l) => l.region === selectedRegion)}
+          onClose={() => setSelectedRegion(null)}
+        />
       )}
     </div>
   )

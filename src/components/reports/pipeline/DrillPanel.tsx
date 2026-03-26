@@ -1,11 +1,12 @@
 'use client'
 
-import type { RegionPipelineData, CampaignSync } from '@/lib/dashboard-types'
+import type { RegionPipelineData, CampaignSync, TodayLead } from '@/lib/dashboard-types'
 import { ALL_BUCKET_COLORS, ALL_BUCKET_LABELS } from '@/lib/dashboard-types'
 
 interface DrillPanelProps {
   data: RegionPipelineData
   syncCampaigns?: CampaignSync[]
+  todayLeads?: TodayLead[]
   onClose: () => void
 }
 
@@ -25,81 +26,59 @@ function respClass(hours: number): string {
   return 'text-red-600'
 }
 
-function PipelineDetailColumn({
-  title,
-  titleClass,
-  pipe,
-  colors,
-  labels,
-  accentBg,
-  accentBorder,
-  accentColor,
-}: {
-  title: string
-  titleClass: string
-  pipe: RegionPipelineData['newPipeline']
-  colors: readonly string[]
-  labels: readonly string[]
-  accentBg: string
-  accentBorder: string
-  accentColor: string
-}) {
-  const maxCount = Math.max(...pipe.bucketCounts, 1)
-  const isOk = pipe.delta === 0
-
-  return (
-    <div className="px-5 py-4 border-r border-gray-100 last:border-r-0">
-      <div className={`text-[10px] font-bold uppercase tracking-wider mb-3 pb-2 border-b ${titleClass}`}>
-        {title}
-      </div>
-
-      {/* HS vs RX boxes */}
-      <div className="flex gap-2.5 mb-3">
-        <div className="flex-1 text-center p-2 rounded-lg" style={{ background: accentBg, border: `1px solid ${accentBorder}` }}>
-          <div className="text-lg font-extrabold" style={{ color: accentColor }}>{pipe.hubspotCount.toLocaleString()}</div>
-          <div className="text-[9px] text-gray-400 mt-0.5 uppercase tracking-wide">HubSpot</div>
-        </div>
-        <div className={`flex-1 text-center p-2 rounded-lg`} style={{
-          background: isOk ? accentBg : '#fef2f2',
-          border: `1px solid ${isOk ? accentBorder : '#fecaca'}`,
-        }}>
-          <div className="text-lg font-extrabold" style={{ color: isOk ? accentColor : '#dc2626' }}>
-            {pipe.ringcxCount.toLocaleString()}
-          </div>
-          <div className="text-[9px] text-gray-400 mt-0.5 uppercase tracking-wide">
-            RingCX {isOk ? '\u2713' : `\u2193${Math.abs(pipe.delta)}`}
-          </div>
-        </div>
-      </div>
-
-      {/* Bar rows */}
-      {pipe.bucketCounts.map((v, i) => (
-        <div key={i} className="flex items-center gap-2 py-1.5 border-b border-gray-50 last:border-b-0">
-          <div className="w-[52px] text-[11px] text-[#111827] font-medium">{labels[i]}</div>
-          <div className="flex-1 bg-gray-100 rounded h-1.5 overflow-hidden">
-            <div className="h-full rounded" style={{ width: `${Math.round((v / maxCount) * 100)}%`, background: colors[i] }} />
-          </div>
-          <div className="w-7 text-right text-[11px] font-bold" style={{ color: colors[i] }}>{v}</div>
-        </div>
-      ))}
-    </div>
-  )
+function formatSpeed(seconds: number): string {
+  if (seconds < 60) return `${Math.round(seconds)}s`
+  const mins = Math.floor(seconds / 60)
+  if (mins < 60) return `${mins}m`
+  const hrs = seconds / 3600
+  if (hrs < 24) return `${hrs.toFixed(1)}h`
+  const days = Math.floor(hrs / 24)
+  return `${days}d ${Math.round(hrs % 24)}h`
 }
 
-export default function DrillPanel({ data, syncCampaigns, onClose }: DrillPanelProps) {
+function speedColor(seconds: number): string {
+  const hrs = seconds / 3600
+  if (hrs < 1) return 'text-green-600'
+  if (hrs < 3) return 'text-amber-600'
+  return 'text-red-600'
+}
+
+function timeAgo(isoStr: string): string {
+  const now = new Date()
+  const then = new Date(isoStr)
+  const diffMs = now.getTime() - then.getTime()
+  const mins = Math.floor(diffMs / 60000)
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins}m ago`
+  const hrs = Math.floor(mins / 60)
+  if (hrs < 24) return `${hrs}h ago`
+  return `${Math.floor(hrs / 24)}d ago`
+}
+
+export default function DrillPanel({ data, syncCampaigns, todayLeads, onClose }: DrillPanelProps) {
   const p72 = pct(data.calendar.slots72h.booked, data.calendar.slots72h.total)
   const open72 = data.calendar.slots72h.total - data.calendar.slots72h.booked
   const hotTier = data.tierMetrics.find((t) => t.tier === 'HOT')
   const totalCallsToday = data.tierMetrics.reduce((sum, t) => sum + t.newCallsToday, 0)
   const totalPasses = data.tierMetrics.reduce((sum, t) => sum + t.passes, 0)
 
+  const leads = todayLeads ?? []
+  const calledLeads = leads.filter((l) => l.speedToLeadSeconds !== null)
+  const uncalledLeads = leads.filter((l) => l.speedToLeadSeconds === null)
+
   return (
-    <div className="bg-white border border-blue-100 rounded-xl mb-5 overflow-hidden shadow-[0_4px_20px_rgba(37,99,235,0.08)]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      {/* Backdrop */}
+      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+      {/* Modal */}
+      <div
+        className="relative bg-white rounded-xl overflow-hidden shadow-2xl w-[90vw] max-w-[1060px] max-h-[90vh] overflow-y-auto"
+      >
       {/* Header */}
-      <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
+      <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white z-10">
         <span className="text-[13px] font-bold text-blue-800">{data.region} &mdash; Detail</span>
         <button
-          onClick={(e) => { e.stopPropagation(); onClose() }}
+          onClick={onClose}
           className="w-6 h-6 rounded border border-gray-200 bg-white cursor-pointer text-xs flex items-center justify-center text-gray-400 hover:text-gray-600"
         >
           &#10005;
@@ -121,9 +100,6 @@ export default function DrillPanel({ data, syncCampaigns, onClose }: DrillPanelP
               <div key={i} className="flex items-center gap-2 py-1.5 border-b border-gray-50 last:border-b-0">
                 <div className="w-[52px] text-[11px] text-[#111827]">
                   {slot.day}
-                  {i < 3 && (
-                    <span className="text-[9px] bg-blue-50 text-blue-600 px-1 py-px rounded ml-1">72h</span>
-                  )}
                 </div>
                 <div className="flex-1 bg-gray-100 rounded h-1.5 overflow-hidden">
                   <div className="h-full rounded" style={{ width: `${p}%`, background: col }} />
@@ -191,46 +167,76 @@ export default function DrillPanel({ data, syncCampaigns, onClose }: DrillPanelP
             </div>
           ))}
         </div>
+
+        {/* Column 3: Today's new leads with speed-to-lead */}
+        <div className="px-5 py-4">
+          <div className="text-[10px] font-bold uppercase tracking-wider text-emerald-600 mb-3 pb-2 border-b border-emerald-100">
+            Today&apos;s Leads &middot; {leads.length} added
+          </div>
+
+          {leads.length === 0 ? (
+            <div className="text-[11px] text-gray-400 py-4 text-center">No leads added today</div>
+          ) : (
+            <div className="flex flex-col gap-0.5 max-h-[320px] overflow-y-auto">
+              {/* Called leads first, sorted by speed */}
+              {calledLeads
+                .sort((a, b) => (a.speedToLeadSeconds ?? 0) - (b.speedToLeadSeconds ?? 0))
+                .map((lead) => (
+                  <div key={lead.contactId} className="flex items-center gap-2 py-1.5 border-b border-gray-50">
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[11px] text-[#111827] font-medium truncate">{lead.name}</div>
+                      <div className="text-[10px] text-gray-400">{lead.postcode} &middot; {timeAgo(lead.loadedAt)}</div>
+                    </div>
+                    <div className={`text-[11px] font-bold whitespace-nowrap ${speedColor(lead.speedToLeadSeconds!)}`}>
+                      &#9889; {formatSpeed(lead.speedToLeadSeconds!)}
+                    </div>
+                  </div>
+                ))}
+              {/* Uncalled leads */}
+              {uncalledLeads.map((lead) => (
+                <div key={lead.contactId} className="flex items-center gap-2 py-1.5 border-b border-gray-50">
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[11px] text-[#111827] font-medium truncate">{lead.name}</div>
+                    <div className="text-[10px] text-gray-400">{lead.postcode} &middot; {timeAgo(lead.loadedAt)}</div>
+                  </div>
+                  <div className="text-[10px] text-gray-300 whitespace-nowrap">
+                    awaiting call
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* Footer */}
-      <div className="px-5 py-3.5 border-t border-gray-100 bg-[#fafafa] flex items-center justify-between gap-5">
-        <div className="flex gap-5">
-          <div className="flex flex-col">
-            <span className="text-xl font-extrabold text-[#111827] leading-none">{data.totalContacts.toLocaleString()}</span>
-            <span className="text-[10px] text-gray-600 mt-0.5">Total contacts</span>
-          </div>
-          <div className="flex flex-col">
-            <span className="text-xl font-extrabold text-red-500 leading-none">{hotTier?.totalActive ?? 0}</span>
-            <span className="text-[10px] text-gray-600 mt-0.5">Hot leads (72h)</span>
-          </div>
-          <div className="flex flex-col">
-            <span className="text-xl font-extrabold text-blue-600 leading-none">{totalCallsToday}</span>
-            <span className="text-[10px] text-gray-600 mt-0.5">Calls today</span>
-          </div>
-          <div className="flex flex-col">
-            <span className="text-xl font-extrabold text-gray-700 leading-none">{totalPasses}</span>
-            <span className="text-[10px] text-gray-600 mt-0.5">Total passes</span>
-          </div>
-          <div className="flex flex-col">
-            <span className="text-xl font-extrabold leading-none" style={{ color: slotColor(p72) }}>{open72}</span>
-            <span className="text-[10px] text-gray-600 mt-0.5">Open 72h slots</span>
-          </div>
-          <div className="flex flex-col">
-            <span className={`text-xl font-extrabold leading-none ${respClass(data.avgResponseHours)}`}>{data.avgResponseTime}</span>
-            <span className="text-[10px] text-gray-600 mt-0.5">Speed to lead</span>
-          </div>
+      {/* Footer stats */}
+      <div className="px-5 py-3.5 border-t border-gray-100 bg-[#fafafa] flex items-center gap-5">
+        <div className="flex flex-col">
+          <span className="text-xl font-extrabold text-[#111827] leading-none">{data.totalContacts.toLocaleString()}</span>
+          <span className="text-[10px] text-gray-600 mt-0.5">Total contacts</span>
         </div>
-        <div className={`py-2.5 px-3.5 rounded-lg text-xs leading-relaxed max-w-[360px] ${
-          data.urgency === 'high'
-            ? 'bg-orange-50 border border-orange-200 text-amber-900'
-            : 'bg-green-50 border border-green-200 text-green-900'
-        }`}>
-          {data.urgency === 'high'
-            ? `${open72} open slots in 72h \u00b7 ${hotTier?.totalActive ?? 0} hot leads active \u00b7 speed to lead ${data.avgResponseTime}`
-            : `Calendar ${p72}% filled \u00b7 pipeline sustaining \u00b7 speed to lead ${data.avgResponseTime}`
-          }
+        <div className="flex flex-col">
+          <span className="text-xl font-extrabold text-red-500 leading-none">{hotTier?.totalActive ?? 0}</span>
+          <span className="text-[10px] text-gray-600 mt-0.5">Hot leads</span>
         </div>
+        <div className="flex flex-col">
+          <span className="text-xl font-extrabold text-blue-600 leading-none">{totalCallsToday}</span>
+          <span className="text-[10px] text-gray-600 mt-0.5">Calls today</span>
+        </div>
+        <div className="flex flex-col">
+          <span className="text-xl font-extrabold text-gray-700 leading-none">{totalPasses}</span>
+          <span className="text-[10px] text-gray-600 mt-0.5">Total passes</span>
+        </div>
+        <div className="flex flex-col">
+          <span className="text-xl font-extrabold leading-none" style={{ color: slotColor(p72) }}>{open72}</span>
+          <span className="text-[10px] text-gray-600 mt-0.5">Open 72h slots</span>
+        </div>
+        <div className="flex flex-col">
+          <span className={`text-xl font-extrabold leading-none ${respClass(data.avgResponseHours)}`}>{data.avgResponseTime}</span>
+          <span className="text-[10px] text-gray-600 mt-0.5">Speed to lead</span>
+        </div>
+      </div>
+
       </div>
     </div>
   )
