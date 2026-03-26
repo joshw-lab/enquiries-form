@@ -1,9 +1,9 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import type { PipelineResponse, CalendarResponse, SyncResponse, Region, ServiceAreaCalendar, TodayLead } from '@/lib/dashboard-types'
-import RegionCard from './RegionCard'
-import DrillPanel from './DrillPanel'
+import RegionCardCompact from './RegionCardCompact'
+import RegionDetailView from './RegionDetailView'
 
 interface PipelineViewProps {
   data: PipelineResponse | null
@@ -13,15 +13,38 @@ interface PipelineViewProps {
 }
 
 export default function PipelineView({ data, calendarData, syncData, onRefresh }: PipelineViewProps) {
-  const [selectedRegion, setSelectedRegion] = useState<Region | null>(null)
+  const [selectedRegion, setSelectedRegion] = useState<Region | null>(() => {
+    if (typeof window === 'undefined') return null
+    const params = new URLSearchParams(window.location.search)
+    return (params.get('region') as Region) || null
+  })
   const [todayLeads, setTodayLeads] = useState<TodayLead[]>([])
 
-  // Fetch today's leads once (shared across all region modals)
+  // Fetch today's leads once (shared across all region views)
   useEffect(() => {
     fetch('/api/today-leads')
       .then((r) => r.ok ? r.json() : { leads: [] })
       .then((d) => setTodayLeads(d.leads ?? []))
       .catch(() => setTodayLeads([]))
+  }, [])
+
+  // Sync selectedRegion with URL via pushState
+  const selectRegion = useCallback((region: Region | null) => {
+    setSelectedRegion(region)
+    const url = region
+      ? `${window.location.pathname}?region=${region}`
+      : window.location.pathname
+    window.history.pushState({ region }, '', url)
+  }, [])
+
+  // Handle browser back/forward
+  useEffect(() => {
+    const onPopState = (e: PopStateEvent) => {
+      const region = e.state?.region ?? null
+      setSelectedRegion(region)
+    }
+    window.addEventListener('popstate', onPopState)
+    return () => window.removeEventListener('popstate', onPopState)
   }, [])
 
   // Group service-area calendars by region
@@ -37,7 +60,6 @@ export default function PipelineView({ data, calendarData, syncData, onRefresh }
   const regions = data?.regions.map((r) => {
     const areas = calendarByRegion[r.region]
     if (areas && areas.length > 0) {
-      // Aggregate totals across all service areas for the region summary
       const slots72h = { booked: 0, total: 0 }
       const slots7d = { booked: 0, total: 0 }
       for (const a of areas) {
@@ -67,39 +89,39 @@ export default function PipelineView({ data, calendarData, syncData, onRefresh }
     )
   }
 
+  // Detail view — replaces overview when a region is selected
+  if (selectedData && selectedRegion) {
+    return (
+      <RegionDetailView
+        data={selectedData}
+        syncCampaigns={syncData?.campaigns.filter((c) => c.region === selectedRegion) ?? []}
+        todayLeads={todayLeads.filter((l) => l.region === selectedRegion)}
+        onBack={() => selectRegion(null)}
+        onSelectRegion={(region) => selectRegion(region)}
+      />
+    )
+  }
+
+  // Overview grid
   return (
     <div>
       {/* Section heading */}
-      <div className="flex items-center gap-2.5 mb-3 text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+      <div className="flex items-center gap-2.5 mb-3 text-[11px] font-semibold uppercase tracking-wider text-gray-500">
         {regions.length} Regions
         <span className="flex-1 h-px bg-gray-300" />
       </div>
 
       {/* Card grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 mb-5">
-        {regions.map((r) => {
-          const regionSync = syncData?.campaigns.filter((c) => c.region === r.region) ?? []
-          return (
-            <RegionCard
-              key={r.region}
-              data={r}
-              syncCampaigns={regionSync}
-              isSelected={selectedRegion === r.region}
-              onClick={() => setSelectedRegion(selectedRegion === r.region ? null : r.region)}
-            />
-          )
-        })}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {regions.map((r) => (
+          <RegionCardCompact
+            key={r.region}
+            data={r}
+            isSelected={false}
+            onClick={() => selectRegion(r.region)}
+          />
+        ))}
       </div>
-
-      {/* Drill modal */}
-      {selectedData && (
-        <DrillPanel
-          data={selectedData}
-          syncCampaigns={syncData?.campaigns.filter((c) => c.region === selectedRegion) ?? []}
-          todayLeads={todayLeads.filter((l) => l.region === selectedRegion)}
-          onClose={() => setSelectedRegion(null)}
-        />
-      )}
     </div>
   )
 }

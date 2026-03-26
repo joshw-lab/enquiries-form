@@ -66,14 +66,25 @@ export interface RegionPipelineData {
 
 // ── Sync data ──
 export interface CampaignSync {
-  region: Region | 'Global'
-  listType: 'New' | 'Aged'
+  region: Region | 'Global' | 'ALL'
+  listType: 'Hot' | 'New' | 'Aged' | 'Archived'
   campaignId: string
   hubspotCount: number
   ringcxCount: number
   delta: number
+  loadFailed: number
   status: 'ok' | 'warn' | 'err'
   lastSynced: string // relative timestamp e.g. "4m ago"
+}
+
+export interface SyncFailure {
+  contactId: string
+  campaignId: string
+  region: string
+  tier: string
+  failureType: string
+  reason: string
+  updatedAt: string
 }
 
 export interface SyncSummary {

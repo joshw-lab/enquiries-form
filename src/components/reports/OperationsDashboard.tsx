@@ -25,7 +25,12 @@ function formatDisplayDate(dateStr: string): string {
 }
 
 export default function OperationsDashboard() {
-  const [activeTab, setActiveTab] = useState<DashboardTab>('activity')
+  const [activeTab, setActiveTab] = useState<DashboardTab>(() => {
+    if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('region')) {
+      return 'pipeline'
+    }
+    return 'activity'
+  })
   const [clock, setClock] = useState('')
   const [lastFetched, setLastFetched] = useState<string | null>(null)
   const [leadsRepModalOpen, setLeadsRepModalOpen] = useState(false)

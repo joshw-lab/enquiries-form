@@ -4,7 +4,8 @@ import { REGIONS } from '@/lib/dashboard-types'
 import { createClient } from '@supabase/supabase-js'
 
 // Campaign mapping for sorting and labelling
-const CAMPAIGN_META: Record<string, { region: Region; listType: 'New' | 'Aged' }> = {
+const CAMPAIGN_META: Record<string, { region: Region | 'ALL'; listType: CampaignSync['listType'] }> = {
+  // LIST campaigns (NEW/OLD)
   '222': { region: 'WA',  listType: 'New' },
   '223': { region: 'WA',  listType: 'Aged' },
   '230': { region: 'NSW', listType: 'New' },
@@ -17,6 +18,15 @@ const CAMPAIGN_META: Record<string, { region: Region; listType: 'New' | 'Aged' }
   '239': { region: 'VIC', listType: 'Aged' },
   '242': { region: 'SA',  listType: 'New' },
   '243': { region: 'SA',  listType: 'Aged' },
+  // HOT campaigns
+  '272': { region: 'ACT', listType: 'Hot' },
+  '273': { region: 'NSW', listType: 'Hot' },
+  '274': { region: 'QLD', listType: 'Hot' },
+  '275': { region: 'SA',  listType: 'Hot' },
+  '276': { region: 'VIC', listType: 'Hot' },
+  '277': { region: 'WA',  listType: 'Hot' },
+  // Archive campaign
+  '289': { region: 'ALL', listType: 'Archived' },
 }
 
 function timeSince(ts: string): string {
@@ -44,15 +54,19 @@ export async function GET() {
       campaign_id: number
       hubspot_count: number
       ringcx_count: number
+      load_failed: number | null
       updated_at: string
     }) => {
       const meta = CAMPAIGN_META[String(row.campaign_id)]
       if (!meta) return null
 
+      const loadFailed = row.load_failed ?? 0
       const delta = row.hubspot_count - row.ringcx_count
       const absDelta = Math.abs(delta)
+      // If the entire gap is explained by load failures, it's a data quality issue not a sync error
+      const unexplainedGap = Math.max(0, absDelta - loadFailed)
       const status: CampaignSync['status'] =
-        absDelta > 20 ? 'err' : absDelta > 0 ? 'warn' : 'ok'
+        unexplainedGap > 20 ? 'err' : unexplainedGap > 0 ? 'warn' : 'ok'
 
       return {
         region: meta.region,
@@ -61,17 +75,24 @@ export async function GET() {
         hubspotCount: row.hubspot_count,
         ringcxCount: row.ringcx_count,
         delta,
+        loadFailed,
         status,
         lastSynced: timeSince(row.updated_at),
       } satisfies CampaignSync
     }).filter(Boolean) as CampaignSync[]
 
-    // Sort: region order, then New before Aged
+    // Sort: region order, then Hot > New > Aged; Archived at end
+    const typeOrder: Record<string, number> = { Hot: 0, New: 1, Aged: 2, Archived: 3 }
     campaigns.sort((a, b) => {
+      // Archived always last
+      const ta = typeOrder[a.listType] ?? 9
+      const tb = typeOrder[b.listType] ?? 9
+      if (a.listType === 'Archived' && b.listType !== 'Archived') return 1
+      if (b.listType === 'Archived' && a.listType !== 'Archived') return -1
       const ri = REGIONS.indexOf(a.region as Region)
       const rj = REGIONS.indexOf(b.region as Region)
       if (ri !== rj) return ri - rj
-      return a.listType === 'New' ? -1 : 1
+      return ta - tb
     })
 
     const inSync = campaigns.filter((c) => c.delta === 0).length
