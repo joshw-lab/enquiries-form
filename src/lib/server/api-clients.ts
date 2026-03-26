@@ -115,7 +115,10 @@ export async function getRingCXClient(): Promise<RingCXClient> {
           {
             method: 'POST',
             headers,
-            body: JSON.stringify({ campaignId: Number(campaignId) }),
+            body: JSON.stringify({
+              campaignIds: [Number(campaignId)],
+              campaignId: Number(campaignId),
+            }),
           }
         )
         if (!res.ok) return 0
@@ -255,7 +258,7 @@ export async function getServiceAreaCalendars(): Promise<ServiceAreaMapping[]> {
   return areas
 }
 
-// ── Campaign mapping discovery from HubSpot ──
+// ── Campaign mapping (hardcoded — authoritative source) ──
 
 export interface CampaignMapping {
   new: string
@@ -264,53 +267,17 @@ export interface CampaignMapping {
   oldHitlist: string
 }
 
-let _campaignMappingCache: { mapping: Record<string, CampaignMapping>; expiry: number } | null = null
+const CAMPAIGN_MAPPING: Record<string, CampaignMapping> = {
+  WA:  { new: '222', old: '223', newHitlist: '224', oldHitlist: '225' },
+  QLD: { new: '226', old: '227', newHitlist: '228', oldHitlist: '229' },
+  NSW: { new: '230', old: '231', newHitlist: '232', oldHitlist: '233' },
+  ACT: { new: '234', old: '235', newHitlist: '236', oldHitlist: '237' },
+  VIC: { new: '238', old: '239', newHitlist: '240', oldHitlist: '241' },
+  SA:  { new: '242', old: '243', newHitlist: '244', oldHitlist: '245' },
+}
 
 export async function discoverCampaignMapping(
-  hubspot: HubSpotClient
+  _hubspot: HubSpotClient
 ): Promise<Record<string, CampaignMapping>> {
-  const now = Date.now()
-  if (_campaignMappingCache && _campaignMappingCache.expiry > now) {
-    return _campaignMappingCache.mapping
-  }
-
-  // Search HubSpot for contacts with campaign IDs set
-  // Property names match the lead loader: n0_new_list_id, n0_old_list_id, etc.
-  const result = await hubspot.searchContacts({
-    filterGroups: [{
-      filters: [{
-        propertyName: 'n0_new_list_id',
-        operator: 'HAS_PROPERTY',
-      }],
-    }],
-    properties: [
-      'state',
-      'n0_new_list_id',
-      'n0_new_hitlist_id',
-      'n0_old_list_id',
-      'n0_old_hitlist_id',
-    ],
-    limit: 100,
-  })
-
-  const mapping: Record<string, CampaignMapping> = {}
-  for (const contact of result.results) {
-    const props = (contact as Record<string, unknown>).properties as Record<string, string> | undefined
-    if (!props) continue
-
-    const state = props.state
-    const newId = props.n0_new_list_id
-
-    if (state && newId && !mapping[state]) {
-      mapping[state] = {
-        new: newId,
-        old: props.n0_old_list_id || '',
-        newHitlist: props.n0_new_hitlist_id || '',
-        oldHitlist: props.n0_old_hitlist_id || '',
-      }
-    }
-  }
-
-  _campaignMappingCache = { mapping, expiry: now + 60 * 60 * 1000 } // Cache 1 hour
-  return mapping
+  return CAMPAIGN_MAPPING
 }

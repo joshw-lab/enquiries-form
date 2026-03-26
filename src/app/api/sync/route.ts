@@ -2,11 +2,44 @@ import { NextResponse } from 'next/server'
 import type { SyncResponse, CampaignSync, SyncSummary, Region } from '@/lib/dashboard-types'
 import { REGIONS } from '@/lib/dashboard-types'
 import {
-  getHubSpotClient,
   getRingCXClient,
-  discoverCampaignMapping,
   type RingCXClient,
 } from '@/lib/server/api-clients'
+
+// HubSpot List ID → RingCX Campaign mapping (authoritative source)
+const SYNC_CAMPAIGNS: {
+  region: Region
+  listType: 'New' | 'Aged'
+  listId: string
+  campaignId: string
+}[] = [
+  { region: 'WA',  listType: 'New',  listId: '16765', campaignId: '222' },
+  { region: 'WA',  listType: 'Aged', listId: '16766', campaignId: '223' },
+  { region: 'NSW', listType: 'New',  listId: '16767', campaignId: '230' },
+  { region: 'NSW', listType: 'Aged', listId: '16768', campaignId: '231' },
+  { region: 'QLD', listType: 'New',  listId: '16769', campaignId: '226' },
+  { region: 'QLD', listType: 'Aged', listId: '16770', campaignId: '227' },
+  { region: 'ACT', listType: 'New',  listId: '16772', campaignId: '234' },
+  { region: 'ACT', listType: 'Aged', listId: '16771', campaignId: '235' },
+  { region: 'VIC', listType: 'New',  listId: '16775', campaignId: '238' },
+  { region: 'VIC', listType: 'Aged', listId: '16780', campaignId: '239' },
+  { region: 'SA',  listType: 'New',  listId: '16781', campaignId: '242' },
+  { region: 'SA',  listType: 'Aged', listId: '16782', campaignId: '243' },
+]
+
+/** Fetch list member count from HubSpot Lists API v3. */
+async function getHubSpotListSize(listId: string, token: string): Promise<number> {
+  const res = await fetch(`https://api.hubapi.com/crm/v3/lists/${listId}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`HubSpot Lists API ${res.status} for list ${listId}: ${text}`)
+  }
+  const raw = await res.json()
+  const data = raw.list ?? raw
+  return Number(data.size ?? 0)
+}
 
 function timeSince(startMs: number): string {
   const elapsed = Date.now() - startMs
@@ -20,8 +53,8 @@ export async function GET() {
   const fetchStart = Date.now()
 
   try {
-    const hs = getHubSpotClient()
-    const mapping = await discoverCampaignMapping(hs)
+    const hubspotToken = process.env.HUBSPOT_API_KEY
+    if (!hubspotToken) throw new Error('Missing HUBSPOT_API_KEY')
 
     let rcx: RingCXClient | null = null
     try {
@@ -32,51 +65,34 @@ export async function GET() {
 
     const campaigns: CampaignSync[] = []
 
-    // Process all regions in parallel
+    // Process all campaigns in parallel
     await Promise.all(
-      REGIONS.map(async (region) => {
-        const camp = mapping[region]
-        if (!camp) return
+      SYNC_CAMPAIGNS.map(async ({ region, listType, listId, campaignId }) => {
+        try {
+          // HubSpot: get list member count via Lists API
+          const hsCount = await getHubSpotListSize(listId, hubspotToken)
 
-        const checks: Array<{ type: 'New' | 'Aged'; prop: string; campaignId: string }> = []
-        if (camp.new) checks.push({ type: 'New', prop: 'n0_new_list_id', campaignId: camp.new })
-        if (camp.old) checks.push({ type: 'Aged', prop: 'n0_old_list_id', campaignId: camp.old })
+          // RingCX: count leads in this campaign
+          const rcxCount = rcx ? await rcx.getCampaignLeadCount(campaignId) : 0
 
-        await Promise.all(
-          checks.map(async ({ type, prop, campaignId }) => {
-            try {
-              // HubSpot: count contacts with this campaign ID
-              const hsResult = await hs.searchContacts({
-                filterGroups: [{
-                  filters: [{ propertyName: prop, operator: 'EQ', value: campaignId }],
-                }],
-                limit: 1,
-              })
-              const hsCount = hsResult.total
+          const delta = hsCount - rcxCount
+          const absDelta = Math.abs(delta)
+          const status: CampaignSync['status'] =
+            absDelta > 20 ? 'err' : absDelta > 0 ? 'warn' : 'ok'
 
-              // RingCX: count leads in this campaign
-              const rcxCount = rcx ? await rcx.getCampaignLeadCount(campaignId) : 0
-
-              const delta = hsCount - rcxCount
-              const absDelta = Math.abs(delta)
-              const status: CampaignSync['status'] =
-                absDelta > 20 ? 'err' : absDelta > 0 ? 'warn' : 'ok'
-
-              campaigns.push({
-                region,
-                listType: type,
-                campaignId,
-                hubspotCount: hsCount,
-                ringcxCount: rcxCount,
-                delta,
-                status,
-                lastSynced: timeSince(fetchStart),
-              })
-            } catch (e) {
-              console.warn(`Sync check failed for ${region} ${type}:`, (e as Error).message)
-            }
+          campaigns.push({
+            region,
+            listType,
+            campaignId,
+            hubspotCount: hsCount,
+            ringcxCount: rcxCount,
+            delta,
+            status,
+            lastSynced: timeSince(fetchStart),
           })
-        )
+        } catch (e) {
+          console.warn(`Sync check failed for ${region} ${listType}:`, (e as Error).message)
+        }
       })
     )
 

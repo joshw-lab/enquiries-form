@@ -55,6 +55,13 @@ export default function OperationsDashboard() {
     setSelectedDate(newDate)
   }
 
+  // Snap to Activity when Pipeline/Sync become unavailable
+  useEffect(() => {
+    if ((!isToday || advancedSearch) && (activeTab === 'pipeline' || activeTab === 'sync')) {
+      setActiveTab('activity')
+    }
+  }, [isToday, advancedSearch, activeTab])
+
   // Clock tick
   useEffect(() => {
     const tick = () => {
@@ -135,7 +142,7 @@ export default function OperationsDashboard() {
     <div className="min-h-screen bg-[#f3f4f6]" style={{ fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif", fontSize: '13px' }}>
       {/* Top bar */}
       <div className="bg-white border-b border-gray-200 px-7 py-3 flex items-center justify-between">
-        {/* Left: Title + Live chip */}
+        {/* Left: Title + Live chip + time */}
         <div className="flex items-center gap-4">
           <h1 className="text-lg font-bold text-[#111827] tracking-tight">Call Reports</h1>
           <div className="flex items-center gap-1.5 bg-green-50 border border-green-300 text-green-600 rounded-full px-2.5 py-0.5 text-[11px] font-semibold">
@@ -145,6 +152,61 @@ export default function OperationsDashboard() {
           {lastFetched && (
             <span className="text-[11px] text-gray-400">{lastFetched}</span>
           )}
+
+          {/* Tab toggle — sits right of Live/time */}
+          <div className="flex bg-gray-100 rounded-lg p-0.5 ml-2">
+            <button
+              onClick={() => setActiveTab('activity')}
+              className={`px-4 py-1.5 rounded-md text-[12px] font-medium cursor-pointer transition-all ${
+                activeTab === 'activity'
+                  ? 'bg-white text-[#111827] shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              Activity
+            </button>
+            {(() => {
+              const pipelineDisabled = !isToday || advancedSearch
+              return (
+                <button
+                  onClick={() => !pipelineDisabled && setActiveTab('pipeline')}
+                  className={`px-4 py-1.5 rounded-md text-[12px] font-medium transition-all ${
+                    pipelineDisabled
+                      ? 'text-gray-300 cursor-default'
+                      : activeTab === 'pipeline'
+                        ? 'bg-white text-[#111827] shadow-sm cursor-pointer'
+                        : 'text-gray-500 hover:text-gray-700 cursor-pointer'
+                  }`}
+                  title={pipelineDisabled ? 'Only available for today' : undefined}
+                >
+                  Pipeline
+                </button>
+              )
+            })()}
+            {(() => {
+              const syncDisabled = !isToday || advancedSearch
+              return (
+                <button
+                  onClick={() => !syncDisabled && setActiveTab('sync')}
+                  className={`px-4 py-1.5 rounded-md text-[12px] font-medium transition-all flex items-center gap-1.5 ${
+                    syncDisabled
+                      ? 'text-gray-300 cursor-default'
+                      : activeTab === 'sync'
+                        ? 'bg-white text-[#111827] shadow-sm cursor-pointer'
+                        : 'text-gray-500 hover:text-gray-700 cursor-pointer'
+                  }`}
+                  title={syncDisabled ? 'Only available for today' : undefined}
+                >
+                  Sync
+                  {!syncDisabled && syncIssueCount > 0 && (
+                    <span className="text-[10px] font-bold px-1.5 py-px rounded-full bg-red-100 text-red-600">
+                      {syncIssueCount}
+                    </span>
+                  )}
+                </button>
+              )
+            })()}
+          </div>
         </div>
 
         {/* Center: Date navigation (only visible on Activity tab) */}
@@ -206,57 +268,6 @@ export default function OperationsDashboard() {
             className="text-xs text-gray-400 hover:text-gray-600 cursor-pointer"
           >
             Sign out
-          </button>
-        </div>
-      </div>
-
-      {/* Tab toggle bar */}
-      <div className="bg-white border-b border-gray-200 px-7 flex items-center justify-between">
-        {/* Left spacer */}
-        <div className="w-[100px]" />
-
-        {/* Center: Activity / Pipeline toggle */}
-        <div className="flex items-center">
-          <div className="flex bg-gray-100 rounded-lg p-0.5 my-2">
-            <button
-              onClick={() => setActiveTab('activity')}
-              className={`px-5 py-1.5 rounded-md text-[13px] font-medium cursor-pointer transition-all ${
-                activeTab === 'activity'
-                  ? 'bg-white text-[#111827] shadow-sm'
-                  : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              Activity
-            </button>
-            <button
-              onClick={() => setActiveTab('pipeline')}
-              className={`px-5 py-1.5 rounded-md text-[13px] font-medium cursor-pointer transition-all ${
-                activeTab === 'pipeline'
-                  ? 'bg-white text-[#111827] shadow-sm'
-                  : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              Pipeline
-            </button>
-          </div>
-        </div>
-
-        {/* Right: Sync tab */}
-        <div className="flex items-center w-[100px] justify-end">
-          <button
-            onClick={() => setActiveTab('sync')}
-            className={`px-3 py-2.5 text-[13px] font-medium cursor-pointer flex items-center gap-1.5 border-b-2 transition-all ${
-              activeTab === 'sync'
-                ? 'text-[#111827] border-[#111827]'
-                : 'text-gray-400 border-transparent hover:text-gray-500'
-            }`}
-          >
-            Sync
-            {syncIssueCount > 0 && (
-              <span className="text-[10px] font-bold px-1.5 py-px rounded-full bg-red-100 text-red-600">
-                {syncIssueCount}
-              </span>
-            )}
           </button>
         </div>
       </div>

@@ -35,30 +35,38 @@ export default function SyncView({ data, onRefresh }: SyncViewProps) {
       </div>
 
       {/* Summary strip */}
-      <div className="grid grid-cols-4 border-b border-gray-200">
-        <div className="px-4 py-3.5 border-r border-gray-200">
-          <div className="text-[11px] text-gray-600 mb-1">Campaigns</div>
-          <div className="text-[22px] font-extrabold">{summary.totalCampaigns}</div>
-        </div>
-        <div className="px-4 py-3.5 border-r border-gray-200">
-          <div className="text-[11px] text-gray-600 mb-1">In sync</div>
-          <div className="text-[22px] font-extrabold text-green-600">{summary.inSync}</div>
-        </div>
-        <div className="px-4 py-3.5 border-r border-gray-200">
-          <div className="text-[11px] text-gray-600 mb-1">Minor gaps</div>
-          <div className="text-[22px] font-extrabold text-amber-600">{summary.minorGaps}</div>
-        </div>
-        <div className="px-4 py-3.5">
-          <div className="text-[11px] text-gray-600 mb-1">Missing contacts</div>
-          <div className="text-[22px] font-extrabold text-red-600">{summary.missingContacts}</div>
-        </div>
-      </div>
+      {(() => {
+        // Compute excess: RingCX leads that shouldn't be there (rcx > hs)
+        const excessLeads = campaigns
+          .filter((c) => c.ringcxCount > c.hubspotCount)
+          .reduce((sum, c) => sum + (c.ringcxCount - c.hubspotCount), 0)
+        return (
+          <div className="grid grid-cols-4 border-b border-gray-200">
+            <div className="px-4 py-3.5 border-r border-gray-200">
+              <div className="text-[11px] text-gray-600 mb-1">Campaigns</div>
+              <div className="text-[22px] font-extrabold">{summary.totalCampaigns}</div>
+            </div>
+            <div className="px-4 py-3.5 border-r border-gray-200">
+              <div className="text-[11px] text-gray-600 mb-1">In sync</div>
+              <div className="text-[22px] font-extrabold text-green-600">{summary.inSync}</div>
+            </div>
+            <div className="px-4 py-3.5 border-r border-gray-200">
+              <div className="text-[11px] text-gray-600 mb-1">Minor gaps</div>
+              <div className="text-[22px] font-extrabold text-amber-600">{summary.minorGaps}</div>
+            </div>
+            <div className="px-4 py-3.5">
+              <div className="text-[11px] text-gray-600 mb-1">RingCX excess</div>
+              <div className="text-[22px] font-extrabold text-red-600">{excessLeads.toLocaleString()}</div>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* Table */}
       <table className="w-full border-collapse">
         <thead>
           <tr>
-            {['Region', 'List', 'Campaign', 'HubSpot', 'RingCX', '\u0394', 'Status', 'Synced'].map((h) => (
+            {['Region', 'List', 'Campaign', 'HubSpot', 'RingCX', 'Excess', 'Status', 'Synced'].map((h) => (
               <th
                 key={h}
                 className="bg-gray-50 px-4 py-2.5 text-left text-[10px] font-bold text-gray-600 uppercase tracking-wide border-b border-gray-200"
@@ -70,18 +78,24 @@ export default function SyncView({ data, onRefresh }: SyncViewProps) {
         </thead>
         <tbody>
           {campaigns.map((c, i) => {
-            const hasIssue = c.delta < 0
-            const countClass = hasIssue ? 'text-red-600 font-semibold' : 'text-green-600 font-semibold'
-            const deltaDisplay = c.delta < 0 ? `\u2193 ${Math.abs(c.delta)}` : '\u2014'
-            const deltaClass = c.delta < 0 ? 'text-red-600 font-bold' : ''
+            // excess = how many more leads RingCX has vs HubSpot (source of truth)
+            const excess = c.ringcxCount - c.hubspotCount
+            const hasIssue = excess !== 0
+            const countClass = hasIssue
+              ? (excess > 0 ? 'text-red-600 font-semibold' : 'text-amber-600 font-semibold')
+              : 'text-green-600 font-semibold'
+            const excessDisplay = excess > 0 ? `+${excess.toLocaleString()}` : excess < 0 ? `${excess.toLocaleString()}` : '\u2014'
+            const excessClass = excess > 0 ? 'text-red-600 font-bold' : excess < 0 ? 'text-amber-600 font-bold' : ''
 
+            const absExcess = Math.abs(excess)
             const statusClass =
-              c.status === 'err' ? 'bg-red-100 text-red-600'
-              : c.status === 'warn' ? 'bg-amber-100 text-amber-700'
+              absExcess > 20 ? 'bg-red-100 text-red-600'
+              : absExcess > 0 ? 'bg-amber-100 text-amber-700'
               : 'bg-green-100 text-green-600'
             const statusText =
-              c.status === 'err' ? 'Missing'
-              : c.status === 'warn' ? 'Gap'
+              excess > 20 ? 'Excess'
+              : excess < -20 ? 'Deficit'
+              : absExcess > 0 ? 'Gap'
               : '\u2713'
 
             const listClass = c.listType === 'New'
@@ -97,7 +111,7 @@ export default function SyncView({ data, onRefresh }: SyncViewProps) {
                 <td className="px-4 py-2.5 text-[11px] border-b border-gray-100 text-gray-400 font-mono">{c.campaignId}</td>
                 <td className={`px-4 py-2.5 text-xs border-b border-gray-100 ${countClass}`}>{c.hubspotCount.toLocaleString()}</td>
                 <td className={`px-4 py-2.5 text-xs border-b border-gray-100 ${countClass}`}>{c.ringcxCount.toLocaleString()}</td>
-                <td className={`px-4 py-2.5 text-xs border-b border-gray-100 ${deltaClass}`}>{deltaDisplay}</td>
+                <td className={`px-4 py-2.5 text-xs border-b border-gray-100 ${excessClass}`}>{excessDisplay}</td>
                 <td className="px-4 py-2.5 text-xs border-b border-gray-100">
                   <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${statusClass}`}>{statusText}</span>
                 </td>
