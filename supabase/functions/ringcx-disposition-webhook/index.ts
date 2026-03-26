@@ -6,6 +6,7 @@ import {
   getRingCentralAccessToken,
   searchLeadInCampaign,
 } from "../_shared/ringcx-lead-loader-base.ts";
+import { hubspotFetch } from "../_shared/hubspot-rate-limit.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -218,7 +219,7 @@ async function getHubSpotOwnerInfo(
   accessToken: string
 ): Promise<{ id: string; email?: string; timezone?: string } | null> {
   try {
-    const response = await fetch(
+    const response = await hubspotFetch(
       `${HUBSPOT_API_BASE}/crm/v3/owners/${ownerId}`,
       {
         method: "GET",
@@ -499,7 +500,7 @@ async function verifyContactExists(
   accessToken: string
 ): Promise<{ exists: boolean; contact?: { firstname?: string; lastname?: string; phone?: string } }> {
   try {
-    const response = await fetch(
+    const response = await hubspotFetch(
       `${HUBSPOT_API_BASE}/crm/v3/objects/contacts/${contactId}?properties=firstname,lastname,phone`,
       {
         method: "GET",
@@ -746,7 +747,7 @@ async function updateExistingCallEngagement(
 
     console.log(`Updating existing HubSpot call ${callId} with webhook data:`, JSON.stringify(updateProperties, null, 2));
 
-    const response = await fetch(`${HUBSPOT_API_BASE}/crm/v3/objects/calls/${callId}`, {
+    const response = await hubspotFetch(`${HUBSPOT_API_BASE}/crm/v3/objects/calls/${callId}`, {
       method: "PATCH",
       headers: {
         "Content-Type": "application/json",
@@ -911,7 +912,7 @@ async function createCallEngagement(
 
     console.log("Creating HubSpot call with payload:", JSON.stringify(callPayload, null, 2));
 
-    const response = await fetch(`${HUBSPOT_API_BASE}/crm/v3/objects/calls`, {
+    const response = await hubspotFetch(`${HUBSPOT_API_BASE}/crm/v3/objects/calls`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -1230,7 +1231,7 @@ serve(async (req) => {
         // If disposition can't be mapped, skip the owner change
       }
 
-      const contactUpdateResponse = await fetch(
+      const contactUpdateResponse = await hubspotFetch(
         `${HUBSPOT_API_BASE}/crm/v3/objects/contacts/${contactId}`,
         {
           method: "PATCH",

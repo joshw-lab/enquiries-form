@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { notifyGChatError } from "./gchat-notify.ts";
+import { hubspotFetch } from "./hubspot-rate-limit.ts";
 
 // RingCX API Configuration
 export const RINGCX_ACCOUNT_ID = "44510001";
@@ -298,7 +299,7 @@ export async function getHubSpotContact(
       campaignIdField,
     ].join(",");
 
-    const response = await fetch(
+    const response = await hubspotFetch(
       `https://api.hubapi.com/crm/v3/objects/contacts/${contactId}?properties=${properties}`,
       {
         method: "GET",
@@ -618,7 +619,7 @@ export async function updateHubSpotContact(
   properties: Record<string, string>
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const response = await fetch(
+    const response = await hubspotFetch(
       `https://api.hubapi.com/crm/v3/objects/contacts/${contactId}`,
       {
         method: "PATCH",

@@ -10,6 +10,7 @@ import {
 } from "../_shared/ringcx-lead-loader-base.ts";
 import { getRingCXToken } from "../_shared/ringcentral-auth.ts";
 import { notifyGChatError, notifyGChatSuccess } from "../_shared/gchat-notify.ts";
+import { hubspotFetch } from "../_shared/hubspot-rate-limit.ts";
 
 // ── Configuration ──────────────────────────────────────────────────────
 
@@ -60,7 +61,7 @@ async function fetchHubSpotListMembers(
 
   do {
     const url = `https://api.hubapi.com/crm/v3/lists/${listId}/memberships${after ? `?after=${after}` : ""}`;
-    const response = await fetch(url, {
+    const response = await hubspotFetch(url, {
       headers: { Authorization: `Bearer ${hubspotToken}` },
     });
 
@@ -520,7 +521,7 @@ async function reconcileCampaign(
 // No member diffing, no deletions. Completes all 12 campaigns in ~30-40s.
 
 async function fetchHubSpotListSize(listId: string, hubspotToken: string): Promise<number> {
-  const res = await fetch(`https://api.hubapi.com/crm/v3/lists/${listId}`, {
+  const res = await hubspotFetch(`https://api.hubapi.com/crm/v3/lists/${listId}`, {
     headers: { Authorization: `Bearer ${hubspotToken}` },
   });
   if (!res.ok) throw new Error(`HubSpot Lists API ${res.status} for list ${listId}`);

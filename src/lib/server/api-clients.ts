@@ -1,4 +1,5 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
+import { hubspotFetch } from './hubspot-rate-limit'
 
 // ── Constants ──
 const RINGCX_ACCOUNT_ID = '44510001'
@@ -40,7 +41,7 @@ export function getHubSpotClient(): HubSpotClient {
 
   return {
     async searchContacts(body) {
-      const res = await fetch('https://api.hubapi.com/crm/v3/objects/contacts/search', {
+      const res = await hubspotFetch('https://api.hubapi.com/crm/v3/objects/contacts/search', {
         method: 'POST',
         headers,
         body: JSON.stringify(body),
