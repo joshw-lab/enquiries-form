@@ -278,6 +278,7 @@ export default function OperationsDashboard() {
           <PipelineView
             data={pipelineData}
             calendarData={calendarData}
+            syncData={syncData}
             onRefresh={fetchDashboardData}
           />
         )}

@@ -1,6 +1,6 @@
 'use client'
 
-import type { RegionPipelineData, ServiceAreaCalendar } from '@/lib/dashboard-types'
+import type { RegionPipelineData, ServiceAreaCalendar, CampaignSync } from '@/lib/dashboard-types'
 import {
   ALL_BUCKET_COLORS,
   ALL_BUCKET_LABELS,
@@ -8,9 +8,36 @@ import {
 
 interface RegionCardProps {
   data: RegionPipelineData & { serviceAreaCalendars?: ServiceAreaCalendar[] }
+  syncCampaigns?: CampaignSync[]
   isSelected: boolean
   onClick: () => void
 }
+
+function Tip({ text }: { text: string }) {
+  return (
+    <span className="relative group/tip cursor-help">
+      <svg className="w-3 h-3 text-gray-400 inline-block ml-0.5 -mt-px" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="10" strokeWidth="1.5" />
+        <path strokeLinecap="round" strokeWidth="1.5" d="M12 16v-4m0-4h.01" />
+      </svg>
+      <span className="invisible group-hover/tip:visible absolute z-[9999] bottom-full left-1/2 -translate-x-1/2 mb-1.5 px-2.5 py-1.5 text-[10px] font-normal normal-case tracking-normal text-white bg-gray-900 rounded-md shadow-lg max-w-[220px] whitespace-normal text-center pointer-events-none">
+        {text}
+        <span className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-900" />
+      </span>
+    </span>
+  )
+}
+
+const BUCKET_TOOLTIPS = [
+  'Under 24 hours since lead_date — HOT tier, highest priority',
+  '1–3 days old — still in HOT tier (first 72 hours)',
+  '3–7 days old — transitioned from HOT to NEW tier',
+  '7–30 days old — NEW tier, active dialling',
+  '30–45 days old — NEW tier, approaching aged threshold',
+  '45–60 days old — NEW tier, nearing 90-day aging boundary',
+  '60–90 days old — NEW tier, will move to OLD campaign at 90 days',
+  '90+ days old — moved to OLD/Aged campaign by aging cron',
+]
 
 function pct(a: number, b: number): number {
   return b === 0 ? 0 : Math.round((a / b) * 100)
@@ -34,7 +61,7 @@ function respClass(hours: number): string {
   return 'text-red-600'
 }
 
-export default function RegionCard({ data, isSelected, onClick }: RegionCardProps) {
+export default function RegionCard({ data, syncCampaigns, isSelected, onClick }: RegionCardProps) {
   // Unified 8-bucket array (API now returns all 8 buckets in each pipeline)
   const allBuckets = data.newPipeline.bucketCounts
   const total = allBuckets.reduce((a, b) => a + b, 0)
@@ -66,7 +93,7 @@ export default function RegionCard({ data, isSelected, onClick }: RegionCardProp
 
   return (
     <div
-      className={`bg-white border border-gray-200 rounded-xl overflow-hidden cursor-pointer flex flex-col transition-shadow hover:shadow-md ${
+      className={`bg-white border border-gray-200 rounded-xl cursor-pointer flex flex-col transition-shadow hover:shadow-md ${
         isSelected ? 'border-blue-500 shadow-[0_0_0_3px_rgba(37,99,235,0.08)]' : ''
       }`}
       style={{ borderLeft: `3px solid ${borderColor}` }}
@@ -93,10 +120,10 @@ export default function RegionCard({ data, isSelected, onClick }: RegionCardProp
           <thead>
             <tr className="text-gray-500 text-right">
               <th className="text-left font-medium pb-1"></th>
-              <th className="font-medium pb-1 px-1">Total Active</th>
-              <th className="font-medium pb-1 px-1">New Today</th>
-              <th className="font-medium pb-1 px-1">New Calls</th>
-              <th className="font-medium pb-1 px-1">Passes</th>
+              <th className="font-medium pb-1 px-1">Active<Tip text="Leads loaded in the RingCX dialler for this tier" /></th>
+              <th className="font-medium pb-1 px-1">New<Tip text="Leads that entered this tier today (new ingest or aging move)" /></th>
+              <th className="font-medium pb-1 px-1">Calls<Tip text="Call attempts made today to leads in this tier" /></th>
+              <th className="font-medium pb-1 px-1">Passes<Tip text="Total cumulative call attempts across all leads in this tier" /></th>
             </tr>
           </thead>
           <tbody>
@@ -118,6 +145,37 @@ export default function RegionCard({ data, isSelected, onClick }: RegionCardProp
         </table>
       </div>
 
+      {/* Sync health — HubSpot vs RingCX per campaign */}
+      {syncCampaigns && syncCampaigns.length > 0 && (
+        <div className="px-3 py-1.5 border-t border-gray-100 flex flex-col gap-1">
+          <div className="text-[9px] font-semibold uppercase tracking-wide text-gray-400 mb-0.5">
+            List sync<Tip text="RingCX lists are updated regularly to sync, any discrepancy here is temporary and will be cleared asap" />
+          </div>
+          {syncCampaigns.map((sc) => {
+            const excess = sc.ringcxCount - sc.hubspotCount
+            const isOk = excess === 0
+            const isMinor = Math.abs(excess) > 0 && Math.abs(excess) <= 20
+            return (
+              <div key={sc.campaignId} className="flex items-center gap-1.5 text-[10px]">
+                <span className={`font-bold w-8 ${sc.listType === 'New' ? 'text-blue-600' : 'text-purple-600'}`}>
+                  {sc.listType === 'New' ? 'NEW' : 'OLD'}
+                </span>
+                <span className="text-gray-500">{sc.hubspotCount.toLocaleString()}</span>
+                <span className="text-gray-300">/</span>
+                <span className="text-gray-500">{sc.ringcxCount.toLocaleString()}</span>
+                {isOk ? (
+                  <span className="text-green-600 font-bold ml-auto">{'\u2713'}</span>
+                ) : (
+                  <span className={`font-bold ml-auto ${excess > 0 ? (isMinor ? 'text-amber-600' : 'text-red-600') : 'text-amber-600'}`}>
+                    {excess > 0 ? `+${excess}` : excess}
+                  </span>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+
       {/* All 8 bucket counts — 2 rows of 4 */}
       <div className="px-3 py-2.5 flex flex-col gap-2 border-t border-gray-100">
         {/* Tier bar */}
@@ -133,7 +191,7 @@ export default function RegionCard({ data, isSelected, onClick }: RegionCardProp
         {/* Bucket grid: 2 rows of 4 */}
         <div className="grid grid-cols-4 gap-1">
           {allBuckets.map((v, i) => (
-            <div key={i} className="flex flex-col items-center bg-gray-50 rounded py-1 px-0.5">
+            <div key={i} className="flex flex-col items-center bg-gray-50 rounded py-1 px-0.5 cursor-help" title={BUCKET_TOOLTIPS[i]}>
               <span className="text-[13px] font-extrabold leading-none" style={{ color: ALL_BUCKET_COLORS[i] }}>{v}</span>
               <span className="text-[8px] text-gray-600 mt-0.5 font-medium">{ALL_BUCKET_LABELS[i]}</span>
             </div>

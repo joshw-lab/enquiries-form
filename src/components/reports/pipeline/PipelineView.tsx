@@ -1,17 +1,18 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
-import type { PipelineResponse, CalendarResponse, Region, ServiceAreaCalendar } from '@/lib/dashboard-types'
+import type { PipelineResponse, CalendarResponse, SyncResponse, Region, ServiceAreaCalendar } from '@/lib/dashboard-types'
 import RegionCard from './RegionCard'
 import DrillPanel from './DrillPanel'
 
 interface PipelineViewProps {
   data: PipelineResponse | null
   calendarData: CalendarResponse | null
+  syncData: SyncResponse | null
   onRefresh: () => void
 }
 
-export default function PipelineView({ data, calendarData, onRefresh }: PipelineViewProps) {
+export default function PipelineView({ data, calendarData, syncData, onRefresh }: PipelineViewProps) {
   const [selectedRegion, setSelectedRegion] = useState<Region | null>(null)
   const drillRef = useRef<HTMLDivElement>(null)
 
@@ -77,14 +78,18 @@ export default function PipelineView({ data, calendarData, onRefresh }: Pipeline
 
       {/* Card grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 mb-5">
-        {regions.map((r) => (
-          <RegionCard
-            key={r.region}
-            data={r}
-            isSelected={selectedRegion === r.region}
-            onClick={() => setSelectedRegion(selectedRegion === r.region ? null : r.region)}
-          />
-        ))}
+        {regions.map((r) => {
+          const regionSync = syncData?.campaigns.filter((c) => c.region === r.region) ?? []
+          return (
+            <RegionCard
+              key={r.region}
+              data={r}
+              syncCampaigns={regionSync}
+              isSelected={selectedRegion === r.region}
+              onClick={() => setSelectedRegion(selectedRegion === r.region ? null : r.region)}
+            />
+          )
+        })}
       </div>
 
       {/* Drill panel */}
