@@ -1,10 +1,11 @@
 'use client'
 
-import type { RegionPipelineData } from '@/lib/dashboard-types'
+import type { RegionPipelineData, CampaignSync } from '@/lib/dashboard-types'
 import { ALL_BUCKET_COLORS, ALL_BUCKET_LABELS } from '@/lib/dashboard-types'
 
 interface DrillPanelProps {
   data: RegionPipelineData
+  syncCampaigns?: CampaignSync[]
   onClose: () => void
 }
 
@@ -85,7 +86,7 @@ function PipelineDetailColumn({
   )
 }
 
-export default function DrillPanel({ data, onClose }: DrillPanelProps) {
+export default function DrillPanel({ data, syncCampaigns, onClose }: DrillPanelProps) {
   const p72 = pct(data.calendar.slots72h.booked, data.calendar.slots72h.total)
   const open72 = data.calendar.slots72h.total - data.calendar.slots72h.booked
   const hotTier = data.tierMetrics.find((t) => t.tier === 'HOT')
@@ -137,16 +138,59 @@ export default function DrillPanel({ data, onClose }: DrillPanelProps) {
         </div>
 
         {/* Column 2: Pipeline age breakdown */}
-        <PipelineDetailColumn
-          title={`Pipeline \u00b7 ${data.newPipeline.campaignId || data.agedPipeline.campaignId}`}
-          titleClass="text-blue-600 border-blue-100"
-          pipe={data.newPipeline}
-          colors={ALL_BUCKET_COLORS}
-          labels={ALL_BUCKET_LABELS}
-          accentBg="#f0f9ff"
-          accentBorder="#e0f2fe"
-          accentColor="#0284c7"
-        />
+        <div className="px-5 py-4 border-r border-gray-100">
+          <div className="text-[10px] font-bold uppercase tracking-wider text-blue-600 mb-3 pb-2 border-b border-blue-100">
+            Pipeline
+          </div>
+
+          {/* Sync counts from sync_counts table */}
+          {syncCampaigns && syncCampaigns.length > 0 && (
+            <div className="flex flex-col gap-1.5 mb-3">
+              {syncCampaigns.map((sc) => {
+                const diff = sc.hubspotCount - sc.ringcxCount
+                const isOk = sc.ringcxCount >= 0 && diff === 0
+                return (
+                  <div key={sc.campaignId} className="flex items-center gap-2">
+                    <span className={`text-[10px] font-bold w-7 ${sc.listType === 'New' ? 'text-blue-600' : 'text-purple-600'}`}>
+                      {sc.listType === 'New' ? 'NEW' : 'OLD'}
+                    </span>
+                    <div className="flex-1 flex items-center gap-1.5">
+                      <div className="flex-1 text-center py-1.5 rounded" style={{ background: '#f0f9ff', border: '1px solid #e0f2fe' }}>
+                        <div className="text-sm font-bold text-sky-700">HS {sc.hubspotCount.toLocaleString()}</div>
+                      </div>
+                      <div className={`flex-1 text-center py-1.5 rounded`} style={{
+                        background: isOk ? '#f0fdf4' : '#fef2f2',
+                        border: `1px solid ${isOk ? '#bbf7d0' : '#fecaca'}`,
+                      }}>
+                        <div className={`text-sm font-bold ${isOk ? 'text-green-700' : 'text-red-600'}`}>
+                          RC {sc.ringcxCount >= 0 ? sc.ringcxCount.toLocaleString() : '—'}
+                        </div>
+                      </div>
+                    </div>
+                    {isOk ? (
+                      <span className="text-green-600 font-bold text-xs">{'\u2713'}</span>
+                    ) : diff !== 0 ? (
+                      <span className={`text-xs font-bold ${diff > 0 ? 'text-amber-600' : 'text-red-600'}`}>
+                        {diff > 0 ? `-${diff}` : `+${Math.abs(diff)}`}
+                      </span>
+                    ) : null}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          {/* Bar rows */}
+          {data.newPipeline.bucketCounts.map((v, i) => (
+            <div key={i} className="flex items-center gap-2 py-1.5 border-b border-gray-50 last:border-b-0">
+              <div className="w-[52px] text-[11px] text-[#111827] font-medium">{ALL_BUCKET_LABELS[i]}</div>
+              <div className="flex-1 bg-gray-100 rounded h-1.5 overflow-hidden">
+                <div className="h-full rounded" style={{ width: `${Math.round((v / Math.max(...data.newPipeline.bucketCounts, 1)) * 100)}%`, background: ALL_BUCKET_COLORS[i] }} />
+              </div>
+              <div className="w-7 text-right text-[11px] font-bold" style={{ color: ALL_BUCKET_COLORS[i] }}>{v}</div>
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* Footer */}
@@ -174,7 +218,7 @@ export default function DrillPanel({ data, onClose }: DrillPanelProps) {
           </div>
           <div className="flex flex-col">
             <span className={`text-xl font-extrabold leading-none ${respClass(data.avgResponseHours)}`}>{data.avgResponseTime}</span>
-            <span className="text-[10px] text-gray-600 mt-0.5">Avg response</span>
+            <span className="text-[10px] text-gray-600 mt-0.5">Speed to lead</span>
           </div>
         </div>
         <div className={`py-2.5 px-3.5 rounded-lg text-xs leading-relaxed max-w-[360px] ${
@@ -183,8 +227,8 @@ export default function DrillPanel({ data, onClose }: DrillPanelProps) {
             : 'bg-green-50 border border-green-200 text-green-900'
         }`}>
           {data.urgency === 'high'
-            ? `${open72} open slots in 72h \u00b7 ${hotTier?.totalActive ?? 0} hot leads active \u00b7 avg response ${data.avgResponseTime}`
-            : `Calendar ${p72}% filled \u00b7 pipeline sustaining \u00b7 avg response ${data.avgResponseTime}`
+            ? `${open72} open slots in 72h \u00b7 ${hotTier?.totalActive ?? 0} hot leads active \u00b7 speed to lead ${data.avgResponseTime}`
+            : `Calendar ${p72}% filled \u00b7 pipeline sustaining \u00b7 speed to lead ${data.avgResponseTime}`
           }
         </div>
       </div>

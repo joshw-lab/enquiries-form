@@ -97,6 +97,7 @@ export default function PipelineView({ data, calendarData, syncData, onRefresh }
         <div ref={drillRef}>
           <DrillPanel
             data={selectedData}
+            syncCampaigns={syncData?.campaigns.filter((c) => c.region === selectedRegion) ?? []}
             onClose={() => setSelectedRegion(null)}
           />
         </div>

@@ -4,6 +4,9 @@ import {
   corsHeaders,
   RINGCX_ACCOUNT_ID,
   RINGCX_API_BASE,
+  CAMPAIGN_TIMEZONE,
+  getHubSpotContact,
+  pushLeadToRingCX,
 } from "../_shared/ringcx-lead-loader-base.ts";
 import { getRingCXToken } from "../_shared/ringcentral-auth.ts";
 import { notifyGChatError, notifyGChatSuccess } from "../_shared/gchat-notify.ts";
@@ -34,6 +37,7 @@ const ALL_CAMPAIGNS: {
 ];
 
 const DELETE_BATCH_SIZE = 50;
+const LOAD_BATCH_SIZE = 10; // load missing leads in smaller batches (each requires HS API call)
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
@@ -176,6 +180,64 @@ async function deleteLeadsFromCampaign(
 
 // ── Per-campaign reconciliation logic ─────────────────────────────────
 
+/**
+ * Format a phone number to E.164 for RingCX loading.
+ * Returns null if the phone is invalid/empty.
+ */
+function formatPhoneForRingCX(phone: string): string | null {
+  if (!phone || !phone.trim()) return null;
+  let digits = phone.replace(/[^\d+]/g, "");
+
+  // Handle various AU formats
+  if (digits.startsWith("+61")) {
+    // Already E.164
+  } else if (digits.startsWith("61") && digits.length >= 11) {
+    digits = "+" + digits;
+  } else if (digits.startsWith("0") && digits.length === 10) {
+    digits = "+61" + digits.substring(1);
+  } else if (digits.length === 9 && !digits.startsWith("0")) {
+    digits = "+61" + digits;
+  } else if (digits.startsWith("+")) {
+    // Other international format — keep as-is
+  } else {
+    return null;
+  }
+
+  // Validate E.164
+  if (/^\+\d{7,15}$/.test(digits)) return digits;
+  return null;
+}
+
+/**
+ * Log a sync failure to the sync_failures table for dashboard visibility.
+ */
+async function logSyncFailure(
+  supabase: ReturnType<typeof createClient>,
+  contactId: string,
+  campaign: typeof ALL_CAMPAIGNS[0],
+  failureType: string,
+  reason: string,
+) {
+  await supabase.from("sync_failures").upsert({
+    contact_id: contactId,
+    campaign_id: campaign.campaignId,
+    region: campaign.state,
+    tier: campaign.tier,
+    failure_type: failureType,
+    reason,
+    updated_at: new Date().toISOString(),
+  }, { onConflict: "contact_id,campaign_id" }).catch(() => {
+    // Table may not exist yet — silent fail
+    console.warn(`[Reconcile] Could not log sync failure for ${contactId}`);
+  });
+}
+
+// Campaign ID field mapping for getHubSpotContact
+const CAMPAIGN_ID_FIELDS: Record<string, string> = {
+  NEW: "n0_new_list_id",
+  OLD: "n0_old_list_id",
+};
+
 interface CampaignResult {
   state: string;
   tier: string;
@@ -187,8 +249,11 @@ interface CampaignResult {
   excess: number;
   excessInSibling: number;
   excessOrphaned: number;
-  excessDisposed: number; // disposed contacts still in campaign
+  excessDisposed: number;
   deleted: number;
+  missing: number;        // leads in HS but not in RC
+  loaded: number;         // missing leads successfully loaded to RC
+  loadFailed: number;     // missing leads that failed to load
   errors: number;
 }
 
@@ -319,9 +384,101 @@ async function reconcileCampaign(
     }
   }
 
+  // ── Load missing leads (HS has, RC doesn't) ────────────────────────
+  const missingContactIds: string[] = [];
+  for (const memberId of listMembers) {
+    if (!ringcxData.unique.has(memberId)) {
+      missingContactIds.push(memberId);
+    }
+  }
+
+  let loaded = 0;
+  let loadFailed = 0;
+
+  console.log(`[Reconcile] ${campaign.state} ${campaign.tier}: ${missingContactIds.length} missing from RingCX`);
+
+  if (missingContactIds.length > 0 && !dryRun) {
+    const campaignIdField = CAMPAIGN_ID_FIELDS[campaign.tier] || "n0_new_list_id";
+    let loadToken = await getRingCXToken();
+
+    for (let i = 0; i < missingContactIds.length; i += LOAD_BATCH_SIZE) {
+      const batch = missingContactIds.slice(i, i + LOAD_BATCH_SIZE);
+
+      for (const contactId of batch) {
+        try {
+          // Fetch contact details from HubSpot
+          const hsResult = await getHubSpotContact(contactId, hubspotToken, campaignIdField);
+          if (!hsResult.success || !hsResult.contact) {
+            const reason = `HubSpot fetch failed: ${hsResult.error || "unknown"}`;
+            console.warn(`[Reconcile] Skip ${contactId}: ${reason}`);
+            await logSyncFailure(supabaseClient, contactId, campaign, "hubspot_fetch_failed", reason);
+            loadFailed++;
+            continue;
+          }
+
+          const props = hsResult.contact.properties || {};
+          const phone = props.phone || props.mobilephone || "";
+          const formattedPhone = formatPhoneForRingCX(phone);
+
+          if (!formattedPhone) {
+            const reason = `No valid phone number (raw: "${phone}")`;
+            console.warn(`[Reconcile] Skip ${contactId}: ${reason}`);
+            await logSyncFailure(supabaseClient, contactId, campaign, "invalid_phone", reason);
+            loadFailed++;
+            continue;
+          }
+
+          // Build lead data
+          const leadData = {
+            externId: contactId,
+            firstName: props.firstname || undefined,
+            lastName: props.lastname || undefined,
+            email: props.email || undefined,
+            phone1: formattedPhone,
+            phone2: formatPhoneForRingCX(props.mobilephone || "") || undefined,
+            address1: props.address || undefined,
+            city: props.city || undefined,
+            state: props.state || undefined,
+            zip: props.zip || undefined,
+            numContacted: Number(props.num_contacted_notes) || 0,
+          };
+
+          // Push to RingCX
+          const pushResult = await pushLeadToRingCX(
+            String(campaign.campaignId),
+            leadData,
+            loadToken,
+            "NORMAL",
+          );
+
+          if (pushResult.success) {
+            loaded++;
+          } else {
+            const reason = pushResult.error || "Unknown push error";
+            console.warn(`[Reconcile] Failed to load ${contactId}: ${reason}`);
+            await logSyncFailure(supabaseClient, contactId, campaign, "ringcx_push_failed", reason);
+            loadFailed++;
+          }
+        } catch (err) {
+          const reason = (err as Error).message || "Unknown error";
+          console.error(`[Reconcile] Error loading ${contactId}:`, reason);
+          await logSyncFailure(supabaseClient, contactId, campaign, "unknown_error", reason);
+          loadFailed++;
+        }
+      }
+
+      // Refresh token between batches (5-min expiry)
+      if (i + LOAD_BATCH_SIZE < missingContactIds.length) {
+        loadToken = await getRingCXToken();
+      }
+    }
+  } else if (missingContactIds.length > 0 && dryRun) {
+    console.log(`[Reconcile] DRY RUN — would load ${missingContactIds.length} missing leads into campaign ${campaign.campaignId}`);
+  }
+
   // Write counts to sync_counts table for dashboard consumption
-  // Use totalCount (what RingCX UI shows) minus deletions
   const postDeleteTotal = ringcxData.totalCount - deleted;
+  const postLoadTotal = postDeleteTotal + loaded;
   await supabaseClient
     .from("sync_counts")
     .upsert({
@@ -329,10 +486,12 @@ async function reconcileCampaign(
       region: campaign.state,
       tier: campaign.tier,
       hubspot_count: listMembers.size,
-      ringcx_count: postDeleteTotal,
+      ringcx_count: postLoadTotal,
       excess: Math.max(0, excess.length - deleted + ringcxData.duplicateLeadIds.length),
       excess_in_sibling: excessInSibling,
       excess_orphaned: excessOrphaned,
+      missing: Math.max(0, missingContactIds.length - loaded),
+      load_failed: loadFailed,
       updated_at: new Date().toISOString(),
     }, { onConflict: "campaign_id" });
 
@@ -349,6 +508,9 @@ async function reconcileCampaign(
     excessOrphaned,
     excessDisposed,
     deleted,
+    missing: missingContactIds.length,
+    loaded,
+    loadFailed,
     errors: errors.length,
   };
 }
@@ -518,6 +680,9 @@ serve(async (req) => {
           excessOrphaned: 0,
           excessDisposed: 0,
           deleted: 0,
+          missing: 0,
+          loaded: 0,
+          loadFailed: 0,
           errors: 1,
         });
       }
@@ -526,21 +691,31 @@ serve(async (req) => {
     // ── Summary ──────────────────────────────────────────────────────
     const totalDeleted = results.reduce((s, r) => s + r.deleted, 0);
     const totalExcess = results.reduce((s, r) => s + r.excess, 0);
+    const totalLoaded = results.reduce((s, r) => s + r.loaded, 0);
+    const totalLoadFailed = results.reduce((s, r) => s + r.loadFailed, 0);
+    const totalMissing = results.reduce((s, r) => s + r.missing, 0);
     const totalErrors = results.reduce((s, r) => s + r.errors, 0);
     const elapsedSec = ((Date.now() - requestStart) / 1000).toFixed(1);
 
-    const summary = [
+    const summaryLines = [
       `Reconcile ${mode}: ${results.length}/${campaignsToProcess.length} campaigns in ${elapsedSec}s${timedOut ? " (TIMED OUT)" : ""}`,
-      `Total excess: ${totalExcess} | Deleted: ${totalDeleted} | Errors: ${totalErrors}`,
-      ...results.filter((r) => r.excess > 0).map((r) =>
-        `  ${r.state} ${r.tier}: ${r.excess} excess (${r.deleted} deleted)`
-      ),
-    ].join("\n");
+      `Excess: ${totalExcess} (${totalDeleted} deleted) | Missing: ${totalMissing} (${totalLoaded} loaded, ${totalLoadFailed} failed) | Errors: ${totalErrors}`,
+    ];
+    for (const r of results) {
+      if (r.excess > 0 || r.missing > 0 || r.loadFailed > 0) {
+        const parts = [];
+        if (r.excess > 0) parts.push(`${r.excess} excess (${r.deleted} deleted)`);
+        if (r.missing > 0) parts.push(`${r.missing} missing (${r.loaded} loaded)`);
+        if (r.loadFailed > 0) parts.push(`${r.loadFailed} load failures`);
+        summaryLines.push(`  ${r.state} ${r.tier}: ${parts.join(", ")}`);
+      }
+    }
+    const summary = summaryLines.join("\n");
 
     console.log(`[Reconcile] ${summary}`);
 
-    if (!dryRun && (totalDeleted > 0 || totalErrors > 0)) {
-      if (totalErrors > 0) {
+    if (!dryRun && (totalDeleted > 0 || totalLoaded > 0 || totalErrors > 0 || totalLoadFailed > 0)) {
+      if (totalErrors > 0 || totalLoadFailed > 0) {
         await notifyGChatError({ source: "ringcx-lead-reconcile", error: summary });
       } else {
         await notifyGChatSuccess(summary);
@@ -555,6 +730,9 @@ serve(async (req) => {
       campaignsTotal: campaignsToProcess.length,
       totalExcess,
       totalDeleted,
+      totalMissing,
+      totalLoaded,
+      totalLoadFailed,
       totalErrors,
       elapsedSeconds: Number(elapsedSec),
       results,
