@@ -148,33 +148,45 @@ export default function RegionCard({ data, syncCampaigns, isSelected, onClick }:
       {/* Sync health — HubSpot vs RingCX per campaign */}
       {syncCampaigns && syncCampaigns.length > 0 && (
         <div className="px-3 py-1.5 border-t border-gray-100 flex flex-col gap-1">
-          <div className="text-[9px] font-semibold uppercase tracking-wide text-gray-400 mb-0.5">
-            List sync<Tip text="RingCX lists are updated regularly to sync, any discrepancy here is temporary and will be cleared asap" />
+          <div className="flex items-center gap-1 text-[9px] font-semibold uppercase tracking-wide text-gray-400 mb-0.5">
+            <span>List sync</span>
+            <Tip text="Counts refreshed every 15 min from HubSpot Lists API and RingCX Campaign API" />
+            {syncCampaigns[0]?.lastSynced && (
+              <span className="ml-auto font-normal normal-case text-gray-300">{syncCampaigns[0].lastSynced}</span>
+            )}
           </div>
           {syncCampaigns.map((sc) => {
             const rcxUnavailable = sc.ringcxCount < 0
-            const excess = rcxUnavailable ? 0 : sc.ringcxCount - sc.hubspotCount
-            const isOk = !rcxUnavailable && excess === 0
-            const isMinor = !rcxUnavailable && Math.abs(excess) > 0 && Math.abs(excess) <= 20
+            const diff = rcxUnavailable ? 0 : sc.hubspotCount - sc.ringcxCount
+            const isOk = !rcxUnavailable && diff === 0
+            const absDiff = Math.abs(diff)
+            const isMinor = !rcxUnavailable && absDiff > 0 && absDiff <= 20
+            const gapReason = diff > 0
+              ? `${diff} leads pending load to RingCX — next ingest cycle will sync`
+              : diff < 0
+                ? `${Math.abs(diff)} excess leads in RingCX — reconciler will clean within 15 min`
+                : undefined
             return (
-              <div key={sc.campaignId} className="flex items-center gap-1.5 text-[10px]">
+              <div key={sc.campaignId} className="flex items-center gap-1.5 text-[10px]" title={gapReason}>
                 <span className={`font-bold w-8 ${sc.listType === 'New' ? 'text-blue-600' : 'text-purple-600'}`}>
                   {sc.listType === 'New' ? 'NEW' : 'OLD'}
                 </span>
-                <span className="text-gray-500">{sc.hubspotCount.toLocaleString()}</span>
+                <span className="text-gray-400">HS</span>
+                <span className="text-gray-600 font-medium">{sc.hubspotCount.toLocaleString()}</span>
                 <span className="text-gray-300">/</span>
+                <span className="text-gray-400">RC</span>
                 {rcxUnavailable ? (
-                  <span className="text-gray-400 italic">err</span>
+                  <span className="text-gray-400 italic">—</span>
                 ) : (
-                  <span className="text-gray-500">{sc.ringcxCount.toLocaleString()}</span>
+                  <span className="text-gray-600 font-medium">{sc.ringcxCount.toLocaleString()}</span>
                 )}
                 {rcxUnavailable ? (
-                  <span className="text-gray-400 ml-auto" title="RingCX API unavailable">--</span>
+                  <span className="text-gray-400 ml-auto">—</span>
                 ) : isOk ? (
                   <span className="text-green-600 font-bold ml-auto">{'\u2713'}</span>
                 ) : (
-                  <span className={`font-bold ml-auto ${excess > 0 ? (isMinor ? 'text-amber-600' : 'text-red-600') : 'text-amber-600'}`}>
-                    {excess > 0 ? `+${excess}` : excess}
+                  <span className={`font-bold ml-auto ${isMinor ? 'text-amber-500' : diff > 0 ? 'text-amber-600' : 'text-red-600'}`}>
+                    {diff > 0 ? `-${diff}` : `+${Math.abs(diff)}`}
                   </span>
                 )}
               </div>
