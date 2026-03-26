@@ -7,6 +7,7 @@ import {
   CAMPAIGN_TIMEZONE,
   getHubSpotContact,
   pushLeadToRingCX,
+  createHubSpotNote,
 } from "../_shared/ringcx-lead-loader-base.ts";
 import { getRingCXToken } from "../_shared/ringcentral-auth.ts";
 import { notifyGChatError, notifyGChatSuccess } from "../_shared/gchat-notify.ts";
@@ -14,8 +15,8 @@ import { hubspotFetch } from "../_shared/hubspot-rate-limit.ts";
 
 // ── Configuration ──────────────────────────────────────────────────────
 
-// Flat list of all campaigns to reconcile. Cron rotates through one per invocation.
-const ALL_CAMPAIGNS: {
+// Campaigns with HubSpot list backing — full bidirectional reconcile.
+const LIST_CAMPAIGNS: {
   state: string;
   listId: string;
   campaignId: number;
@@ -36,6 +37,22 @@ const ALL_CAMPAIGNS: {
   { state: "SA",  listId: "16781", campaignId: 242, tier: "NEW", siblingListId: "16782", siblingCampaignId: 243 },
   { state: "SA",  listId: "16782", campaignId: 243, tier: "OLD", siblingListId: "16781", siblingCampaignId: 242 },
 ];
+
+// HOT campaigns — no HubSpot list, reconciled against routing table.
+const HOT_CAMPAIGNS: { state: string; campaignId: number }[] = [
+  { state: "ACT", campaignId: 272 },
+  { state: "NSW", campaignId: 273 },
+  { state: "QLD", campaignId: 274 },
+  { state: "SA",  campaignId: 275 },
+  { state: "VIC", campaignId: 276 },
+  { state: "WA",  campaignId: 277 },
+];
+
+// Archive campaign — count only, no reconciliation.
+const ARCHIVE_CAMPAIGN = { state: "ALL", campaignId: 289, tier: "ARCHIVED" };
+
+// Combined for backwards compat
+const ALL_CAMPAIGNS = LIST_CAMPAIGNS;
 
 const DELETE_BATCH_SIZE = 50;
 const LOAD_BATCH_SIZE = 10; // load missing leads in smaller batches (each requires HS API call)
@@ -212,25 +229,65 @@ function formatPhoneForRingCX(phone: string): string | null {
 /**
  * Log a sync failure to the sync_failures table for dashboard visibility.
  */
+function humanizeFailureForNote(failureType: string, reason: string, campaign: typeof ALL_CAMPAIGNS[0]): string {
+  const campaign_label = `${campaign.state} ${campaign.tier}`;
+  if (failureType === "invalid_phone") {
+    return `[Automated] This contact could not be loaded into the ${campaign_label} dialler campaign because no valid Australian phone number was found on the record. Please review and update the phone number to ensure this lead can be dialled.`;
+  }
+  if (failureType === "ringcx_push_failed") {
+    const phoneMatch = reason.match(/leadPhone="([^"]+)"/);
+    const phone = phoneMatch ? phoneMatch[1] : "unknown";
+    if (!phone.startsWith("+61")) {
+      return `[Automated] This contact could not be loaded into the ${campaign_label} dialler campaign because the phone number (${phone}) is not a valid Australian number. RingCX only accepts AU numbers for dialling. Please update the phone number if an Australian number is available.`;
+    }
+    return `[Automated] This contact could not be loaded into the ${campaign_label} dialler campaign due to a phone number formatting issue (${phone}). Please review and correct the phone number.`;
+  }
+  if (failureType === "hubspot_fetch_failed") {
+    return `[Automated] This contact could not be loaded into the ${campaign_label} dialler campaign because the contact record could not be retrieved from HubSpot. This may indicate a data issue.`;
+  }
+  return `[Automated] This contact could not be loaded into the ${campaign_label} dialler campaign. Reason: ${reason}`;
+}
+
 async function logSyncFailure(
   supabase: ReturnType<typeof createClient>,
   contactId: string,
   campaign: typeof ALL_CAMPAIGNS[0],
   failureType: string,
   reason: string,
+  hubspotToken: string,
 ) {
-  await supabase.from("sync_failures").upsert({
-    contact_id: contactId,
-    campaign_id: campaign.campaignId,
-    region: campaign.state,
-    tier: campaign.tier,
-    failure_type: failureType,
-    reason,
-    updated_at: new Date().toISOString(),
-  }, { onConflict: "contact_id,campaign_id" }).catch(() => {
-    // Table may not exist yet — silent fail
+  try {
+    // Check if we already logged this failure (avoid duplicate notes)
+    const { data: existing } = await supabase
+      .from("sync_failures")
+      .select("contact_id")
+      .eq("contact_id", contactId)
+      .eq("campaign_id", campaign.campaignId)
+      .maybeSingle();
+
+    await supabase.from("sync_failures").upsert({
+      contact_id: contactId,
+      campaign_id: campaign.campaignId,
+      region: campaign.state,
+      tier: campaign.tier,
+      failure_type: failureType,
+      reason,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "contact_id,campaign_id" });
+
+    // Write HubSpot note only on first occurrence
+    if (!existing) {
+      const noteBody = humanizeFailureForNote(failureType, reason, campaign);
+      const noteResult = await createHubSpotNote(contactId, noteBody, hubspotToken);
+      if (noteResult.success) {
+        console.log(`[Reconcile] Wrote HubSpot note for ${contactId} (${failureType})`);
+      } else {
+        console.warn(`[Reconcile] Failed to write HubSpot note for ${contactId}: ${noteResult.error}`);
+      }
+    }
+  } catch {
     console.warn(`[Reconcile] Could not log sync failure for ${contactId}`);
-  });
+  }
 }
 
 // Campaign ID field mapping for getHubSpotContact
@@ -266,11 +323,9 @@ async function reconcileCampaign(
 ): Promise<CampaignResult> {
   console.log(`[Reconcile] Processing ${campaign.state} ${campaign.tier} (campaign ${campaign.campaignId})`);
 
-  // Fetch HubSpot list members + sibling list in parallel
-  const [listMembers, siblingMembers] = await Promise.all([
-    fetchHubSpotListMembers(campaign.listId, hubspotToken),
-    fetchHubSpotListMembers(campaign.siblingListId, hubspotToken),
-  ]);
+  // Fetch HubSpot list members sequentially (parallel would burst the rate limiter)
+  const listMembers = await fetchHubSpotListMembers(campaign.listId, hubspotToken);
+  const siblingMembers = await fetchHubSpotListMembers(campaign.siblingListId, hubspotToken);
 
   // Fetch RingCX campaign leads (includes duplicate detection)
   const ringcxToken = await getRingCXToken();
@@ -412,7 +467,7 @@ async function reconcileCampaign(
           if (!hsResult.success || !hsResult.contact) {
             const reason = `HubSpot fetch failed: ${hsResult.error || "unknown"}`;
             console.warn(`[Reconcile] Skip ${contactId}: ${reason}`);
-            await logSyncFailure(supabaseClient, contactId, campaign, "hubspot_fetch_failed", reason);
+            await logSyncFailure(supabaseClient, contactId, campaign, "hubspot_fetch_failed", reason, hubspotToken);
             loadFailed++;
             continue;
           }
@@ -424,7 +479,7 @@ async function reconcileCampaign(
           if (!formattedPhone) {
             const reason = `No valid phone number (raw: "${phone}")`;
             console.warn(`[Reconcile] Skip ${contactId}: ${reason}`);
-            await logSyncFailure(supabaseClient, contactId, campaign, "invalid_phone", reason);
+            await logSyncFailure(supabaseClient, contactId, campaign, "invalid_phone", reason, hubspotToken);
             loadFailed++;
             continue;
           }
@@ -457,13 +512,13 @@ async function reconcileCampaign(
           } else {
             const reason = pushResult.error || "Unknown push error";
             console.warn(`[Reconcile] Failed to load ${contactId}: ${reason}`);
-            await logSyncFailure(supabaseClient, contactId, campaign, "ringcx_push_failed", reason);
+            await logSyncFailure(supabaseClient, contactId, campaign, "ringcx_push_failed", reason, hubspotToken);
             loadFailed++;
           }
         } catch (err) {
           const reason = (err as Error).message || "Unknown error";
           console.error(`[Reconcile] Error loading ${contactId}:`, reason);
-          await logSyncFailure(supabaseClient, contactId, campaign, "unknown_error", reason);
+          await logSyncFailure(supabaseClient, contactId, campaign, "unknown_error", reason, hubspotToken);
           loadFailed++;
         }
       }
@@ -516,9 +571,124 @@ async function reconcileCampaign(
   };
 }
 
+// ── HOT campaign reconciliation ─────────────────────────────────────────
+// HOT campaigns have no HubSpot list. Source of truth = ringcx_lead_routing.
+// We remove duplicates, disposed leads, and leads with no active routing record.
+
+interface HotCampaignResult {
+  state: string;
+  tier: "HOT";
+  campaignId: number;
+  ringcxTotal: number;
+  ringcxUnique: number;
+  routingCount: number;  // active routing records for this campaign
+  duplicates: number;
+  disposed: number;
+  noRouting: number;
+  deleted: number;
+  errors: number;
+}
+
+async function reconcileHotCampaign(
+  campaign: typeof HOT_CAMPAIGNS[0],
+  supabaseClient: ReturnType<typeof createClient>,
+  dryRun: boolean,
+): Promise<HotCampaignResult> {
+  console.log(`[Reconcile] Processing HOT ${campaign.state} (campaign ${campaign.campaignId})`);
+
+  const ringcxToken = await getRingCXToken();
+  const ringcxData = await fetchRingCXCampaignLeads(campaign.campaignId, ringcxToken);
+
+  // Fetch active routing records for this HOT campaign
+  const { data: activeRoutes } = await supabaseClient
+    .from("ringcx_lead_routing")
+    .select("contact_id")
+    .eq("current_campaign_id", String(campaign.campaignId))
+    .is("removed_at", null);
+
+  const activeContactIds = new Set((activeRoutes || []).map((r: { contact_id: string }) => r.contact_id));
+
+  console.log(`[Reconcile] HOT ${campaign.state}: ${ringcxData.totalCount} total (${ringcxData.unique.size} unique, ${ringcxData.duplicateLeadIds.length} dupes), ${activeContactIds.size} active routing`);
+
+  // Check each unique RingCX lead against routing table
+  const disposedLeadIds: number[] = [];
+  const noRoutingLeadIds: number[] = [];
+
+  for (const [externId, leadId] of ringcxData.unique) {
+    if (!activeContactIds.has(externId)) {
+      // Check if it has a disposed routing record
+      const { data: disposedRow } = await supabaseClient
+        .from("ringcx_lead_routing")
+        .select("contact_id, removal_reason")
+        .eq("contact_id", externId)
+        .not("removed_at", "is", null)
+        .limit(1)
+        .maybeSingle();
+
+      if (disposedRow) {
+        disposedLeadIds.push(leadId);
+      } else {
+        noRoutingLeadIds.push(leadId);
+      }
+    }
+  }
+
+  // Delete: duplicates + disposed + no-routing
+  const allDeleteIds = [...ringcxData.duplicateLeadIds, ...disposedLeadIds, ...noRoutingLeadIds];
+  let deleted = 0;
+  let errors = 0;
+
+  console.log(`[Reconcile] HOT ${campaign.state}: ${ringcxData.duplicateLeadIds.length} dupes, ${disposedLeadIds.length} disposed, ${noRoutingLeadIds.length} no-routing = ${allDeleteIds.length} to delete`);
+
+  if (dryRun) {
+    console.log(`[Reconcile] DRY RUN — would delete ${allDeleteIds.length} from HOT ${campaign.state}`);
+  } else if (allDeleteIds.length > 0) {
+    const freshToken = await getRingCXToken();
+    for (let i = 0; i < allDeleteIds.length; i += DELETE_BATCH_SIZE) {
+      const batch = allDeleteIds.slice(i, i + DELETE_BATCH_SIZE);
+      const result = await deleteLeadsFromCampaign(campaign.campaignId, batch, freshToken);
+      if (result.success) {
+        deleted += batch.length;
+      } else {
+        console.error(`[Reconcile] HOT ${campaign.state} delete batch failed: ${result.error}`);
+        errors++;
+      }
+    }
+  }
+
+  // Write counts
+  const postDeleteCount = ringcxData.unique.size - disposedLeadIds.length - noRoutingLeadIds.length;
+  await supabaseClient
+    .from("sync_counts")
+    .upsert({
+      campaign_id: campaign.campaignId,
+      region: campaign.state,
+      tier: "HOT",
+      hubspot_count: activeContactIds.size,  // routing table = source of truth
+      ringcx_count: Math.max(0, ringcxData.totalCount - deleted),
+      excess: Math.max(0, (ringcxData.unique.size - deleted) - activeContactIds.size),
+      missing: Math.max(0, activeContactIds.size - postDeleteCount),
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "campaign_id" });
+
+  return {
+    state: campaign.state,
+    tier: "HOT",
+    campaignId: campaign.campaignId,
+    ringcxTotal: ringcxData.totalCount,
+    ringcxUnique: ringcxData.unique.size,
+    routingCount: activeContactIds.size,
+    duplicates: ringcxData.duplicateLeadIds.length,
+    disposed: disposedLeadIds.length,
+    noRouting: noRoutingLeadIds.length,
+    deleted,
+    errors,
+  };
+}
+
 // ── Counts-only mode ────────────────────────────────────────────────────
 // Fast refresh: just fetch total counts from both APIs, write to sync_counts.
-// No member diffing, no deletions. Completes all 12 campaigns in ~30-40s.
+// No member diffing, no deletions. Completes all campaigns in ~30-40s.
 
 async function fetchHubSpotListSize(listId: string, hubspotToken: string): Promise<number> {
   const res = await hubspotFetch(`https://api.hubapi.com/crm/v3/lists/${listId}`, {
@@ -553,14 +723,13 @@ async function runCountsOnly(
   const requestStart = Date.now();
   const ringcxToken = await getRingCXToken();
   const results: { state: string; tier: string; campaignId: number; hubspotCount: number; ringcxCount: number }[] = [];
+  const totalCampaigns = LIST_CAMPAIGNS.length + HOT_CAMPAIGNS.length + 1; // +1 for archive
 
-  // Process all 12 campaigns — fetch HS + RCX counts in parallel per campaign
-  for (const campaign of ALL_CAMPAIGNS) {
+  // 1. LIST campaigns — fetch HS list size + RCX count in parallel per campaign
+  for (const campaign of LIST_CAMPAIGNS) {
     try {
-      const [hsCount, rcxCount] = await Promise.all([
-        fetchHubSpotListSize(campaign.listId, hubspotToken),
-        fetchRingCXCampaignCount(campaign.campaignId, ringcxToken),
-      ]);
+      const hsCount = await fetchHubSpotListSize(campaign.listId, hubspotToken);
+      const rcxCount = await fetchRingCXCampaignCount(campaign.campaignId, ringcxToken);
 
       await supabaseClient
         .from("sync_counts")
@@ -585,14 +754,77 @@ async function runCountsOnly(
     }
   }
 
+  // 2. HOT campaigns — routing table as expected count, RingCX for actual
+  for (const campaign of HOT_CAMPAIGNS) {
+    try {
+      const [routingResult, rcxCount] = await Promise.all([
+        supabaseClient
+          .from("ringcx_lead_routing")
+          .select("contact_id", { count: "exact", head: true })
+          .eq("current_campaign_id", String(campaign.campaignId))
+          .is("removed_at", null),
+        fetchRingCXCampaignCount(campaign.campaignId, ringcxToken),
+      ]);
+
+      const routingCount = routingResult.count ?? 0;
+
+      await supabaseClient
+        .from("sync_counts")
+        .upsert({
+          campaign_id: campaign.campaignId,
+          region: campaign.state,
+          tier: "HOT",
+          hubspot_count: routingCount,  // routing table = expected count
+          ringcx_count: rcxCount,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: "campaign_id" });
+
+      results.push({
+        state: campaign.state,
+        tier: "HOT",
+        campaignId: campaign.campaignId,
+        hubspotCount: routingCount,
+        ringcxCount: rcxCount,
+      });
+    } catch (err) {
+      console.error(`[CountsOnly] Error on HOT ${campaign.state}:`, (err as Error).message);
+    }
+  }
+
+  // 3. Archive campaign — RingCX count only (no expected count)
+  try {
+    const rcxCount = await fetchRingCXCampaignCount(ARCHIVE_CAMPAIGN.campaignId, ringcxToken);
+
+    await supabaseClient
+      .from("sync_counts")
+      .upsert({
+        campaign_id: ARCHIVE_CAMPAIGN.campaignId,
+        region: ARCHIVE_CAMPAIGN.state,
+        tier: ARCHIVE_CAMPAIGN.tier,
+        hubspot_count: 0,  // no source list
+        ringcx_count: rcxCount,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "campaign_id" });
+
+    results.push({
+      state: ARCHIVE_CAMPAIGN.state,
+      tier: ARCHIVE_CAMPAIGN.tier,
+      campaignId: ARCHIVE_CAMPAIGN.campaignId,
+      hubspotCount: 0,
+      ringcxCount: rcxCount,
+    });
+  } catch (err) {
+    console.error(`[CountsOnly] Error on ARCHIVE:`, (err as Error).message);
+  }
+
   const elapsedSec = ((Date.now() - requestStart) / 1000).toFixed(1);
-  console.log(`[CountsOnly] Refreshed ${results.length}/12 campaigns in ${elapsedSec}s`);
+  console.log(`[CountsOnly] Refreshed ${results.length}/${totalCampaigns} campaigns in ${elapsedSec}s`);
 
   return jsonResponse({
     success: true,
     mode: "countsOnly",
     campaignsProcessed: results.length,
-    campaignsTotal: ALL_CAMPAIGNS.length,
+    campaignsTotal: totalCampaigns,
     elapsedSeconds: Number(elapsedSec),
     results,
   });
@@ -638,27 +870,41 @@ serve(async (req) => {
     }
 
     // ── Full reconcile mode ──────────────────────────────────────────
-    let campaignsToProcess: typeof ALL_CAMPAIGNS;
+    // Check if the forced campaign is a HOT campaign
+    const forcedHot = forceCampaignId !== null
+      ? HOT_CAMPAIGNS.find((c) => c.campaignId === forceCampaignId)
+      : null;
+
+    let campaignsToProcess: typeof LIST_CAMPAIGNS = [];
+    let hotCampaignsToProcess: typeof HOT_CAMPAIGNS = [];
 
     if (forceCampaignId !== null) {
-      const found = ALL_CAMPAIGNS.filter((c) => c.campaignId === forceCampaignId);
-      if (found.length === 0) return jsonResponse({ error: `Unknown campaignId: ${forceCampaignId}` }, 400);
-      campaignsToProcess = found;
+      if (forcedHot) {
+        hotCampaignsToProcess = [forcedHot];
+      } else {
+        const found = LIST_CAMPAIGNS.filter((c) => c.campaignId === forceCampaignId);
+        if (found.length === 0) return jsonResponse({ error: `Unknown campaignId: ${forceCampaignId}` }, 400);
+        campaignsToProcess = found;
+      }
     } else {
-      campaignsToProcess = ALL_CAMPAIGNS;
+      campaignsToProcess = LIST_CAMPAIGNS;
+      hotCampaignsToProcess = HOT_CAMPAIGNS;
     }
 
+    const totalToProcess = campaignsToProcess.length + hotCampaignsToProcess.length;
     const mode = dryRun ? "DRY RUN" : "LIVE";
-    console.log(`[Reconcile] ${mode}: Processing ${campaignsToProcess.length} campaigns`);
+    console.log(`[Reconcile] ${mode}: Processing ${totalToProcess} campaigns (${campaignsToProcess.length} list + ${hotCampaignsToProcess.length} hot)`);
 
     // ── Process each campaign sequentially (with timeout guard) ──────
     const results: CampaignResult[] = [];
+    const hotResults: HotCampaignResult[] = [];
     let timedOut = false;
     const TIMEOUT_MS = 110_000;
 
+    // List-backed campaigns first (they take longer)
     for (const campaign of campaignsToProcess) {
       if (Date.now() - requestStart > TIMEOUT_MS) {
-        console.warn(`[Reconcile] Timeout approaching after ${results.length} campaigns, stopping`);
+        console.warn(`[Reconcile] Timeout approaching after ${results.length + hotResults.length} campaigns, stopping`);
         timedOut = true;
         break;
       }
@@ -667,7 +913,8 @@ serve(async (req) => {
         const result = await reconcileCampaign(campaign, hubspotToken, supabaseClient, dryRun);
         results.push(result);
       } catch (err) {
-        console.error(`[Reconcile] Error on ${campaign.state} ${campaign.tier}:`, (err as Error).message);
+        const errMsg = (err as Error).message || String(err);
+        console.error(`[Reconcile] Error on ${campaign.state} ${campaign.tier}:`, errMsg);
         results.push({
           state: campaign.state,
           tier: campaign.tier,
@@ -685,23 +932,63 @@ serve(async (req) => {
           loaded: 0,
           loadFailed: 0,
           errors: 1,
-        });
+          errorMessage: errMsg,
+        } as CampaignResult & { errorMessage: string });
+      }
+    }
+
+    // HOT campaigns (faster — no HubSpot list fetching)
+    if (!timedOut) {
+      for (const campaign of hotCampaignsToProcess) {
+        if (Date.now() - requestStart > TIMEOUT_MS) {
+          console.warn(`[Reconcile] Timeout approaching during HOT campaigns, stopping`);
+          timedOut = true;
+          break;
+        }
+
+        try {
+          const result = await reconcileHotCampaign(campaign, supabaseClient, dryRun);
+          hotResults.push(result);
+        } catch (err) {
+          console.error(`[Reconcile] Error on HOT ${campaign.state}:`, (err as Error).message);
+          hotResults.push({
+            state: campaign.state,
+            tier: "HOT",
+            campaignId: campaign.campaignId,
+            ringcxTotal: 0,
+            ringcxUnique: 0,
+            routingCount: 0,
+            duplicates: 0,
+            disposed: 0,
+            noRouting: 0,
+            deleted: 0,
+            errors: 1,
+          });
+        }
       }
     }
 
     // ── Summary ──────────────────────────────────────────────────────
-    const totalDeleted = results.reduce((s, r) => s + r.deleted, 0);
+    const totalDeleted = results.reduce((s, r) => s + r.deleted, 0) + hotResults.reduce((s, r) => s + r.deleted, 0);
     const totalExcess = results.reduce((s, r) => s + r.excess, 0);
     const totalLoaded = results.reduce((s, r) => s + r.loaded, 0);
     const totalLoadFailed = results.reduce((s, r) => s + r.loadFailed, 0);
     const totalMissing = results.reduce((s, r) => s + r.missing, 0);
-    const totalErrors = results.reduce((s, r) => s + r.errors, 0);
+    const totalErrors = results.reduce((s, r) => s + r.errors, 0) + hotResults.reduce((s, r) => s + r.errors, 0);
+    const totalHotDisposed = hotResults.reduce((s, r) => s + r.disposed, 0);
+    const totalHotNoRouting = hotResults.reduce((s, r) => s + r.noRouting, 0);
     const elapsedSec = ((Date.now() - requestStart) / 1000).toFixed(1);
 
+    const processedCount = results.length + hotResults.length;
     const summaryLines = [
-      `Reconcile ${mode}: ${results.length}/${campaignsToProcess.length} campaigns in ${elapsedSec}s${timedOut ? " (TIMED OUT)" : ""}`,
-      `Excess: ${totalExcess} (${totalDeleted} deleted) | Missing: ${totalMissing} (${totalLoaded} loaded, ${totalLoadFailed} failed) | Errors: ${totalErrors}`,
+      `Reconcile ${mode}: ${processedCount}/${totalToProcess} campaigns in ${elapsedSec}s${timedOut ? " (TIMED OUT)" : ""}`,
+      `List: Excess ${totalExcess} (${totalDeleted} deleted) | Missing ${totalMissing} (${totalLoaded} loaded, ${totalLoadFailed} failed)`,
     ];
+    if (hotResults.length > 0) {
+      summaryLines.push(`HOT: ${totalHotDisposed} disposed, ${totalHotNoRouting} no-routing removed`);
+    }
+    if (totalErrors > 0) summaryLines.push(`Errors: ${totalErrors}`);
+
     for (const r of results) {
       if (r.excess > 0 || r.missing > 0 || r.loadFailed > 0) {
         const parts = [];
@@ -709,6 +996,15 @@ serve(async (req) => {
         if (r.missing > 0) parts.push(`${r.missing} missing (${r.loaded} loaded)`);
         if (r.loadFailed > 0) parts.push(`${r.loadFailed} load failures`);
         summaryLines.push(`  ${r.state} ${r.tier}: ${parts.join(", ")}`);
+      }
+    }
+    for (const r of hotResults) {
+      if (r.disposed > 0 || r.noRouting > 0 || r.duplicates > 0) {
+        const parts = [];
+        if (r.disposed > 0) parts.push(`${r.disposed} disposed`);
+        if (r.noRouting > 0) parts.push(`${r.noRouting} no-routing`);
+        if (r.duplicates > 0) parts.push(`${r.duplicates} dupes`);
+        summaryLines.push(`  ${r.state} HOT: ${parts.join(", ")} (${r.deleted} deleted)`);
       }
     }
     const summary = summaryLines.join("\n");
@@ -727,16 +1023,19 @@ serve(async (req) => {
       success: true,
       dryRun,
       timedOut,
-      campaignsProcessed: results.length,
-      campaignsTotal: campaignsToProcess.length,
+      campaignsProcessed: processedCount,
+      campaignsTotal: totalToProcess,
       totalExcess,
       totalDeleted,
       totalMissing,
       totalLoaded,
       totalLoadFailed,
+      totalHotDisposed,
+      totalHotNoRouting,
       totalErrors,
       elapsedSeconds: Number(elapsedSec),
-      results,
+      listResults: results,
+      hotResults,
     });
   } catch (error) {
     console.error("[Reconcile] Fatal error:", error);

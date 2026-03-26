@@ -806,7 +806,7 @@ export async function createHubSpotNote(
   accessToken: string,
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const response = await fetch("https://api.hubapi.com/crm/v3/objects/notes", {
+    const response = await hubspotFetch("https://api.hubapi.com/crm/v3/objects/notes", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
