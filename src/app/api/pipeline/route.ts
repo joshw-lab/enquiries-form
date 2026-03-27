@@ -2,31 +2,9 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import type { PipelineResponse, RegionPipelineData, Region, TierMetrics, TierKey } from '@/lib/dashboard-types'
 import { REGIONS, DEFAULT_THRESHOLDS, TIER_LABELS } from '@/lib/dashboard-types'
-import { getHubSpotClient, type HubSpotClient } from '@/lib/server/api-clients'
 import { computeHealthStatus } from '@/lib/dashboard-scoring'
 
-const MS_PER_DAY = 86_400_000
 const AWST_OFFSET = '+08:00'
-
-// All 8 age bucket boundaries (days since lead_date)
-const ALL_BUCKET_RANGES = [
-  { minDays: 0, maxDays: 1 },     // <24h
-  { minDays: 1, maxDays: 3 },     // 1–3d
-  { minDays: 3, maxDays: 7 },     // 3–7d
-  { minDays: 7, maxDays: 30 },    // 7–30d
-  { minDays: 30, maxDays: 45 },   // 30–45d
-  { minDays: 45, maxDays: 60 },   // 45–60d
-  { minDays: 60, maxDays: 90 },   // 60–90d
-  { minDays: 90, maxDays: 9999 }, // 90d+
-]
-
-function getBucketIndex(leadDateMs: number, now: number): number {
-  const ageDays = (now - leadDateMs) / MS_PER_DAY
-  for (let i = 0; i < ALL_BUCKET_RANGES.length; i++) {
-    if (ageDays >= ALL_BUCKET_RANGES[i].minDays && ageDays < ALL_BUCKET_RANGES[i].maxDays) return i
-  }
-  return -1
-}
 
 function emptyTierMetrics(): TierMetrics[] {
   return (['HOT', 'NEW', 'OLD'] as TierKey[]).map((tier) => ({
@@ -60,64 +38,6 @@ function emptyRegion(region: Region): RegionPipelineData {
     },
     calendar: { slots72h: { booked: 0, total: 0 }, slots7d: { booked: 0, total: 0 }, daily: [] },
   }
-}
-
-/**
- * Fetch all HubSpot contacts with a lead_date, paginating through results.
- * Returns contacts with state + lead_date for client-side bucketing.
- */
-async function fetchAllLeads(hs: HubSpotClient): Promise<Array<{ state: string; leadDateMs: number }>> {
-  const leads: Array<{ state: string; leadDateMs: number }> = []
-  let after: string | undefined
-
-  // Only fetch leads from the last 270 days (covers all 8 buckets including 90d+)
-  // HubSpot search requires epoch milliseconds for date property filters
-  const cutoffDate = String(Date.now() - 270 * MS_PER_DAY)
-
-  // Paginate through results (HubSpot max 100 per page, cap at 30 pages = 3000 contacts)
-  for (let page = 0; page < 30; page++) {
-    const body: Record<string, unknown> = {
-      filterGroups: [{
-        filters: [
-          {
-            propertyName: 'lead_date',
-            operator: 'GTE',
-            value: cutoffDate,
-          },
-        ],
-      }],
-      properties: ['state', 'lead_date'],
-      sorts: [{ propertyName: 'lead_date', direction: 'DESCENDING' }],
-      limit: 100,
-    }
-
-    if (after) {
-      body.after = after
-    }
-
-    const result = await hs.searchContacts(body)
-
-    for (const contact of result.results) {
-      const props = contact.properties as Record<string, string> | undefined
-      if (!props) continue
-
-      const state = props.state
-      const leadDate = props.lead_date
-      if (!state || !leadDate) continue
-
-      const leadDateMs = new Date(leadDate).getTime()
-      if (isNaN(leadDateMs)) continue
-
-      leads.push({ state, leadDateMs })
-    }
-
-    // Check for next page
-    const paging = (result as Record<string, unknown>).paging as { next?: { after?: string } } | undefined
-    if (!paging?.next?.after) break
-    after = paging.next.after
-  }
-
-  return leads
 }
 
 /** Fetch tier metrics from Supabase RPC (returns null on error). */
@@ -166,18 +86,7 @@ function formatResponseTime(seconds: number): { text: string; hours: number } {
 
 export async function GET() {
   try {
-    const hs = getHubSpotClient()
-    const now = Date.now()
-
-    // Fetch HubSpot leads and Supabase tier metrics in parallel
-    // Use .catch() so a HubSpot failure doesn't block tier metrics
-    const [leads, tierData] = await Promise.all([
-      fetchAllLeads(hs).catch((e) => {
-        console.error('HubSpot fetch error (tier metrics still available):', e.message)
-        return [] as Array<{ state: string; leadDateMs: number }>
-      }),
-      fetchTierMetrics(),
-    ])
+    const tierData = await fetchTierMetrics()
 
     // Index tier metrics by region+tier for fast lookup
     const tierIndex: Record<string, { total_active: number; new_today: number; calls_today: number; total_passes: number }> = {}
@@ -201,24 +110,8 @@ export async function GET() {
       }
     }
 
-    // Build region data — single 8-bucket array per region
-    const regionMap: Record<string, { total: number; buckets: number[] }> = {}
-    for (const r of REGIONS) {
-      regionMap[r] = { total: 0, buckets: [0, 0, 0, 0, 0, 0, 0, 0] }
-    }
-
-    for (const lead of leads) {
-      const rm = regionMap[lead.state]
-      if (!rm) continue
-
-      rm.total++
-      const bucket = getBucketIndex(lead.leadDateMs, now)
-      if (bucket >= 0) rm.buckets[bucket]++
-    }
-
     // Build response
     const regions: RegionPipelineData[] = REGIONS.map((region) => {
-      const rm = regionMap[region] ?? { total: 0, buckets: [0, 0, 0, 0, 0, 0, 0, 0] }
 
       // Build tier metrics from Supabase data (always — even if HubSpot returned 0)
       const tiers: TierMetrics[] = (['HOT', 'NEW', 'OLD'] as TierKey[]).map((tier) => {
@@ -239,14 +132,8 @@ export async function GET() {
         ? formatResponseTime(avgRespSec)
         : { text: '-', hours: 0 }
 
-      // Use HubSpot data when available, fall back to Supabase
-      const hsTotal = rm.total
       const tierTotal = tiers.reduce((sum, t) => sum + t.totalActive, 0)
-      const hsBuckets = rm.buckets
-      const sbBuckets = bucketIndex[region] ?? [0, 0, 0, 0, 0, 0, 0, 0]
-      // Use HubSpot buckets if they have data, otherwise Supabase buckets
-      const hasBucketData = hsBuckets.some((v) => v > 0)
-      const finalBuckets = hasBucketData ? hsBuckets : sbBuckets
+      const finalBuckets = bucketIndex[region] ?? [0, 0, 0, 0, 0, 0, 0, 0]
 
       const regionData: RegionPipelineData = {
         region,
@@ -254,10 +141,10 @@ export async function GET() {
         urgency: 'low',
         avgResponseTime: resp.text,
         avgResponseHours: resp.hours,
-        totalContacts: hsTotal || tierTotal,
+        totalContacts: tierTotal,
         tierMetrics: tiers,
         newPipeline: {
-          hubspotCount: hsTotal || tierTotal,
+          hubspotCount: tierTotal,
           ringcxCount: 0,
           delta: 0,
           campaignId: '',
