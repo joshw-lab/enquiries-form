@@ -543,9 +543,40 @@ export default function DispositionForm() {
     }
 
     // Fetch full lead data from HubSpot if contact_id is present
+    let cancelled = false
     if (contact_id) {
       loadLeadData(contact_id)
+    } else if (phone) {
+      // Resolve phone to contact_id via server-side HubSpot lookup
+      setIsLoadingLead(true)
+      setLeadError(null)
+      fetch('/api/resolve-contact', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone }),
+      })
+        .then(res => {
+          if (!res.ok) return res.json().then(d => { throw new Error(d.error || `Resolve failed (${res.status})`) })
+          return res.json()
+        })
+        .then(data => {
+          if (cancelled) return
+          if (data.contact_id) {
+            setContactInfo(prev => prev ? { ...prev, contact_id: data.contact_id } : prev)
+            loadLeadData(data.contact_id)
+          } else {
+            setIsLoadingLead(false)
+          }
+        })
+        .catch(err => {
+          if (cancelled) return
+          console.error('Error resolving contact by phone:', err)
+          setLeadError('Could not resolve contact from phone number')
+          setIsLoadingLead(false)
+        })
     }
+
+    return () => { cancelled = true }
   }, [lookupPostcode]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handlePostcodeChange = (value: string) => {
