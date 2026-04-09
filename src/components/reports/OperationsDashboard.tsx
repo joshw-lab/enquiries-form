@@ -129,12 +129,8 @@ export default function OperationsDashboard() {
   }, [activeTab, fetchDashboardData])
 
   async function handleLogout() {
-    await fetch('/api/reports/auth', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'logout' }),
-    })
-    window.location.href = '/reports/login'
+    const { signOut } = await import('next-auth/react')
+    signOut({ callbackUrl: '/reports/login' })
   }
 
   return (
