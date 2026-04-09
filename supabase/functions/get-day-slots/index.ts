@@ -199,6 +199,7 @@ serve(async (req) => {
       JSON.stringify({
         region: mapping.region,
         service_area_name: mapping.service_area_name,
+        calendar_id: mapping.calendar_id,
         date,
         day_display: new Date(date).toLocaleDateString('en-US', {
           weekday: 'long',

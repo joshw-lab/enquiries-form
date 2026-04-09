@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { getSupabase, PostcodeZone } from '@/lib/supabase'
 import { convertMapViewerToEmbed, convertCalendarCidToEmbed } from '@/lib/url-utils'
 import { fetchLeadData, LeadData, mapLeadPropertiesToFormData } from '@/lib/lead-api'
+import { getCalendarHeatMap, getDaySlots, type HeatMapResponse, type DaySlotsResponse, type TimeSlot } from '@/lib/calendar-api'
 import LeadInfoAccordion from './LeadInfoAccordion'
 import Toast from './Toast'
 
@@ -429,6 +430,17 @@ export default function DispositionForm() {
   const [isLoadingLead, setIsLoadingLead] = useState(false)
   const [leadError, setLeadError] = useState<string | null>(null)
 
+  // Calendar slot picker state
+  const [calendarHeatMap, setCalendarHeatMap] = useState<HeatMapResponse | null>(null)
+  const [isLoadingHeatMap, setIsLoadingHeatMap] = useState(false)
+  const [heatMapError, setHeatMapError] = useState<string | null>(null)
+  const [selectedCalendarDate, setSelectedCalendarDate] = useState<string | null>(null)
+  const [daySlots, setDaySlots] = useState<DaySlotsResponse | null>(null)
+  const [isLoadingSlots, setIsLoadingSlots] = useState(false)
+  const [selectedSlot, setSelectedSlot] = useState<TimeSlot | null>(null)
+  const [selectedCalendarId, setSelectedCalendarId] = useState<string>('')
+  const [selectedEventId, setSelectedEventId] = useState<string>('')
+
   // Lookup postcode when 4 digits entered
   const lookupPostcode = useCallback(async (postcode: string) => {
     if (postcode.length !== 4) {
@@ -644,6 +656,62 @@ export default function DispositionForm() {
     }))
   }
 
+  // Load calendar heatmap when postcode is set and disposition is book_water_test
+  useEffect(() => {
+    if (formData.disposition !== 'book_water_test' || !formData.postcode || formData.postcode.length !== 4) {
+      setCalendarHeatMap(null)
+      return
+    }
+    let cancelled = false
+    setIsLoadingHeatMap(true)
+    setHeatMapError(null)
+    setSelectedCalendarDate(null)
+    setDaySlots(null)
+    setSelectedSlot(null)
+    getCalendarHeatMap(formData.postcode)
+      .then(data => { if (!cancelled) setCalendarHeatMap(data) })
+      .catch(err => { if (!cancelled) setHeatMapError(err.message) })
+      .finally(() => { if (!cancelled) setIsLoadingHeatMap(false) })
+    return () => { cancelled = true }
+  }, [formData.disposition, formData.postcode])
+
+  // Load day slots when a date is selected from the heatmap
+  useEffect(() => {
+    if (!selectedCalendarDate || !formData.postcode) return
+    let cancelled = false
+    setIsLoadingSlots(true)
+    setDaySlots(null)
+    setSelectedSlot(null)
+    getDaySlots(formData.postcode, selectedCalendarDate)
+      .then(data => { if (!cancelled) setDaySlots(data) })
+      .catch(err => { if (!cancelled) console.error('Failed to load day slots:', err) })
+      .finally(() => { if (!cancelled) setIsLoadingSlots(false) })
+    return () => { cancelled = true }
+  }, [selectedCalendarDate, formData.postcode])
+
+  // Handle slot selection — prefill date, day, time
+  const handleSlotSelect = (slot: TimeSlot) => {
+    setSelectedSlot(slot)
+    setSelectedEventId(slot.event_id)
+    if (daySlots) setSelectedCalendarId(daySlots.calendar_id)
+
+    const dateObj = new Date(slot.datetime)
+    const dayName = dateObj.toLocaleDateString('en-AU', { weekday: 'long', timeZone: 'Australia/Sydney' })
+    const dateStr = dateObj.toISOString().split('T')[0]
+
+    // Convert time from getDaySlots format (e.g. "10:00 am") to HubSpot format (e.g. "10:00:00 AM")
+    const timeUpper = slot.time.toUpperCase()
+    const timeParts = timeUpper.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/)
+    const hubspotTime = timeParts ? `${timeParts[1]}:${timeParts[2]}:00 ${timeParts[3]}` : slot.time
+
+    setFormData(prev => ({
+      ...prev,
+      waterTestDate: dateStr,
+      waterTestDay: dayName,
+      waterTestTime: hubspotTime,
+    }))
+  }
+
   const handleSubmit = async () => {
     if (isSubmitting) return
 
@@ -691,7 +759,26 @@ export default function DispositionForm() {
         setShowValidation(false)
         // Only redirect to thank-you page for Book Water Test disposition (compiled notes)
         if (formData.disposition === 'book_water_test' && result.contactId) {
-          window.location.href = `/thank-you?contactId=${result.contactId}`
+          // Book the calendar slot (rename event to customer name)
+          if (selectedEventId && selectedCalendarId) {
+            try {
+              await fetch('/api/calendar/book', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  calendarId: selectedCalendarId,
+                  eventId: selectedEventId,
+                  customerName: `${formData.firstName} ${formData.lastName}`.trim(),
+                }),
+              })
+            } catch (e) {
+              console.error('Calendar booking failed (non-blocking):', e)
+            }
+          }
+          const calendarParams = selectedEventId && selectedCalendarId
+            ? `&calendarEventId=${encodeURIComponent(selectedEventId)}&calendarId=${encodeURIComponent(selectedCalendarId)}`
+            : ''
+          window.location.href = `/thank-you?contactId=${result.contactId}${calendarParams}`
           return
         }
         // All other dispositions: show toast and reset form
@@ -1263,48 +1350,116 @@ export default function DispositionForm() {
 
                       {/* Date of booking call — auto-set from submission timestamp in backend */}
 
-                      {/* NEW FIELD: Water Test Day */}
-                      <div>
-                        <label className={labelClass}>Water Test Day</label>
-                        <select
-                          value={formData.waterTestDay}
-                          onChange={(e) => updateField('waterTestDay', e.target.value)}
-                          className={selectClass}
-                        >
-                          <option value="">Select day</option>
-                          {DAYS_OF_WEEK.map(day => (
-                            <option key={day} value={day}>{day}</option>
-                          ))}
-                        </select>
-                      </div>
+                      {/* Calendar Slot Picker */}
+                      <div className="md:col-span-2">
+                        <label className={getErrorLabelClass(formData.waterTestDate)}>
+                          Appointment Slot *
+                        </label>
 
-                      <div>
-                        <label className={getErrorLabelClass(formData.waterTestDate)}>Water Test Date *</label>
-                        <input
-                          type="date"
-                          value={formData.waterTestDate}
-                          onChange={(e) => updateField('waterTestDate', e.target.value)}
-                          className={getFieldClass(inputClass, formData.waterTestDate)}
-                        />
-                        {isFieldInvalid(formData.waterTestDate) && (
-                          <p className="text-red-600 text-sm mt-1">This field is required</p>
+                        {isLoadingHeatMap && (
+                          <p className="text-sm text-gray-500 animate-pulse">Loading calendar availability...</p>
                         )}
-                      </div>
+                        {heatMapError && (
+                          <p className="text-sm text-red-600">Failed to load calendar: {heatMapError}</p>
+                        )}
+                        {!formData.postcode && (
+                          <p className="text-sm text-gray-400">Enter a postcode to see available slots</p>
+                        )}
 
-                      <div>
-                        <label className={getErrorLabelClass(formData.waterTestTime)}>Water Test Time *</label>
-                        <select
-                          value={formData.waterTestTime}
-                          onChange={(e) => updateField('waterTestTime', e.target.value)}
-                          className={getFieldClass(selectClass, formData.waterTestTime)}
-                        >
-                          <option value="">Select time</option>
-                          {WATER_TEST_TIMES.map(time => (
-                            <option key={time} value={time}>{time}</option>
-                          ))}
-                        </select>
-                        {isFieldInvalid(formData.waterTestTime) && (
-                          <p className="text-red-600 text-sm mt-1">This field is required</p>
+                        {/* Heatmap day grid */}
+                        {calendarHeatMap && (
+                          <div className="space-y-3">
+                            <p className="text-xs text-gray-500">
+                              {calendarHeatMap.service_area_name} &mdash; {calendarHeatMap.total_slots_available} slots available
+                            </p>
+                            <div className="grid grid-cols-7 gap-1.5">
+                              {Object.values(calendarHeatMap.priority_breakdown).flatMap(tier =>
+                                tier.days.map(day => {
+                                  const isSelected = selectedCalendarDate === day.date
+                                  const hasSlots = day.available_count > 0
+                                  return (
+                                    <button
+                                      key={day.date}
+                                      type="button"
+                                      disabled={!hasSlots}
+                                      onClick={() => setSelectedCalendarDate(day.date)}
+                                      className={`
+                                        flex flex-col items-center p-1.5 rounded-lg text-xs border transition-all
+                                        ${isSelected ? 'ring-2 ring-blue-500 border-blue-500 bg-blue-50' : ''}
+                                        ${hasSlots && !isSelected ? 'border-gray-200 hover:border-gray-400 cursor-pointer' : ''}
+                                        ${!hasSlots ? 'border-gray-100 bg-gray-50 opacity-50 cursor-not-allowed' : ''}
+                                      `}
+                                    >
+                                      <span className="font-medium text-gray-700">{day.day_name}</span>
+                                      <span className="text-gray-500">{day.day_number}</span>
+                                      <span
+                                        className="mt-0.5 font-semibold text-[10px] px-1 rounded"
+                                        style={{ color: day.color }}
+                                      >
+                                        {day.available_count}
+                                      </span>
+                                    </button>
+                                  )
+                                })
+                              )}
+                            </div>
+
+                            {/* Day slots */}
+                            {isLoadingSlots && (
+                              <p className="text-sm text-gray-500 animate-pulse">Loading time slots...</p>
+                            )}
+                            {daySlots && (
+                              <div className="space-y-2">
+                                <p className="text-xs font-medium text-gray-600">
+                                  {daySlots.day_display} &mdash; {daySlots.total_slots} available
+                                </p>
+                                {(['morning', 'afternoon', 'evening'] as const).map(period => {
+                                  const slots = daySlots.grouped_by_period[period]
+                                  if (slots.length === 0) return null
+                                  return (
+                                    <div key={period}>
+                                      <p className="text-[10px] uppercase text-gray-400 font-semibold mb-1">
+                                        {period}
+                                      </p>
+                                      <div className="flex flex-wrap gap-1.5">
+                                        {slots.map(slot => {
+                                          const isSlotSelected = selectedSlot?.event_id === slot.event_id
+                                          return (
+                                            <button
+                                              key={slot.event_id}
+                                              type="button"
+                                              onClick={() => handleSlotSelect(slot)}
+                                              className={`
+                                                px-2.5 py-1 rounded text-xs font-medium border transition-all
+                                                ${isSlotSelected
+                                                  ? 'bg-blue-600 text-white border-blue-600'
+                                                  : 'bg-white text-gray-700 border-gray-300 hover:border-blue-400 hover:bg-blue-50'}
+                                              `}
+                                            >
+                                              {slot.time}
+                                            </button>
+                                          )
+                                        })}
+                                      </div>
+                                    </div>
+                                  )
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Show selected appointment summary */}
+                        {formData.waterTestDate && formData.waterTestTime && (
+                          <div className="mt-2 p-2 bg-green-50 border border-green-200 rounded-lg">
+                            <p className="text-sm text-green-800 font-medium">
+                              Selected: {formData.waterTestDay} {formData.waterTestDate} at {formData.waterTestTime}
+                            </p>
+                          </div>
+                        )}
+
+                        {isFieldInvalid(formData.waterTestDate) && (
+                          <p className="text-red-600 text-sm mt-1">Please select an appointment slot</p>
                         )}
                       </div>
 

@@ -20,8 +20,10 @@ const HUBSPOT_API_BASE = "https://api.hubapi.com";
 // Not Interested disposition UUID (HubSpot call disposition ID)
 const NOT_INTERESTED_DISPOSITION_ID = "5e8c009f-db89-4e1a-9c9a-429b45faf0c0";
 
-// CHF Promotions HubSpot owner ID — assigned on "Not Interested" dispositions
+// HubSpot owner IDs for disposition-based contact owner reassignment
 const CHF_PROMOTIONS_OWNER_ID = "27663217";
+const ENQUIRIES_OWNER_ID = "13568480";
+const SHANNON_WATSON_OWNER_ID = "10288671";
 
 /**
  * RingCX Disposition Webhook Payload
@@ -53,6 +55,9 @@ interface RingCXWebhookPayload {
   // Notes and summary from disposition form
   notes?: string;            // Agent notes from disposition form
   summary?: string;          // AI-generated call summary
+
+  // Queue / campaign metadata
+  queue_id?: string;         // #queue_id# - populated for inbound queue calls (e.g. "1221")
 
   // Additional metadata
   recording_url?: string;    // #recording_url#
@@ -126,11 +131,20 @@ function determineCallDirection(payload: RingCXWebhookPayload): "INBOUND" | "OUT
     if (dir === "INBOUND" || dir === "IN") return "INBOUND";
   }
 
+  // Inbound queue ID — if queue_id matches the inbound queue, it's inbound
+  const INBOUND_QUEUE_ID = "1221";
+  const queueId = resolveField(payload.queue_id);
+  if (queueId === INBOUND_QUEUE_ID) {
+    console.log(`📞 Detected INBOUND from queue_id=${queueId}`);
+    return "INBOUND";
+  }
+
   // Infer from DNIS - if DNIS is the company number, it's inbound
-  // Common company DNIS patterns (Australian)
+  // Common company DNIS patterns (Australian) + known inbound numbers
   const companyDnisPatterns = [
     /^1300/, /^1800/, /^13\d{4}$/,  // Australian toll-free/local rate
     /^\(03\)/, /^03/,               // Melbourne landline
+    /^861868471$/,                   // CHF inbound test line
   ];
 
   const dnis = payload.dnis?.replace(/\s/g, "") || "";
@@ -145,13 +159,111 @@ function determineCallDirection(payload: RingCXWebhookPayload): "INBOUND" | "OUT
 }
 
 /**
+ * Generate AU phone format variants for HubSpot search.
+ * Mirrors getPhoneSearchVariants() in hubspot-form-submission and resolve-contact.
+ */
+function getPhoneSearchVariants(phone: string): string[] {
+  const digits = phone.replace(/\D/g, "");
+  const variants = new Set<string>();
+
+  let subscriber: string | null = null;
+
+  if (digits.startsWith("61") && digits.length === 11) {
+    subscriber = digits.substring(2);
+  } else if (digits.startsWith("0") && digits.length === 10) {
+    subscriber = digits.substring(1);
+  } else if (digits.length === 9) {
+    subscriber = digits;
+  }
+
+  if (subscriber) {
+    variants.add(`+61${subscriber}`);
+    variants.add(`0${subscriber}`);
+    variants.add(`61${subscriber}`);
+  } else if (digits.length > 0) {
+    variants.add(phone.trim());
+  }
+
+  return [...variants];
+}
+
+/**
+ * Search HubSpot for a contact by phone number (all AU format variants).
+ * Used as fallback for inbound calls where extern_id is not available.
+ */
+async function searchContactByPhone(
+  phone: string,
+  accessToken: string
+): Promise<string | null> {
+  const variants = getPhoneSearchVariants(phone);
+  if (variants.length === 0) return null;
+
+  console.log(`🔍 Searching HubSpot for contact by phone variants: ${JSON.stringify(variants)}`);
+
+  const filterGroups = variants.flatMap((variant) => [
+    { filters: [{ propertyName: "phone", operator: "EQ", value: variant }] },
+    { filters: [{ propertyName: "mobilephone", operator: "EQ", value: variant }] },
+  ]);
+
+  for (let i = 0; i < filterGroups.length; i += 5) {
+    const batch = filterGroups.slice(i, i + 5);
+    const response = await hubspotFetch(
+      `${HUBSPOT_API_BASE}/crm/v3/objects/contacts/search`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ filterGroups: batch, limit: 1 }),
+      }
+    );
+
+    if (!response.ok) {
+      console.error(`HubSpot phone search failed (${response.status}):`, await response.text());
+      continue;
+    }
+
+    const data = await response.json();
+    if (data.results && data.results.length > 0) {
+      console.log(`✅ Found contact ${data.results[0].id} by phone variant (batch ${Math.floor(i / 5) + 1})`);
+      return data.results[0].id;
+    }
+  }
+
+  console.log(`⚠️ No HubSpot contact found for phone variants: ${JSON.stringify(variants)}`);
+  return null;
+}
+
+/**
  * Format phone number to E.164 format for HubSpot
  */
 function formatPhoneNumber(phone: string): string {
   if (!phone) return "";
 
+  // Extract embedded AU phone from freetext
+  const embeddedMatch = phone.match(/\b(0[2-9]\d{8})\b/);
+  if (embeddedMatch) phone = embeddedMatch[1];
+
   // Remove all non-digit characters except leading +
   let cleaned = phone.replace(/[^\d+]/g, "");
+
+  // Strip duplicate + signs (e.g. "+61+61..." → "+6161...")
+  if (cleaned.indexOf("+", 1) > 0) {
+    cleaned = "+" + cleaned.substring(1).replace(/\+/g, "");
+  }
+
+  // Doubled country code (+6161… → +61…)
+  if (cleaned.startsWith("+6161") && cleaned.length === 14) {
+    cleaned = "+61" + cleaned.substring(5);
+  } else if (cleaned.startsWith("6161") && cleaned.length === 13) {
+    cleaned = "+61" + cleaned.substring(4);
+  }
+
+  // AU mobile with stripped leading 0: +437730983 → +61437730983
+  if (/^\+4\d{8}$/.test(cleaned)) {
+    cleaned = "+61" + cleaned.substring(1);
+  }
 
   // If starts with 0 (Australian local format), convert to +61
   if (cleaned.startsWith("0") && cleaned.length === 10) {
@@ -951,11 +1063,6 @@ serve(async (req) => {
     console.log("extern_id value:", payload.extern_id);
     console.log("agent_extern_id value:", payload.agent_extern_id || "not provided");
 
-    // Validate required fields - extern_id is the HubSpot contact ID
-    if (!payload.extern_id) {
-      throw new Error(`extern_id (HubSpot contact ID) is required. Received: "${payload.extern_id}". Check RingCX tag name.`);
-    }
-
     // RingCX fires TWO webhooks per call:
     //   1. Auto-fire: empty agent_disposition, system disposition only — fired on call end
     //   2. Disposition: actual agent_disposition filled in — fired after agent submits disposition
@@ -994,11 +1101,92 @@ serve(async (req) => {
     // Set disposition on payload for use in createCallEngagement
     payload.disposition = disposition;
 
-    // Extract HubSpot contact ID - remove "hs-" prefix if present
-    let contactId = payload.extern_id;
+    // Determine call direction early — needed for inbound fallback logic
+    const callDirection = determineCallDirection(payload);
+
+    // Resolve HubSpot contact ID — extern_id for outbound (lead-loaded) calls,
+    // phone-based search fallback for inbound calls where extern_id is unavailable.
+    let contactId = payload.extern_id || "";
     if (contactId.startsWith("hs-")) {
       contactId = contactId.substring(3);
       console.log(`Stripped 'hs-' prefix from extern_id: ${payload.extern_id} -> ${contactId}`);
+    }
+
+    // If extern_id is missing or looks like an unresolved template var, try phone fallback for inbound
+    if (!contactId || isUnresolvedTemplateVar(contactId)) {
+      if (callDirection === "INBOUND") {
+        console.log(`📞 Inbound call without extern_id — attempting phone-based contact lookup via ANI: ${payload.ani}`);
+        const ani = payload.ani || "";
+        if (ani) {
+          // Need HubSpot token early for phone search
+          const earlyToken = Deno.env.get("HUBSPOT_ACCESS_TOKEN");
+          if (earlyToken) {
+            const phoneContactId = await searchContactByPhone(ani, earlyToken);
+            if (phoneContactId) {
+              contactId = phoneContactId;
+              console.log(`✅ Inbound call: resolved contact ${contactId} from ANI ${ani}`);
+            }
+          }
+        }
+
+        if (!contactId || isUnresolvedTemplateVar(contactId)) {
+          // No contact found — still log to call_recordings so the data isn't lost
+          console.warn(`⚠️ Inbound call: no HubSpot contact found for ANI "${ani}". Logging to call_recordings with null contact.`);
+
+          const supabaseClient = createClient(
+            Deno.env.get("SUPABASE_URL") ?? "",
+            Deno.env.get("SB_SERVICE_ROLE_KEY") ?? ""
+          );
+
+          const recordingUrl = resolveField(payload.recording_url);
+          const agentName = getAgentDisplayName(payload);
+          const durationSeconds = parseCallDuration(payload.call_duration);
+          const callStartTimestamp = parseCallStartTime(payload.call_start);
+          const customerPhone = formatPhoneNumber(ani);
+
+          await supabaseClient.from("call_recordings").upsert(
+            {
+              call_id: payload.call_id,
+              ringcx_recording_url: recordingUrl || null,
+              call_direction: "INBOUND",
+              call_duration_seconds: durationSeconds,
+              call_start: new Date(callStartTimestamp).toISOString(),
+              disposition,
+              phone_number: customerPhone,
+              agent_id: payload.agent_id,
+              agent_name: agentName,
+              hubspot_contact_id: null,
+              hubspot_call_id: null,
+              backup_status: recordingUrl ? "pending" : "no_recording",
+            },
+            { onConflict: "call_id" }
+          );
+
+          // Also log the webhook
+          await supabaseClient.from("ringcx_webhook_logs").insert({
+            call_id: payload.call_id,
+            contact_id: null,
+            payload,
+            processed_at: new Date().toISOString(),
+            status: "skipped_no_contact",
+          });
+
+          return new Response(
+            JSON.stringify({
+              success: true,
+              warning: `Inbound call logged to call_recordings but no HubSpot contact found for ANI "${ani}"`,
+              call_id: payload.call_id,
+            }),
+            {
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+              status: 200,
+            }
+          );
+        }
+      } else {
+        // Outbound call must have extern_id — this is a configuration error
+        throw new Error(`extern_id (HubSpot contact ID) is required for outbound calls. Received: "${payload.extern_id}". Check RingCX tag name.`);
+      }
     }
 
     // Initialize Supabase client for logging
@@ -1081,7 +1269,7 @@ serve(async (req) => {
     // Insert into call_recordings FIRST — always track the call regardless of HubSpot outcome
     const recordingUrl = resolveField(payload.recording_url);
     const agentName = getAgentDisplayName(payload);
-    const callDirection = determineCallDirection(payload);
+    // callDirection already determined above (before extern_id resolution)
     const durationSeconds = parseCallDuration(payload.call_duration);
     const callStartTimestamp = parseCallStartTime(payload.call_start, agentTimezone);
     const customerPhone = callDirection === "OUTBOUND"
@@ -1208,24 +1396,43 @@ serve(async (req) => {
 
       // num_contacted_notes is now a read-only calculated property in HubSpot — skip update
 
-      // Only set leads_rep if we have a real agent (not system-level pass)
+      // Only set leads_rep for Booked Test or Not Interested dispositions
+      const LEADS_REP_DISPOSITIONS = new Set([
+        "booked_test", "booked", "book_water_test", "booked_water_test",
+        "booked_test_single_leg", "booked_single_leg", "single_leg",
+        "not_interested", "not_intrested", "ni",
+      ]);
+      const normDisp = (disposition || "").toLowerCase().replace(/\s+/g, "_").replace(/-/g, "_");
+
       const hasRealAgent = agentMapping.leadsRep ||
         (payload.agent_id && !isUnresolvedTemplateVar(payload.agent_id) && payload.agent_id !== "0");
 
-      if (hasRealAgent) {
+      if (hasRealAgent && LEADS_REP_DISPOSITIONS.has(normDisp)) {
         const leadsRepValue = agentMapping.leadsRep || getAgentDisplayName(payload);
         contactProperties.leads_rep = leadsRepValue;
         console.log(`📋 Will update leads_rep="${leadsRepValue}" (disposition: ${disposition})`);
-      } else {
+      } else if (!hasRealAgent) {
         console.log(`📋 Skipping leads_rep update — system-level pass (no agent interaction)`);
+      } else {
+        console.log(`📋 Skipping leads_rep update — disposition "${disposition}" does not update leads_rep`);
       }
 
-      // On "Not Interested" dispositions, reassign contact owner to CHF Promotions
+      // On specific dispositions, reassign contact owner
       try {
         const hubspotDispositionId = mapDispositionToHubSpot(disposition);
-        if (hubspotDispositionId === NOT_INTERESTED_DISPOSITION_ID) {
+        const BOOKED_TEST_ID = "f72848b8-6063-4591-9832-a4e4604864f5";
+        const BOOKED_SINGLE_LEG_ID = "0823d714-3974-4bb4-a65a-ecf3596f49ac";
+        const CALL_BACK_ID = "4aa8b662-f76e-4557-8a24-ffae50519382";
+
+        if (hubspotDispositionId === BOOKED_TEST_ID || hubspotDispositionId === BOOKED_SINGLE_LEG_ID) {
+          contactProperties.hubspot_owner_id = ENQUIRIES_OWNER_ID;
+          console.log(`🔄 ${disposition} — setting contact owner to Enquiries (${ENQUIRIES_OWNER_ID})`);
+        } else if (hubspotDispositionId === NOT_INTERESTED_DISPOSITION_ID) {
           contactProperties.hubspot_owner_id = CHF_PROMOTIONS_OWNER_ID;
           console.log(`🔄 Not Interested — setting contact owner to CHF Promotions (${CHF_PROMOTIONS_OWNER_ID})`);
+        } else if (hubspotDispositionId === CALL_BACK_ID) {
+          contactProperties.hubspot_owner_id = SHANNON_WATSON_OWNER_ID;
+          console.log(`🔄 Call Back — setting contact owner to Shannon Watson (${SHANNON_WATSON_OWNER_ID})`);
         }
       } catch {
         // If disposition can't be mapped, skip the owner change
@@ -1276,9 +1483,10 @@ serve(async (req) => {
     const normalizedDisposition = (payload.disposition || "")
       .toLowerCase().replace(/\s+/g, "_").replace(/-/g, "_");
 
-    if (TERMINAL_DISPOSITIONS.has(normalizedDisposition)) {
+    if (TERMINAL_DISPOSITIONS.has(normalizedDisposition) && callDirection !== "INBOUND") {
       try {
         // Look up the lead's current routing to get campaign + lead ID
+        // Skip for INBOUND calls — inbound callers are never loaded into RingCX campaigns
         const { data: routing } = await supabaseClient
           .from("ringcx_lead_routing")
           .select("current_campaign_id, ringcx_lead_id, current_tier")

@@ -5,6 +5,7 @@ import type { DashboardTab, PipelineResponse, SyncResponse, CalendarResponse } f
 import PipelineView from './pipeline/PipelineView'
 import QueueView from './QueueView'
 import AgentLeadsRepModal from './AgentLeadsRepModal'
+import ServiceAreasView from './ServiceAreasView'
 
 function perthDate(d: Date): string {
   return d.toLocaleDateString('en-CA', { timeZone: 'Australia/Perth' })
@@ -178,6 +179,16 @@ export default function OperationsDashboard() {
                 </button>
               )
             })()}
+            <button
+              onClick={() => setActiveTab('service-areas')}
+              className={`px-4 py-1.5 rounded-md text-[12px] font-medium cursor-pointer transition-all ${
+                activeTab === 'service-areas'
+                  ? 'bg-white text-[#111827] shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              Service Areas
+            </button>
           </div>
         </div>
 
@@ -259,6 +270,9 @@ export default function OperationsDashboard() {
             selectedDate={selectedDate}
             advancedSearch={advancedSearch}
           />
+        )}
+        {activeTab === 'service-areas' && (
+          <ServiceAreasView />
         )}
       </div>
 

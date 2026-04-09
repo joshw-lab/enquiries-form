@@ -6,11 +6,12 @@ import {
   RINGCX_API_BASE,
   getRingCentralAccessToken,
   updateHubSpotContact,
+  searchLeadInCampaign,
 } from "../_shared/ringcx-lead-loader-base.ts";
 import { notifyGChatError, notifyGChatSuccess } from "../_shared/gchat-notify.ts";
 
 const AGING_THRESHOLD_HOURS = 72;
-const BATCH_SIZE = 50;
+const BATCH_SIZE = 20;
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -62,11 +63,52 @@ serve(async (req) => {
       throw new Error(tokenError || "Failed to get RingCX access token");
     }
 
+    // Resolve missing ringcx_lead_id by searching RingCX
+    for (const lead of agedLeads) {
+      if (!lead.ringcx_lead_id && lead.current_campaign_id) {
+        console.log(`[AgingHot] Lead ${lead.contact_id} missing ringcx_lead_id — searching campaign ${lead.current_campaign_id}`);
+        const searchResult = await searchLeadInCampaign(
+          lead.current_campaign_id,
+          lead.contact_id,
+          ringcxToken,
+        );
+        if (searchResult.success && searchResult.leadId) {
+          lead.ringcx_lead_id = searchResult.leadId;
+          console.log(`[AgingHot] Resolved lead ${lead.contact_id} → leadId ${searchResult.leadId}`);
+          // Backfill the routing table
+          await supabaseClient
+            .from("ringcx_lead_routing")
+            .update({ ringcx_lead_id: searchResult.leadId, updated_at: new Date().toISOString() })
+            .eq("id", lead.id);
+        } else {
+          console.warn(`[AgingHot] Could not find lead ${lead.contact_id} in RingCX campaign ${lead.current_campaign_id} — lead may not exist in RingCX`);
+        }
+      }
+    }
+
     // Group leads by source→dest campaign pair for batch moves
     const moveGroups = new Map<string, typeof agedLeads>();
     for (const lead of agedLeads) {
       if (!lead.ringcx_lead_id) {
-        console.warn(`[AgingHot] Lead ${lead.contact_id} has no ringcx_lead_id — skipping move`);
+        console.warn(`[AgingHot] Lead ${lead.contact_id} has no ringcx_lead_id after search — marking as orphaned`);
+        // Lead exists in routing but not in RingCX — clean up routing record
+        await supabaseClient
+          .from("ringcx_lead_routing")
+          .update({
+            removed_at: new Date().toISOString(),
+            removal_reason: "aging_orphan_not_in_ringcx",
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", lead.id);
+        await supabaseClient.from("lead_routing_events").insert({
+          contact_id: lead.contact_id,
+          event_type: "aging_orphan_removed",
+          from_campaign_id: lead.current_campaign_id,
+          to_campaign_id: null,
+          from_tier: "HOT",
+          to_tier: "ARCHIVED",
+          details: { reason: "no_ringcx_lead_id_after_search", lead_date: lead.lead_date, source: "aging_cron" },
+        });
         continue;
       }
       if (!lead.new_campaign_id) {
@@ -133,7 +175,11 @@ serve(async (req) => {
         continue;
       }
 
-      // Update routing rows and log events
+      // Update routing rows and log events.
+      // Trust the MOVE_TO_CAMPAIGN response — per-lead verification searches
+      // were causing function timeouts (2 API calls × ~3s × N leads > 120s).
+      // ringcx_lead_id is cleared because the move assigns a new ID in the
+      // destination campaign; it will be resolved by aging-new if needed later.
       const now = new Date().toISOString();
       for (const lead of group) {
         await supabaseClient
@@ -142,6 +188,7 @@ serve(async (req) => {
             current_campaign_id: destCampaign,
             current_tier: "NEW",
             moved_to_new_at: now,
+            ringcx_lead_id: null,
             updated_at: now,
           })
           .eq("id", lead.id);
@@ -158,11 +205,12 @@ serve(async (req) => {
         });
         if (evtErr) console.warn("Failed to log routing event:", evtErr);
 
-        // Update HubSpot status
+        // Fire-and-forget HubSpot status + campaign ID update (non-blocking)
         if (hubspotAccessToken) {
-          await updateHubSpotContact(lead.contact_id, hubspotAccessToken, {
+          updateHubSpotContact(lead.contact_id, hubspotAccessToken, {
             ringcx_load_status: `[Aging] HOT→NEW campaign ${destCampaign} at ${now.replace("T", " ").substring(0, 19)}`,
-          });
+            n0_new_list_id: destCampaign,
+          }).catch((e: unknown) => console.warn(`[AgingHot] HubSpot update failed for ${lead.contact_id}:`, e));
         }
       }
 
@@ -172,6 +220,22 @@ serve(async (req) => {
     // Summary notification
     const summary = `Lead Aging HOT→NEW: moved ${totalMoved}/${agedLeads.length} leads${errors.length > 0 ? ` (${errors.length} errors)` : ""}`;
     console.log(`[AgingHot] ${summary}`);
+
+    // Audit trail: log a run summary event for daily compliance reporting
+    await supabaseClient.from("lead_routing_events").insert({
+      contact_id: 0,
+      event_type: "aging_run_summary",
+      from_tier: "HOT",
+      to_tier: "NEW",
+      details: {
+        source: "ringcx-lead-aging-hot",
+        eligible: agedLeads.length,
+        moved: totalMoved,
+        errors: errors.length,
+        error_messages: errors.slice(0, 5),
+        run_at: new Date().toISOString(),
+      },
+    });
 
     if (errors.length > 0) {
       await notifyGChatError({

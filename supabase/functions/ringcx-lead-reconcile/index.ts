@@ -51,6 +51,11 @@ const HOT_CAMPAIGNS: { state: string; campaignId: number }[] = [
 // Archive campaign — count only, no reconciliation.
 const ARCHIVE_CAMPAIGN = { state: "ALL", campaignId: 289, tier: "ARCHIVED" };
 
+// State → HOT campaign ID mapping (for routing records created by reconcile)
+const STATE_TO_HOT: Record<string, string> = {
+  ACT: "272", NSW: "273", QLD: "274", SA: "275", VIC: "276", WA: "277",
+};
+
 // Combined for backwards compat
 const ALL_CAMPAIGNS = LIST_CAMPAIGNS;
 
@@ -204,13 +209,38 @@ async function deleteLeadsFromCampaign(
  */
 function formatPhoneForRingCX(phone: string): string | null {
   if (!phone || !phone.trim()) return null;
+
+  // Extract embedded AU phone from freetext
+  const embeddedMatch = phone.match(/\b(0[2-9]\d{8})\b/);
+  if (embeddedMatch) phone = embeddedMatch[1];
+
   let digits = phone.replace(/[^\d+]/g, "");
 
+  // Strip duplicate + signs (e.g. "+61+61..." → "+6161...")
+  if (digits.indexOf("+", 1) > 0) {
+    digits = "+" + digits.substring(1).replace(/\+/g, "");
+  }
+
   // Handle various AU formats
-  if (digits.startsWith("+61")) {
+  if (digits.startsWith("+610") && digits.length === 13) {
+    // Redundant zero after country code: +610402… → +61402…
+    digits = "+61" + digits.substring(4);
+  } else if (digits.startsWith("+6161") && digits.length === 14) {
+    // Doubled country code: +6161412862794 (14 chars after + dedup) → +61412862794
+    digits = "+61" + digits.substring(5);
+  } else if (digits.startsWith("+61")) {
     // Already E.164
+  } else if (digits.startsWith("6161") && digits.length === 13) {
+    // Doubled country code without +
+    digits = "+61" + digits.substring(4);
+  } else if (digits.startsWith("610") && digits.length === 12) {
+    // Redundant zero without +: 610402… → +61402…
+    digits = "+61" + digits.substring(3);
   } else if (digits.startsWith("61") && digits.length >= 11) {
     digits = "+" + digits;
+  } else if (/^\+4\d{8}$/.test(digits)) {
+    // AU mobile with stripped leading 0: +437730983 → +61437730983
+    digits = "+61" + digits.substring(1);
   } else if (digits.startsWith("0") && digits.length === 10) {
     digits = "+61" + digits.substring(1);
   } else if (digits.length === 9 && !digits.startsWith("0")) {
@@ -320,6 +350,7 @@ async function reconcileCampaign(
   hubspotToken: string,
   supabaseClient: ReturnType<typeof createClient>,
   dryRun: boolean,
+  hotExternIds: Set<string>,
 ): Promise<CampaignResult> {
   console.log(`[Reconcile] Processing ${campaign.state} ${campaign.tier} (campaign ${campaign.campaignId})`);
 
@@ -453,12 +484,74 @@ async function reconcileCampaign(
 
   console.log(`[Reconcile] ${campaign.state} ${campaign.tier}: ${missingContactIds.length} missing from RingCX`);
 
-  if (missingContactIds.length > 0 && !dryRun) {
+  // Filter out contacts that should NOT be loaded into this campaign:
+  // 1. Already actively routed to another campaign (prevents duplicates across campaigns)
+  // 2. Recently terminally disposed within 30 days (prevents re-loading booked/disposed leads)
+  let loadableContactIds = missingContactIds;
+  if (missingContactIds.length > 0) {
+    const excludeIds = new Set<string>();
+
+    // Guard 0: Skip contacts currently in ANY HOT campaign (RingCX source of truth)
+    // This catches leads that have no routing record (legacy loads, race conditions)
+    for (const contactId of missingContactIds) {
+      if (hotExternIds.has(contactId)) {
+        excludeIds.add(contactId);
+      }
+    }
+    if (excludeIds.size > 0) {
+      console.log(`[Reconcile] ${campaign.state} ${campaign.tier}: ${excludeIds.size} missing contacts skipped (found in HOT campaign in RingCX)`);
+    }
+
+    // Guard 1: Skip contacts already active in ANY campaign (HOT, NEW, OLD)
+    const { data: activeRouting } = await supabaseClient
+      .from("ringcx_lead_routing")
+      .select("contact_id, current_campaign_id, current_tier")
+      .is("removed_at", null)
+      .in("contact_id", missingContactIds);
+
+    if (activeRouting && activeRouting.length > 0) {
+      for (const r of activeRouting) {
+        // Skip if active in a different campaign (e.g., already in HOT, don't also load into NEW)
+        if (String(r.current_campaign_id) !== String(campaign.campaignId)) {
+          excludeIds.add(r.contact_id);
+        }
+      }
+      if (excludeIds.size > 0) {
+        console.log(`[Reconcile] ${campaign.state} ${campaign.tier}: ${excludeIds.size} missing contacts skipped (active in another campaign)`);
+      }
+    }
+
+    // Guard 2: Skip contacts with terminal dispositions in last 30 days
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    const { data: disposedMissing } = await supabaseClient
+      .from("ringcx_lead_routing")
+      .select("contact_id")
+      .not("removed_at", "is", null)
+      .like("removal_reason", "disposition:%")
+      .in("contact_id", missingContactIds)
+      .gte("removed_at", thirtyDaysAgo);
+
+    if (disposedMissing && disposedMissing.length > 0) {
+      const disposedCount = disposedMissing.filter((r: { contact_id: string }) => !excludeIds.has(r.contact_id)).length;
+      for (const r of disposedMissing) {
+        excludeIds.add(r.contact_id);
+      }
+      if (disposedCount > 0) {
+        console.log(`[Reconcile] ${campaign.state} ${campaign.tier}: ${disposedCount} missing contacts skipped (disposed within 30d)`);
+      }
+    }
+
+    if (excludeIds.size > 0) {
+      loadableContactIds = missingContactIds.filter((id) => !excludeIds.has(id));
+    }
+  }
+
+  if (loadableContactIds.length > 0 && !dryRun) {
     const campaignIdField = CAMPAIGN_ID_FIELDS[campaign.tier] || "n0_new_list_id";
     let loadToken = await getRingCXToken();
 
-    for (let i = 0; i < missingContactIds.length; i += LOAD_BATCH_SIZE) {
-      const batch = missingContactIds.slice(i, i + LOAD_BATCH_SIZE);
+    for (let i = 0; i < loadableContactIds.length; i += LOAD_BATCH_SIZE) {
+      const batch = loadableContactIds.slice(i, i + LOAD_BATCH_SIZE);
 
       for (const contactId of batch) {
         try {
@@ -482,6 +575,24 @@ async function reconcileCampaign(
             await logSyncFailure(supabaseClient, contactId, campaign, "invalid_phone", reason, hubspotToken);
             loadFailed++;
             continue;
+          }
+
+          // Guard 3: Skip contacts with lead_date < 72h — they belong in HOT, not NEW
+          // Also skip contacts with NO lead_date — cannot determine age
+          if (campaign.tier === "NEW") {
+            const leadDateRaw = props.lead_date || props.createdate;
+            if (!leadDateRaw) {
+              console.log(`[Reconcile] Skip ${contactId}: no lead_date or createdate — cannot verify 72h threshold`);
+              await logSyncFailure(supabaseClient, contactId, campaign, "no_lead_date",
+                "No lead_date or createdate — cannot verify 72h threshold for NEW", hubspotToken);
+              loadFailed++;
+              continue;
+            }
+            const ageHours = (Date.now() - new Date(leadDateRaw).getTime()) / (1000 * 60 * 60);
+            if (ageHours < 72) {
+              console.log(`[Reconcile] Skip ${contactId}: lead_date is ${Math.round(ageHours)}h old (< 72h) — should be in HOT campaign, not NEW`);
+              continue;
+            }
           }
 
           // Build lead data
@@ -509,6 +620,38 @@ async function reconcileCampaign(
 
           if (pushResult.success) {
             loaded++;
+
+            // Create routing record so aging/disposition systems can track this lead
+            const now = new Date().toISOString();
+            await supabaseClient.from("ringcx_lead_routing").upsert({
+              contact_id: contactId,
+              current_campaign_id: String(campaign.campaignId),
+              current_tier: campaign.tier,
+              lead_date: props.lead_date || props.createdate || now,
+              ingested_at: now,
+              new_campaign_id: campaign.tier === "NEW" ? String(campaign.campaignId) : String(campaign.siblingCampaignId),
+              old_campaign_id: campaign.tier === "OLD" ? String(campaign.campaignId) : String(campaign.siblingCampaignId),
+              hot_campaign_id: STATE_TO_HOT[campaign.state] || null,
+              contact_state: props.state || campaign.state || null,
+              contact_phone: formattedPhone || null,
+              moved_to_new_at: campaign.tier !== "HOT" ? now : null,
+              moved_to_old_at: campaign.tier === "OLD" ? now : null,
+              updated_at: now,
+            }, { onConflict: "contact_id" }).then(() => {}).catch((e: unknown) =>
+              console.warn(`[Reconcile] Failed to upsert routing for ${contactId}:`, e)
+            );
+
+            await supabaseClient.from("lead_routing_events").insert({
+              contact_id: contactId,
+              event_type: "reconcile_loaded",
+              from_campaign_id: null,
+              to_campaign_id: String(campaign.campaignId),
+              from_tier: null,
+              to_tier: campaign.tier,
+              details: { source: "reconcile", lead_date: props.lead_date || null },
+            }).then(() => {}).catch((e: unknown) =>
+              console.warn(`[Reconcile] Failed to log routing event for ${contactId}:`, e)
+            );
           } else {
             const reason = pushResult.error || "Unknown push error";
             console.warn(`[Reconcile] Failed to load ${contactId}: ${reason}`);
@@ -524,12 +667,12 @@ async function reconcileCampaign(
       }
 
       // Refresh token between batches (5-min expiry)
-      if (i + LOAD_BATCH_SIZE < missingContactIds.length) {
+      if (i + LOAD_BATCH_SIZE < loadableContactIds.length) {
         loadToken = await getRingCXToken();
       }
     }
-  } else if (missingContactIds.length > 0 && dryRun) {
-    console.log(`[Reconcile] DRY RUN — would load ${missingContactIds.length} missing leads into campaign ${campaign.campaignId}`);
+  } else if (loadableContactIds.length > 0 && dryRun) {
+    console.log(`[Reconcile] DRY RUN — would load ${loadableContactIds.length} missing leads into campaign ${campaign.campaignId}`);
   }
 
   // Write counts to sync_counts table for dashboard consumption
@@ -613,6 +756,7 @@ async function reconcileHotCampaign(
   // Check each unique RingCX lead against routing table
   const disposedLeadIds: number[] = [];
   const noRoutingLeadIds: number[] = [];
+  const skippedNoRouting: string[] = [];
 
   for (const [externId, leadId] of ringcxData.unique) {
     if (!activeContactIds.has(externId)) {
@@ -628,17 +772,21 @@ async function reconcileHotCampaign(
       if (disposedRow) {
         disposedLeadIds.push(leadId);
       } else {
-        noRoutingLeadIds.push(leadId);
+        // DON'T delete no-routing leads — they may be valid leads whose routing
+        // was moved to NEW/OLD by aging but whose RingCX move didn't complete.
+        // Previously this deleted them, causing HOT campaigns to empty out.
+        skippedNoRouting.push(externId);
+        console.warn(`[Reconcile] HOT ${campaign.state}: Lead ${externId} (leadId=${leadId}) has no active routing — SKIPPING deletion`);
       }
     }
   }
 
-  // Delete: duplicates + disposed + no-routing
-  const allDeleteIds = [...ringcxData.duplicateLeadIds, ...disposedLeadIds, ...noRoutingLeadIds];
+  // Delete: duplicates + disposed ONLY (no longer deleting no-routing leads)
+  const allDeleteIds = [...ringcxData.duplicateLeadIds, ...disposedLeadIds];
   let deleted = 0;
   let errors = 0;
 
-  console.log(`[Reconcile] HOT ${campaign.state}: ${ringcxData.duplicateLeadIds.length} dupes, ${disposedLeadIds.length} disposed, ${noRoutingLeadIds.length} no-routing = ${allDeleteIds.length} to delete`);
+  console.log(`[Reconcile] HOT ${campaign.state}: ${ringcxData.duplicateLeadIds.length} dupes, ${disposedLeadIds.length} disposed, ${skippedNoRouting.length} no-routing (SKIPPED) = ${allDeleteIds.length} to delete`);
 
   if (dryRun) {
     console.log(`[Reconcile] DRY RUN — would delete ${allDeleteIds.length} from HOT ${campaign.state}`);
@@ -656,8 +804,8 @@ async function reconcileHotCampaign(
     }
   }
 
-  // Write counts
-  const postDeleteCount = ringcxData.unique.size - disposedLeadIds.length - noRoutingLeadIds.length;
+  // Write counts (no-routing leads are now preserved, not deleted)
+  const postDeleteCount = ringcxData.unique.size - disposedLeadIds.length;
   await supabaseClient
     .from("sync_counts")
     .upsert({
@@ -680,7 +828,7 @@ async function reconcileHotCampaign(
     routingCount: activeContactIds.size,
     duplicates: ringcxData.duplicateLeadIds.length,
     disposed: disposedLeadIds.length,
-    noRouting: noRoutingLeadIds.length,
+    noRouting: skippedNoRouting.length,
     deleted,
     errors,
   };
@@ -895,6 +1043,23 @@ serve(async (req) => {
     const mode = dryRun ? "DRY RUN" : "LIVE";
     console.log(`[Reconcile] ${mode}: Processing ${totalToProcess} campaigns (${campaignsToProcess.length} list + ${hotCampaignsToProcess.length} hot)`);
 
+    // ── Pre-fetch HOT campaign leads for cross-campaign guard ──────
+    // This is the definitive check — RingCX source of truth, not routing table
+    const hotExternIds = new Set<string>();
+    if (campaignsToProcess.length > 0) {
+      const ringcxToken = await getRingCXToken();
+      console.log(`[Reconcile] Pre-fetching HOT campaign leads for cross-campaign guard...`);
+      for (const hc of HOT_CAMPAIGNS) {
+        try {
+          const data = await fetchRingCXCampaignLeads(hc.campaignId, ringcxToken);
+          for (const externId of data.unique.keys()) hotExternIds.add(externId);
+        } catch (err) {
+          console.warn(`[Reconcile] Failed to fetch HOT ${hc.state} (${hc.campaignId}):`, (err as Error).message);
+        }
+      }
+      console.log(`[Reconcile] HOT cross-check: ${hotExternIds.size} contacts currently in HOT campaigns`);
+    }
+
     // ── Process each campaign sequentially (with timeout guard) ──────
     const results: CampaignResult[] = [];
     const hotResults: HotCampaignResult[] = [];
@@ -910,7 +1075,7 @@ serve(async (req) => {
       }
 
       try {
-        const result = await reconcileCampaign(campaign, hubspotToken, supabaseClient, dryRun);
+        const result = await reconcileCampaign(campaign, hubspotToken, supabaseClient, dryRun, hotExternIds);
         results.push(result);
       } catch (err) {
         const errMsg = (err as Error).message || String(err);

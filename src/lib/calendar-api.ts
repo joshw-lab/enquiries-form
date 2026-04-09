@@ -40,6 +40,7 @@ export interface TimeSlot {
 export interface DaySlotsResponse {
   region: string
   service_area_name: string
+  calendar_id: string
   date: string
   day_display: string
   total_slots: number

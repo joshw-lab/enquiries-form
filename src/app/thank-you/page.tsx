@@ -14,6 +14,8 @@ type Status = "loading" | "success" | "empty" | "error";
 function ThankYouContent() {
   const searchParams = useSearchParams();
   const contactId = searchParams.get("contactId") || searchParams.get("contact_id");
+  const calendarEventId = searchParams.get("calendarEventId");
+  const calendarId = searchParams.get("calendarId");
 
   const [status, setStatus] = useState<Status>("loading");
   const [compiledNotes, setCompiledNotes] = useState("");
@@ -45,6 +47,21 @@ function ThankYouContent() {
           setContactName(data.contactName || "");
           setStatus("success");
           setRetryCount(0);
+
+          // Patch calendar event description with compiled notes
+          if (calendarEventId && calendarId) {
+            fetch("/api/calendar/book", {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                calendarId,
+                eventId: calendarEventId,
+                description: notes,
+              }),
+            }).catch((err) =>
+              console.error("Failed to update calendar description:", err)
+            );
+          }
         } else if (attempt < MAX_RETRIES) {
           setRetryCount(attempt + 1);
           setTimeout(() => fetchNotes(attempt + 1), RETRY_DELAY);
@@ -58,7 +75,7 @@ function ThankYouContent() {
         setRetryCount(0);
       }
     },
-    [contactId]
+    [contactId, calendarEventId, calendarId]
   );
 
   useEffect(() => {

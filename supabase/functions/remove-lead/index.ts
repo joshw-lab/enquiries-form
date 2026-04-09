@@ -1,6 +1,8 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { getRingCXToken } from '../_shared/ringcentral-auth.ts';
 import { notifyGChatError } from '../_shared/gchat-notify.ts';
+import { searchLeadInCampaign } from '../_shared/ringcx-lead-loader-base.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -146,7 +148,76 @@ async function handleContactIdRemoval(contactId: string, accountId: string, ring
     }
   }
 
-  const allSkipped = results.every(r => r.skipped);
+  // Also check routing table for active leads (covers HOT campaigns + any campaign
+  // not yet written back to HubSpot properties)
+  const supabaseClient = createClient(
+    Deno.env.get('SUPABASE_URL') ?? '',
+    Deno.env.get('SB_SERVICE_ROLE_KEY') ?? '',
+  );
+
+  const { data: routing } = await supabaseClient
+    .from('ringcx_lead_routing')
+    .select('current_campaign_id, ringcx_lead_id, current_tier')
+    .eq('contact_id', contactId)
+    .is('removed_at', null)
+    .maybeSingle();
+
+  if (routing?.current_campaign_id) {
+    const routingCampaignId = parseInt(routing.current_campaign_id, 10);
+
+    // Skip if we already removed from this campaign via HubSpot properties above
+    const alreadyHandled = results.some(
+      (r: { campaignId?: number | string | null; removed?: boolean }) =>
+        r.campaignId === routingCampaignId && r.removed,
+    );
+
+    if (!alreadyHandled) {
+      let leadId = routing.ringcx_lead_id ? parseInt(routing.ringcx_lead_id, 10) : 0;
+
+      // If no lead ID in routing, search RingCX for it
+      if (!leadId) {
+        console.log(`[Routing] No leadId for contact ${contactId} in campaign ${routingCampaignId} — searching RingCX`);
+        const searchResult = await searchLeadInCampaign(String(routingCampaignId), contactId, ringcxToken);
+        if (searchResult.success && searchResult.leadId) {
+          leadId = parseInt(searchResult.leadId, 10);
+        }
+      }
+
+      if (leadId) {
+        const result = await removeLeadFromCampaign(routingCampaignId, [leadId], accountId, ringcxToken);
+        if (result.success) {
+          console.log(`[Routing/${routing.current_tier}] Removed lead ${leadId} from campaign ${routingCampaignId}`);
+          results.push({ campaign: `Routing(${routing.current_tier})`, campaignId: routingCampaignId, leadId, removed: true });
+          anyRemoved = true;
+        } else {
+          console.error(`[Routing/${routing.current_tier}] Failed:`, result.error);
+          results.push({ campaign: `Routing(${routing.current_tier})`, campaignId: routingCampaignId, leadId, removed: false, error: result.error });
+          await notifyGChatError({
+            source: 'remove-lead',
+            error: `Failed to remove lead from ${routing.current_tier} campaign (routing): ${result.error}`,
+            details: { contactId, campaignId: routingCampaignId, leadId },
+          });
+        }
+      } else {
+        console.log(`[Routing/${routing.current_tier}] Could not find lead ${contactId} in campaign ${routingCampaignId}`);
+        results.push({ campaign: `Routing(${routing.current_tier})`, campaignId: routingCampaignId, leadId: null, skipped: true, reason: 'lead not found in RingCX' });
+      }
+
+      // Mark routing record as removed
+      await supabaseClient
+        .from('ringcx_lead_routing')
+        .update({
+          removed_at: new Date().toISOString(),
+          removal_reason: 'removal_workflow',
+          current_tier: 'ARCHIVED',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('contact_id', contactId)
+        .is('removed_at', null);
+    }
+  }
+
+  const allSkipped = results.every((r: { skipped?: boolean }) => r.skipped);
   if (allSkipped) {
     console.log(`No campaigns to remove for contact ${contactId}`);
   }

@@ -164,6 +164,7 @@ export interface CalendarEvent {
 
 export interface GoogleCalendarClient {
   listEvents(calendarId: string, timeMin: string, timeMax: string): Promise<CalendarEvent[]>
+  updateEvent(calendarId: string, eventId: string, updates: { summary?: string; description?: string }): Promise<CalendarEvent>
 }
 
 export function getGoogleCalendarClient(): GoogleCalendarClient {
@@ -202,7 +203,7 @@ export function getGoogleCalendarClient(): GoogleCalendarClient {
     const header = { alg: 'RS256', typ: 'JWT' }
     const payload = {
       iss: sa.client_email,
-      scope: 'https://www.googleapis.com/auth/calendar.readonly',
+      scope: 'https://www.googleapis.com/auth/calendar',
       aud: sa.token_uri,
       iat: now,
       exp: now + 3600,
@@ -254,6 +255,25 @@ export function getGoogleCalendarClient(): GoogleCalendarClient {
       }
       const data = await res.json() as { items: CalendarEvent[] }
       return data.items || []
+    },
+    async updateEvent(calendarId, eventId, updates) {
+      const token = await getAccessToken()
+      const res = await fetch(
+        `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
+        {
+          method: 'PATCH',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(updates),
+        }
+      )
+      if (!res.ok) {
+        const text = await res.text()
+        throw new Error(`Google Calendar update failed (${res.status}): ${text}`)
+      }
+      return res.json() as Promise<CalendarEvent>
     },
   }
 }

@@ -50,4 +50,6 @@ hubspot.config.yml
 *.numbers
 hubspot-ringcx-poc.js
 dotted-repeater-*.json
+chf-big-query-*.json
+.hubspot-backup-progress.json
 supabase/.temp/

@@ -6,9 +6,14 @@ ALTER TABLE ringcx_lead_routing
   ADD COLUMN IF NOT EXISTS removed_at TIMESTAMPTZ,
   ADD COLUMN IF NOT EXISTS removal_reason TEXT;
 
--- 2. Replace the unique index with a partial index (allows archived + active rows for same contact)
+-- 2. Keep the non-partial unique index on contact_id (one row per contact).
+-- NOTE: A partial index (WHERE removed_at IS NULL) was tried here but broke
+-- PostgREST/supabase-js upserts — ON CONFLICT (contact_id) cannot resolve
+-- against a partial unique index, causing all routing upserts to silently fail.
+-- Keeping the non-partial index means archived rows are UPDATED in-place (not
+-- preserved as separate rows), which is acceptable for our use case.
 DROP INDEX IF EXISTS idx_lead_routing_contact;
-CREATE UNIQUE INDEX idx_lead_routing_contact ON ringcx_lead_routing (contact_id) WHERE removed_at IS NULL;
+CREATE UNIQUE INDEX idx_lead_routing_contact ON ringcx_lead_routing (contact_id);
 
 -- 3. Index for filtering active-only routing entries by campaign
 CREATE INDEX IF NOT EXISTS idx_lead_routing_active

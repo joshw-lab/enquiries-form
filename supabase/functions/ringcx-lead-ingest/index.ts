@@ -15,6 +15,7 @@ import {
   hasRecentFailure,
 } from "../_shared/ringcx-lead-loader-base.ts";
 import { notifyGChatError } from "../_shared/gchat-notify.ts";
+import { isInServiceArea } from "../_shared/service-area-postcodes.ts";
 
 const AGING_THRESHOLD_HOURS = 72;
 const OLD_THRESHOLD_HOURS = 90 * 24; // 2160 hours = 90 days
@@ -120,6 +121,32 @@ serve(async (req) => {
       );
     }
 
+    // Service area postcode filter
+    const postcodeCheck = await isInServiceArea(properties.zip, supabaseClient);
+    if (!postcodeCheck.allowed) {
+      console.log(`[LeadIngest] Contact ${contactId} postcode "${properties.zip}" outside service area — skipping`);
+
+      await supabaseClient.from("lead_routing_events").insert({
+        contact_id: contactId,
+        event_type: "skipped_outside_service_area",
+        from_campaign_id: null,
+        to_campaign_id: null,
+        from_tier: null,
+        to_tier: null,
+        ringcx_lead_id: null,
+        details: { postcode: properties.zip, state: properties.state || null },
+      }).then(() => {}).catch((e: unknown) => console.warn("Failed to log skip event:", e));
+
+      await updateHubSpotContact(contactId, hubspotAccessToken, {
+        ringcx_load_status: `[Ingest] Blocked — postcode "${properties.zip}" outside service area`,
+      });
+
+      return new Response(
+        JSON.stringify({ success: false, skipped: true, reason: "outside_service_area", postcode: properties.zip }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200 }
+      );
+    }
+
     // Determine tier: HOT (<72h), NEW (72h–90d), OLD (>90d)
     const leadDateStr = properties.lead_date || properties.createdate;
     let tier: "HOT" | "NEW" | "OLD" = "HOT";
@@ -210,6 +237,69 @@ serve(async (req) => {
       );
     }
 
+    // Cross-contact phone dedup: block if a DIFFERENT contact ID with the same phone is already active.
+    // This catches duplicate HubSpot contacts created by form submission search misses.
+    const phonesToCheck = [phone1, phone2].filter(isValidE164);
+    if (phonesToCheck.length > 0) {
+      try {
+        const { data: phoneDupe } = await supabaseClient
+          .from("ringcx_lead_routing")
+          .select("contact_id, current_campaign_id, current_tier, ringcx_lead_id, contact_phone")
+          .in("contact_phone", phonesToCheck)
+          .neq("contact_id", contactId)
+          .is("removed_at", null)
+          .limit(1)
+          .maybeSingle();
+
+        if (phoneDupe) {
+          console.warn(`[LeadIngest] CROSS-CONTACT DUPLICATE: Contact ${contactId} has same phone (${phoneDupe.contact_phone}) as existing contact ${phoneDupe.contact_id} in ${phoneDupe.current_tier} campaign ${phoneDupe.current_campaign_id}. Blocking ingestion.`);
+
+          await supabaseClient.from("lead_routing_events").insert({
+            contact_id: contactId,
+            event_type: "skipped_duplicate",
+            from_campaign_id: null,
+            to_campaign_id: targetCampaignId,
+            from_tier: null,
+            to_tier: tier,
+            ringcx_lead_id: null,
+            details: {
+              reason: "cross_contact_phone_duplicate",
+              existing_contact_id: phoneDupe.contact_id,
+              existing_campaign_id: phoneDupe.current_campaign_id,
+              existing_tier: phoneDupe.current_tier,
+              matching_phone: phoneDupe.contact_phone,
+            },
+          });
+
+          await notifyGChatError({
+            source: "ringcx-lead-ingest",
+            error: `Cross-contact phone duplicate blocked: contact ${contactId} matches existing contact ${phoneDupe.contact_id} by phone ${phoneDupe.contact_phone}. These HubSpot contacts likely need merging.`,
+            details: { contactId, existingContactId: phoneDupe.contact_id, phone: phoneDupe.contact_phone },
+          });
+
+          await updateHubSpotContact(contactId, hubspotAccessToken, {
+            ringcx_load_status: `[Ingest] Blocked — phone ${phoneDupe.contact_phone} already active under contact ${phoneDupe.contact_id} in ${phoneDupe.current_tier} campaign. Likely duplicate HubSpot contact.`,
+          });
+
+          return new Response(
+            JSON.stringify({
+              success: true,
+              skipped: true,
+              reason: "cross_contact_phone_duplicate",
+              existingContactId: phoneDupe.contact_id,
+              existingCampaignId: phoneDupe.current_campaign_id,
+              matchingPhone: phoneDupe.contact_phone,
+              contactId,
+            }),
+            { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200 }
+          );
+        }
+      } catch (phoneCheckErr) {
+        // Defense-in-depth — don't block ingestion if the phone check itself fails
+        console.warn("[LeadIngest] Phone dedup check failed (proceeding):", phoneCheckErr);
+      }
+    }
+
     // Check for recently archived terminal dispositions — prevent re-ingestion loop
     const { data: archivedRouting } = await supabaseClient
       .from("ringcx_lead_routing")
@@ -285,10 +375,42 @@ serve(async (req) => {
     // Resolve timezone from newCampaignId as fallback (always in CAMPAIGN_TIMEZONE map)
     const tzOverride = CAMPAIGN_TIMEZONE[Number(newCampaignId)];
 
+    // Create provisional routing record BEFORE push to prevent reconcile race condition.
+    // If reconcile runs between push and routing creation, it would not see this contact
+    // as active and could load it into a second campaign.
+    const now = new Date().toISOString();
+    const { error: routingError } = await supabaseClient.from("ringcx_lead_routing").upsert({
+      contact_id: contactId,
+      hot_campaign_id: hotCampaignId,
+      new_campaign_id: newCampaignId,
+      old_campaign_id: oldCampaignId || null,
+      current_campaign_id: targetCampaignId,
+      current_tier: tier,
+      ringcx_lead_id: null, // not yet known — will be updated after push
+      lead_date: leadDateStr || now,
+      ingested_at: now,
+      moved_to_new_at: tier === "NEW" || tier === "OLD" ? now : null,
+      moved_to_old_at: tier === "OLD" ? now : null,
+      removed_at: null,         // Clear any previous disposal on re-ingest
+      removal_reason: null,     // Clear previous disposal reason
+      contact_state: properties.state || null,
+      contact_phone: phone1 || phone2 || null,
+      updated_at: now,
+    }, { onConflict: "contact_id" });
+    if (routingError) {
+      console.error(`[LeadIngest] Failed to upsert routing record for ${contactId}:`, routingError);
+    }
+
     // Push to RingCX
     const result = await pushLeadToRingCX(targetCampaignId, leadData, ringcxToken, dialPriority, tzOverride);
 
     if (!result.success) {
+      // Clean up provisional routing record on push failure
+      await supabaseClient.from("ringcx_lead_routing")
+        .update({ removed_at: new Date().toISOString(), removal_reason: "push_failed", updated_at: new Date().toISOString() })
+        .eq("contact_id", contactId)
+        .is("removed_at", null);
+
       await supabaseClient.from("error_log").insert({
         source: "ringcx-lead-ingest",
         error_message: result.error || "Failed to push lead",
@@ -312,9 +434,15 @@ serve(async (req) => {
 
     console.log(`[LeadIngest] Successfully pushed contact ${contactId} to ${tier} campaign ${targetCampaignId}`);
 
-    // Search for lead ID
+    // Search for lead ID and update routing record
     const searchResult = await searchLeadInCampaign(targetCampaignId, contactId, ringcxToken);
     const leadId = searchResult.success ? searchResult.leadId : result.leadId;
+
+    // Update provisional routing record with ringcx_lead_id
+    await supabaseClient.from("ringcx_lead_routing")
+      .update({ ringcx_lead_id: leadId || null, updated_at: new Date().toISOString() })
+      .eq("contact_id", contactId)
+      .is("removed_at", null);
 
     // Log routing event
     const { error: ingestEvtErr } = await supabaseClient.from("lead_routing_events").insert({
@@ -352,30 +480,18 @@ serve(async (req) => {
     });
     // lead_loads insert is non-critical — errors logged but don't block
 
-    // Upsert into ringcx_lead_routing
-    const now = new Date().toISOString();
-    await supabaseClient.from("ringcx_lead_routing").upsert({
-      contact_id: contactId,
-      hot_campaign_id: hotCampaignId,
-      new_campaign_id: newCampaignId,
-      old_campaign_id: oldCampaignId || null,
-      current_campaign_id: targetCampaignId,
-      current_tier: tier,
-      ringcx_lead_id: leadId || null,
-      lead_date: leadDateStr || now,
-      ingested_at: now,
-      moved_to_new_at: tier === "NEW" || tier === "OLD" ? now : null,
-      moved_to_old_at: tier === "OLD" ? now : null,
-      contact_state: properties.state || null,
-      contact_phone: phone1 || phone2 || null,
-      updated_at: now,
-    }, { onConflict: "contact_id" });
-
-    // Write back status to HubSpot
+    // Write back status + campaign assignment to HubSpot.
+    // n0_new_list_id is always set to newCampaignId so the contact is visible
+    // in HubSpot segment lists regardless of whether it's currently in HOT or NEW.
     const statusMsg = `[Ingest] ${tier} campaign ${targetCampaignId}${leadId ? ` (lead ${leadId})` : ""} at ${now.replace("T", " ").substring(0, 19)}`;
-    await updateHubSpotContact(contactId, hubspotAccessToken, {
+    const hubspotUpdate: Record<string, string> = {
       ringcx_load_status: statusMsg,
-    });
+      n0_new_list_id: String(newCampaignId),
+    };
+    if (oldCampaignId) {
+      hubspotUpdate.n0_old_list_id = String(oldCampaignId);
+    }
+    await updateHubSpotContact(contactId, hubspotAccessToken, hubspotUpdate);
 
     return new Response(
       JSON.stringify({

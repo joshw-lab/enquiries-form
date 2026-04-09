@@ -349,56 +349,6 @@ function toLocalAU(phone: string): string {
 }
 
 /**
- * Structured result from dial priority determination.
- * Captures the decision + reasoning for queue visibility dashboards.
- */
-export interface DialPriorityResult {
-  priority: "IMMEDIATE" | "NORMAL";
-  reason: string; // "reconversion" | "recontacted" | "new_today" | "aged_lead"
-  context: {
-    lead_date: string | null;
-    createdate: string | null;
-    num_contacted: number;
-  };
-}
-
-/**
- * Determine dial priority for a lead.
- * IMMEDIATE (jump the queue) when lead_date is today AND either:
- *   - It's a reconversion (lead_date differs from createdate), OR
- *   - numContacted > 1 (previously contacted — ensures reconverted leads
- *     with high pass counts aren't deprioritized by RingCX)
- * Otherwise NORMAL.
- */
-export function determineDialPriority(
-  leadDate?: string,
-  createDate?: string,
-  numContacted = 0,
-): DialPriorityResult {
-  const context = {
-    lead_date: leadDate?.slice(0, 10) || null,
-    createdate: createDate?.slice(0, 10) || null,
-    num_contacted: numContacted,
-  };
-
-  if (!leadDate) return { priority: "NORMAL", reason: "aged_lead", context };
-
-  const today = new Date().toISOString().slice(0, 10);
-  const leadDay = leadDate.slice(0, 10);
-
-  if (leadDay !== today) return { priority: "NORMAL", reason: "aged_lead", context };
-
-  // lead_date is today — check for reconversion signals
-  const isReconversion = createDate ? leadDay !== createDate.slice(0, 10) : false;
-  if (isReconversion) return { priority: "IMMEDIATE", reason: "reconversion", context };
-
-  const wasPreviouslyContacted = numContacted > 1;
-  if (wasPreviouslyContacted) return { priority: "IMMEDIATE", reason: "recontacted", context };
-
-  return { priority: "NORMAL", reason: "new_today", context };
-}
-
-/**
  * Push lead to RingCX Lead Loader API
  */
 /**
@@ -749,18 +699,40 @@ export async function searchLeadInCampaign(
  *   04XX XXX XXX      → local mobile
  *   0X XXXX XXXX      → local landline
  *   4XXXXXXXX         → 9 digits, missing leading 0
+ *   +4XXXXXXXX        → AU mobile with stripped leading 0 (form artifact)
+ *   +61+61XXXXXXXXX   → doubled country code prefix
+ *   "text 04XX... text" → embedded phone in freetext
  */
 export function formatPhoneNumber(phone: string): string {
   if (!phone) return "";
 
+  // ── Extract embedded AU phone from freetext ────────────────
+  // e.g. "NI 0424143331 - Around 5pm is a good time 2 call"
+  const embeddedMatch = phone.match(/\b(0[2-9]\d{8})\b/);
+  if (embeddedMatch) phone = embeddedMatch[1];
+
   // Strip everything except digits and leading +
   let cleaned = phone.replace(/[^\d+]/g, "");
+
+  // ── Strip duplicate + signs ────────────────────────────────
+  // e.g. "+61+61412862794" → "+6161412862794"
+  if (cleaned.indexOf("+", 1) > 0) {
+    cleaned = "+" + cleaned.substring(1).replace(/\+/g, "");
+  }
 
   // ── International dialing prefix (0061… → 61…) ──────────
   if (cleaned.startsWith("+0061")) {
     cleaned = "+" + cleaned.substring(3); // +0061… → +61…
   } else if (cleaned.startsWith("0061")) {
     cleaned = cleaned.substring(2);       // 0061…  → 61…
+  }
+
+  // ── Doubled country code (+6161… → +61…) ──────────────────
+  // After duplicate + stripping: "+61+61412862794" → "+6161412862794" (14 chars)
+  if (cleaned.startsWith("+6161") && cleaned.length === 14) {
+    cleaned = "+61" + cleaned.substring(5);
+  } else if (cleaned.startsWith("6161") && cleaned.length === 13) {
+    cleaned = "+61" + cleaned.substring(4);
   }
 
   // ── Redundant zero after country code ────────────────────
@@ -770,6 +742,12 @@ export function formatPhoneNumber(phone: string): string {
   } else if (cleaned.startsWith("610") && cleaned.length === 12) {
     // 610408199928 → +61408199928
     cleaned = "+61" + cleaned.substring(3);
+  }
+
+  // ── AU mobile with stripped leading 0 (+4XXXXXXXX → +614XXXXXXXX) ──
+  // HubSpot/forms sometimes strip leading 0 from 04XXXXXXXX and add +
+  if (/^\+4\d{8}$/.test(cleaned)) {
+    cleaned = "+61" + cleaned.substring(1);
   }
 
   // ── Standard conversions ─────────────────────────────────

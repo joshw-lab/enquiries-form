@@ -93,6 +93,8 @@ interface FormData {
   notes: string;
   timestamp: string;
   contactInfo?: ContactInfo | null;
+  callDirection?: "INBOUND" | "OUTBOUND";
+  queueId?: string;
 }
 
 /**
@@ -158,6 +160,37 @@ const HUBSPOT_FIELD_MAPPINGS = {
   notes: "notes_last_contacted",
   formNotes: "n0__form_notes",
 } as const;
+
+/**
+ * Generate all common AU phone format variants for HubSpot search.
+ * Given any AU phone input, returns E.164 (+61…), local (0…), and international (61…) forms
+ * so the HubSpot exact-match search can find the contact regardless of stored format.
+ */
+function getPhoneSearchVariants(phone: string): string[] {
+  const digits = phone.replace(/\D/g, "");
+  const variants = new Set<string>();
+
+  let subscriber: string | null = null;
+
+  if (digits.startsWith("61") && digits.length === 11) {
+    subscriber = digits.substring(2); // 61XXXXXXXXX → XXXXXXXXX
+  } else if (digits.startsWith("0") && digits.length === 10) {
+    subscriber = digits.substring(1); // 0XXXXXXXXX → XXXXXXXXX
+  } else if (digits.length === 9) {
+    subscriber = digits; // XXXXXXXXX (already subscriber)
+  }
+
+  if (subscriber) {
+    variants.add(`+61${subscriber}`);  // E.164
+    variants.add(`0${subscriber}`);    // Local
+    variants.add(`61${subscriber}`);   // International without +
+  } else if (digits.length > 0) {
+    // Non-AU or unrecognised format — search with raw cleaned value
+    variants.add(phone.trim());
+  }
+
+  return [...variants];
+}
 
 /**
  * Convert boolean-style form values to HubSpot format
@@ -324,8 +357,7 @@ function buildCallBackProperties(
   // That field is only for "Not Interested" disposition
   // Amberlist reasons for Call Back are stored in notes only
 
-  // Leads Rep
-  if (data.leadsRep) properties[HUBSPOT_FIELD_MAPPINGS.leadsRep] = data.leadsRep;
+  // leads_rep not set for Call Back — only updated on Booked Test and Not Interested
 
   return properties;
 }
@@ -443,8 +475,7 @@ function buildUnableToServiceProperties(
     properties[HUBSPOT_FIELD_MAPPINGS.propertyType] = data.propertyType;
   }
 
-  // Leads Rep
-  if (data.leadsRep) properties[HUBSPOT_FIELD_MAPPINGS.leadsRep] = data.leadsRep;
+  // leads_rep not set for Unable to Service — only updated on Booked Test and Not Interested
 
   return properties;
 }
@@ -511,7 +542,9 @@ async function updateHubSpotContact(
 }
 
 /**
- * Search for a contact by email or phone
+ * Search for a contact by email or phone (including mobilephone).
+ * Generates all AU phone format variants to handle format mismatches.
+ * Throws on HubSpot API errors — caller must handle to avoid silent duplicate creation.
  */
 async function findHubSpotContact(
   email: string | undefined,
@@ -520,76 +553,75 @@ async function findHubSpotContact(
 ): Promise<string | null> {
   if (!email && !phone) return null;
 
-  try {
-    // Try email first
-    if (email) {
-      const response = await fetch(`${HUBSPOT_API_BASE}/crm/v3/objects/contacts/search`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({
-          filterGroups: [
-            {
-              filters: [
-                {
-                  propertyName: "email",
-                  operator: "EQ",
-                  value: email,
-                },
-              ],
-            },
-          ],
-          limit: 1,
-        }),
-      });
+  // Try email first — most reliable identifier
+  if (email) {
+    const response = await fetch(`${HUBSPOT_API_BASE}/crm/v3/objects/contacts/search`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({
+        filterGroups: [
+          {
+            filters: [
+              { propertyName: "email", operator: "EQ", value: email },
+            ],
+          },
+        ],
+        limit: 1,
+      }),
+    });
 
-      if (response.ok) {
-        const data = await response.json();
-        if (data.results && data.results.length > 0) {
-          return data.results[0].id;
-        }
-      }
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`HubSpot email search failed (${response.status}): ${errorText}`);
     }
 
-    // Try phone if no email match
-    if (phone) {
-      const response = await fetch(`${HUBSPOT_API_BASE}/crm/v3/objects/contacts/search`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({
-          filterGroups: [
-            {
-              filters: [
-                {
-                  propertyName: "phone",
-                  operator: "EQ",
-                  value: phone,
-                },
-              ],
-            },
-          ],
-          limit: 1,
-        }),
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        if (data.results && data.results.length > 0) {
-          return data.results[0].id;
-        }
-      }
+    const data = await response.json();
+    if (data.results && data.results.length > 0) {
+      console.log(`Found existing contact ${data.results[0].id} by email "${email}"`);
+      return data.results[0].id;
     }
-
-    return null;
-  } catch (error) {
-    console.error("Error searching for contact:", error);
-    return null;
   }
+
+  // Try phone if no email match — search both phone and mobilephone with all AU format variants
+  if (phone) {
+    const variants = getPhoneSearchVariants(phone);
+    console.log(`Searching HubSpot for phone variants: ${JSON.stringify(variants)}`);
+
+    // Build filter groups: each variant × both phone and mobilephone
+    const filterGroups = variants.flatMap((variant) => [
+      { filters: [{ propertyName: "phone", operator: "EQ", value: variant }] },
+      { filters: [{ propertyName: "mobilephone", operator: "EQ", value: variant }] },
+    ]);
+
+    // HubSpot allows max 5 filterGroups per request — batch if needed
+    for (let i = 0; i < filterGroups.length; i += 5) {
+      const batch = filterGroups.slice(i, i + 5);
+      const response = await fetch(`${HUBSPOT_API_BASE}/crm/v3/objects/contacts/search`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ filterGroups: batch, limit: 1 }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`HubSpot phone search failed (${response.status}): ${errorText}`);
+      }
+
+      const data = await response.json();
+      if (data.results && data.results.length > 0) {
+        console.log(`Found existing contact ${data.results[0].id} by phone variant (batch ${Math.floor(i / 5) + 1})`);
+        return data.results[0].id;
+      }
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -782,11 +814,17 @@ async function createCallEngagement(
     // or fall back to contactInfo.agent_id (URL param from RingCX)
     const agentName = data.leadsRep || data.contactInfo?.agent_id || "";
 
+    // Derive call direction: explicit field > queueId "1221" = inbound > default outbound
+    const INBOUND_QUEUE_ID = "1221";
+    const resolvedDirection: "INBOUND" | "OUTBOUND" =
+      data.callDirection || (data.queueId === INBOUND_QUEUE_ID ? "INBOUND" : "OUTBOUND");
+
     // Build call body — include agent name when available (matches webhook format)
+    const directionLabel = resolvedDirection === "INBOUND" ? "Inbound" : "Outbound";
     const callBodyParts = [
       agentName
         ? `Call from ${agentName} to ${contactName}${phone ? ` (${phone})` : ""}`
-        : `Outbound call to ${contactName}${phone ? ` (${phone})` : ""}`,
+        : `${directionLabel} call to ${contactName}${phone ? ` (${phone})` : ""}`,
       `<b>Disposition:</b> ${dispositionLabel}`,
     ];
 
@@ -806,10 +844,10 @@ async function createCallEngagement(
         hs_timestamp: timestampMs,
         hs_activity_type: "Verification & Test Appointment Booking",
         hs_call_title: agentName
-          ? `Outbound Call - ${dispositionLabel} (${agentName})`
-          : `Outbound Call - ${dispositionLabel}`,
+          ? `${directionLabel} Call - ${dispositionLabel} (${agentName})`
+          : `${directionLabel} Call - ${dispositionLabel}`,
         hs_call_body: callBodyParts.join("<br>"),
-        hs_call_direction: "OUTBOUND",
+        hs_call_direction: resolvedDirection,
         hs_call_disposition: hubspotDisposition,
         hs_call_duration: 0,
         ...(phone && { hs_call_to_number: phone }),
@@ -988,6 +1026,22 @@ serve(async (req) => {
     // Build HubSpot properties
     const hubspotProperties = buildHubSpotProperties(payload);
 
+    // Disposition-based contact owner reassignment (mirrors webhook logic)
+    const ENQUIRIES_OWNER_ID = "13568480";
+    const CHF_PROMOTIONS_OWNER_ID = "27663217";
+    const SHANNON_WATSON_OWNER_ID = "10288671";
+
+    if (payload.disposition === "book_water_test") {
+      hubspotProperties.hubspot_owner_id = ENQUIRIES_OWNER_ID;
+      console.log(`🔄 Book Water Test — setting contact owner to Enquiries (${ENQUIRIES_OWNER_ID})`);
+    } else if (payload.disposition === "not_interested") {
+      hubspotProperties.hubspot_owner_id = CHF_PROMOTIONS_OWNER_ID;
+      console.log(`🔄 Not Interested — setting contact owner to CHF Promotions (${CHF_PROMOTIONS_OWNER_ID})`);
+    } else if (payload.disposition === "call_back") {
+      hubspotProperties.hubspot_owner_id = SHANNON_WATSON_OWNER_ID;
+      console.log(`🔄 Call Back — setting contact owner to Shannon Watson (${SHANNON_WATSON_OWNER_ID})`);
+    }
+
     // Get HubSpot access token
     const hubspotAccessToken = Deno.env.get("HUBSPOT_ACCESS_TOKEN");
 
@@ -1009,12 +1063,27 @@ serve(async (req) => {
     let contactId = payload.contactInfo?.contact_id;
 
     if (!contactId) {
-      // Search for existing contact
-      contactId = await findHubSpotContact(
-        payload.emailAddress,
-        payload.phoneNumber,
-        hubspotAccessToken
-      );
+      // Search for existing contact — if HubSpot search API fails, return 502
+      // so the agent can retry. Creating a duplicate is far worse than a retriable error.
+      try {
+        contactId = await findHubSpotContact(
+          payload.emailAddress,
+          payload.phoneNumber,
+          hubspotAccessToken
+        );
+      } catch (searchError) {
+        console.error("HubSpot contact search failed — refusing to create potentially duplicate contact:", searchError);
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: "Contact search failed — please retry. " + (searchError instanceof Error ? searchError.message : String(searchError)),
+          }),
+          {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+            status: 502,
+          }
+        );
+      }
     }
 
     if (contactId) {
