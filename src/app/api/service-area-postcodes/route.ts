@@ -12,6 +12,7 @@ export async function GET() {
       .from('service_area_postcodes')
       .select('state, postcode')
       .order('postcode')
+      .limit(5000)
 
     if (error) throw error
 

@@ -20,7 +20,8 @@ async function loadPostcodes(
 
   const { data, error } = await supabase
     .from("service_area_postcodes")
-    .select("postcode");
+    .select("postcode")
+    .limit(5000);
 
   if (error || !data) {
     console.error("Failed to load service area postcodes:", error);
