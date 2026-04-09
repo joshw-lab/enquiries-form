@@ -521,7 +521,7 @@ export default function DispositionForm() {
   // Parse query params on mount and fetch lead data if contact_id present
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
-    const contact_id = params.get('contact_id') || params.get('contactID')
+    const contact_id = params.get('contact_id') || params.get('contactID') || params.get('contactid') || params.get('contactId')
     const name = params.get('name')
     const phone = params.get('phone')
     const email = params.get('email')
