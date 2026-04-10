@@ -1,8 +1,8 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { getSupabase, PostcodeZone } from '@/lib/supabase'
-import { convertMapViewerToEmbed, convertCalendarCidToEmbed } from '@/lib/url-utils'
+import { convertMapViewerToEmbed } from '@/lib/url-utils'
 import { fetchLeadData, LeadData, mapLeadPropertiesToFormData } from '@/lib/lead-api'
 import { getCalendarHeatMap, getDaySlots, type HeatMapResponse, type DaySlotsResponse, type TimeSlot } from '@/lib/calendar-api'
 import LeadInfoAccordion from './LeadInfoAccordion'
@@ -434,9 +434,10 @@ export default function DispositionForm() {
   const [calendarHeatMap, setCalendarHeatMap] = useState<HeatMapResponse | null>(null)
   const [isLoadingHeatMap, setIsLoadingHeatMap] = useState(false)
   const [heatMapError, setHeatMapError] = useState<string | null>(null)
-  const [selectedCalendarDate, setSelectedCalendarDate] = useState<string | null>(null)
-  const [daySlots, setDaySlots] = useState<DaySlotsResponse | null>(null)
-  const [isLoadingSlots, setIsLoadingSlots] = useState(false)
+  const [expandedDays, setExpandedDays] = useState<Set<string>>(new Set())
+  const [dayPageIndex, setDayPageIndex] = useState(0)
+  const [daySlotsCache, setDaySlotsCache] = useState<Record<string, DaySlotsResponse>>({})
+  const [loadingDaySlots, setLoadingDaySlots] = useState<Set<string>>(new Set())
   const [selectedSlot, setSelectedSlot] = useState<TimeSlot | null>(null)
   const [selectedCalendarId, setSelectedCalendarId] = useState<string>('')
   const [selectedEventId, setSelectedEventId] = useState<string>('')
@@ -656,6 +657,34 @@ export default function DispositionForm() {
     }))
   }
 
+  // Flatten heatmap days into sorted array for accordion
+  const allDays = useMemo(() => {
+    if (!calendarHeatMap) return []
+    return Object.values(calendarHeatMap.priority_breakdown)
+      .flatMap(tier => tier.days)
+      .sort((a, b) => a.date.localeCompare(b.date))
+  }, [calendarHeatMap])
+
+  const visibleDays = useMemo(() => allDays.slice(dayPageIndex * 7, (dayPageIndex + 1) * 7), [allDays, dayPageIndex])
+  const totalPages = Math.ceil(allDays.length / 7)
+
+  // Fetch day slots for a given date and cache result
+  const fetchDaySlotsForDate = useCallback((date: string, postcode: string) => {
+    setLoadingDaySlots(prev => new Set(prev).add(date))
+    getDaySlots(postcode, date)
+      .then(data => {
+        setDaySlotsCache(prev => ({ ...prev, [date]: data }))
+      })
+      .catch(err => console.error(`Failed to load slots for ${date}:`, err))
+      .finally(() => {
+        setLoadingDaySlots(prev => {
+          const next = new Set(prev)
+          next.delete(date)
+          return next
+        })
+      })
+  }, [])
+
   // Load calendar heatmap when postcode is set and disposition is book_water_test
   useEffect(() => {
     if (formData.disposition !== 'book_water_test' || !formData.postcode || formData.postcode.length !== 4) {
@@ -665,35 +694,50 @@ export default function DispositionForm() {
     let cancelled = false
     setIsLoadingHeatMap(true)
     setHeatMapError(null)
-    setSelectedCalendarDate(null)
-    setDaySlots(null)
+    setExpandedDays(new Set())
+    setDaySlotsCache({})
+    setDayPageIndex(0)
     setSelectedSlot(null)
     getCalendarHeatMap(formData.postcode)
-      .then(data => { if (!cancelled) setCalendarHeatMap(data) })
+      .then(data => {
+        if (cancelled) return
+        setCalendarHeatMap(data)
+        // Auto-expand first 3 days with available slots and fetch their slots
+        const sorted = Object.values(data.priority_breakdown)
+          .flatMap(tier => tier.days)
+          .sort((a, b) => a.date.localeCompare(b.date))
+          .filter(d => d.available_count > 0)
+        const first3 = sorted.slice(0, 3).map(d => d.date)
+        setExpandedDays(new Set(first3))
+        first3.forEach(date => fetchDaySlotsForDate(date, formData.postcode))
+      })
       .catch(err => { if (!cancelled) setHeatMapError(err.message) })
       .finally(() => { if (!cancelled) setIsLoadingHeatMap(false) })
     return () => { cancelled = true }
-  }, [formData.disposition, formData.postcode])
+  }, [formData.disposition, formData.postcode, fetchDaySlotsForDate])
 
-  // Load day slots when a date is selected from the heatmap
-  useEffect(() => {
-    if (!selectedCalendarDate || !formData.postcode) return
-    let cancelled = false
-    setIsLoadingSlots(true)
-    setDaySlots(null)
-    setSelectedSlot(null)
-    getDaySlots(formData.postcode, selectedCalendarDate)
-      .then(data => { if (!cancelled) setDaySlots(data) })
-      .catch(err => { if (!cancelled) console.error('Failed to load day slots:', err) })
-      .finally(() => { if (!cancelled) setIsLoadingSlots(false) })
-    return () => { cancelled = true }
-  }, [selectedCalendarDate, formData.postcode])
+  // Toggle accordion day expand/collapse
+  const toggleDay = useCallback((date: string) => {
+    setExpandedDays(prev => {
+      const next = new Set(prev)
+      if (next.has(date)) {
+        next.delete(date)
+      } else {
+        next.add(date)
+        // Fetch slots if not cached
+        if (!daySlotsCache[date] && formData.postcode) {
+          fetchDaySlotsForDate(date, formData.postcode)
+        }
+      }
+      return next
+    })
+  }, [daySlotsCache, formData.postcode, fetchDaySlotsForDate])
 
   // Handle slot selection — prefill date, day, time
-  const handleSlotSelect = (slot: TimeSlot) => {
+  const handleSlotSelect = (slot: TimeSlot, calendarId: string) => {
     setSelectedSlot(slot)
     setSelectedEventId(slot.event_id)
-    if (daySlots) setSelectedCalendarId(daySlots.calendar_id)
+    setSelectedCalendarId(calendarId)
 
     const dateObj = new Date(slot.datetime)
     const dayName = dateObj.toLocaleDateString('en-AU', { weekday: 'long', timeZone: 'Australia/Sydney' })
@@ -1366,84 +1410,153 @@ export default function DispositionForm() {
                           <p className="text-sm text-gray-400">Enter a postcode to see available slots</p>
                         )}
 
-                        {/* Heatmap day grid */}
+                        {/* Accordion day slots */}
                         {calendarHeatMap && (
-                          <div className="space-y-3">
-                            <p className="text-xs text-gray-500">
-                              {calendarHeatMap.service_area_name} &mdash; {calendarHeatMap.total_slots_available} slots available
-                            </p>
-                            <div className="grid grid-cols-7 gap-1.5">
-                              {Object.values(calendarHeatMap.priority_breakdown).flatMap(tier =>
-                                tier.days.map(day => {
-                                  const isSelected = selectedCalendarDate === day.date
-                                  const hasSlots = day.available_count > 0
-                                  return (
-                                    <button
-                                      key={day.date}
-                                      type="button"
-                                      disabled={!hasSlots}
-                                      onClick={() => setSelectedCalendarDate(day.date)}
-                                      className={`
-                                        flex flex-col items-center p-1.5 rounded-lg text-xs border transition-all
-                                        ${isSelected ? 'ring-2 ring-blue-500 border-blue-500 bg-blue-50' : ''}
-                                        ${hasSlots && !isSelected ? 'border-gray-200 hover:border-gray-400 cursor-pointer' : ''}
-                                        ${!hasSlots ? 'border-gray-100 bg-gray-50 opacity-50 cursor-not-allowed' : ''}
-                                      `}
-                                    >
-                                      <span className="font-medium text-gray-700">{day.day_name}</span>
-                                      <span className="text-gray-500">{day.day_number}</span>
-                                      <span
-                                        className="mt-0.5 font-semibold text-[10px] px-1 rounded"
-                                        style={{ color: day.color }}
-                                      >
-                                        {day.available_count}
-                                      </span>
-                                    </button>
-                                  )
-                                })
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                              <p className="text-xs text-gray-500">
+                                {calendarHeatMap.service_area_name} &mdash; {calendarHeatMap.total_slots_available} slots available
+                              </p>
+                              {postcodeZone?.calendar_url && (
+                                <a
+                                  href={postcodeZone.calendar_url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-xs text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1"
+                                >
+                                  Open Calendar
+                                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                                  </svg>
+                                </a>
                               )}
                             </div>
 
-                            {/* Day slots */}
-                            {isLoadingSlots && (
-                              <p className="text-sm text-gray-500 animate-pulse">Loading time slots...</p>
-                            )}
-                            {daySlots && (
-                              <div className="space-y-2">
-                                <p className="text-xs font-medium text-gray-600">
-                                  {daySlots.day_display} &mdash; {daySlots.total_slots} available
-                                </p>
-                                {(['morning', 'afternoon', 'evening'] as const).map(period => {
-                                  const slots = daySlots.grouped_by_period[period]
-                                  if (slots.length === 0) return null
-                                  return (
-                                    <div key={period}>
-                                      <p className="text-[10px] uppercase text-gray-400 font-semibold mb-1">
-                                        {period}
-                                      </p>
-                                      <div className="flex flex-wrap gap-1.5">
-                                        {slots.map(slot => {
-                                          const isSlotSelected = selectedSlot?.event_id === slot.event_id
+                            <div className="space-y-1">
+                              {visibleDays.map(day => {
+                                const isExpanded = expandedDays.has(day.date)
+                                const hasSlots = day.available_count > 0
+                                const cached = daySlotsCache[day.date]
+                                const isLoading = loadingDaySlots.has(day.date)
+                                return (
+                                  <div key={day.date} className="border border-gray-200 rounded-lg overflow-hidden">
+                                    <button
+                                      type="button"
+                                      disabled={!hasSlots}
+                                      onClick={() => toggleDay(day.date)}
+                                      className={`
+                                        w-full flex items-center justify-between px-3 py-2 text-left transition-colors
+                                        ${hasSlots ? 'hover:bg-gray-50 cursor-pointer' : 'opacity-50 cursor-not-allowed bg-gray-50'}
+                                        ${isExpanded ? 'bg-blue-50 border-b border-gray-200' : ''}
+                                      `}
+                                    >
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-sm font-semibold text-gray-800">{day.day_name}</span>
+                                        <span className="text-sm text-gray-500">{day.day_number} {day.month_name}</span>
+                                      </div>
+                                      <div className="flex items-center gap-2">
+                                        <span
+                                          className="text-xs font-semibold px-1.5 py-0.5 rounded"
+                                          style={{ color: day.color, backgroundColor: `${day.color}15` }}
+                                        >
+                                          {day.available_count} {day.available_count === 1 ? 'slot' : 'slots'}
+                                        </span>
+                                        {hasSlots && (
+                                          <svg
+                                            className={`w-4 h-4 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                                            fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                                          >
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                          </svg>
+                                        )}
+                                      </div>
+                                    </button>
+
+                                    {isExpanded && (
+                                      <div className="px-3 py-2 space-y-2">
+                                        {isLoading && (
+                                          <p className="text-xs text-gray-400 animate-pulse">Loading time slots...</p>
+                                        )}
+                                        {cached && (['morning', 'afternoon', 'evening'] as const).map(period => {
+                                          const slots = cached.grouped_by_period[period]
+                                          if (slots.length === 0) return null
                                           return (
-                                            <button
-                                              key={slot.event_id}
-                                              type="button"
-                                              onClick={() => handleSlotSelect(slot)}
-                                              className={`
-                                                px-2.5 py-1 rounded text-xs font-medium border transition-all
-                                                ${isSlotSelected
-                                                  ? 'bg-blue-600 text-white border-blue-600'
-                                                  : 'bg-white text-gray-700 border-gray-300 hover:border-blue-400 hover:bg-blue-50'}
-                                              `}
-                                            >
-                                              {slot.time}
-                                            </button>
+                                            <div key={period}>
+                                              <p className="text-[10px] uppercase text-gray-400 font-semibold mb-1">
+                                                {period}
+                                              </p>
+                                              <div className="flex flex-wrap gap-1.5">
+                                                {slots.map(slot => {
+                                                  const isSlotSelected = selectedSlot?.event_id === slot.event_id
+                                                  return (
+                                                    <button
+                                                      key={slot.event_id}
+                                                      type="button"
+                                                      onClick={() => handleSlotSelect(slot, cached.calendar_id)}
+                                                      className={`
+                                                        px-2.5 py-1 rounded text-xs font-medium border transition-all
+                                                        ${isSlotSelected
+                                                          ? 'bg-blue-600 text-white border-blue-600'
+                                                          : 'bg-white text-gray-700 border-gray-300 hover:border-blue-400 hover:bg-blue-50'}
+                                                      `}
+                                                    >
+                                                      {slot.time}
+                                                    </button>
+                                                  )
+                                                })}
+                                              </div>
+                                            </div>
                                           )
                                         })}
                                       </div>
-                                    </div>
-                                  )
-                                })}
+                                    )}
+                                  </div>
+                                )
+                              })}
+                            </div>
+
+                            {/* Pagination */}
+                            {totalPages > 1 && (
+                              <div className="flex items-center justify-between pt-1">
+                                <button
+                                  type="button"
+                                  disabled={dayPageIndex === 0}
+                                  onClick={() => {
+                                    const newPage = dayPageIndex - 1
+                                    setDayPageIndex(newPage)
+                                    const pageDays = allDays.slice(newPage * 7, (newPage + 1) * 7).filter(d => d.available_count > 0)
+                                    const first3 = pageDays.slice(0, 3).map(d => d.date)
+                                    setExpandedDays(new Set(first3))
+                                    first3.forEach(date => { if (!daySlotsCache[date]) fetchDaySlotsForDate(date, formData.postcode) })
+                                  }}
+                                  className="text-xs font-medium text-blue-600 hover:text-blue-800 disabled:text-gray-300 disabled:cursor-not-allowed flex items-center gap-1"
+                                >
+                                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                                  </svg>
+                                  Previous 7 days
+                                </button>
+                                <span className="text-xs text-gray-400">
+                                  {dayPageIndex + 1} / {totalPages}
+                                </span>
+                                <button
+                                  type="button"
+                                  disabled={dayPageIndex >= totalPages - 1}
+                                  onClick={() => {
+                                    const newPage = dayPageIndex + 1
+                                    setDayPageIndex(newPage)
+                                    const pageDays = allDays.slice(newPage * 7, (newPage + 1) * 7).filter(d => d.available_count > 0)
+                                    const first3 = pageDays.slice(0, 3).map(d => d.date)
+                                    setExpandedDays(new Set(first3))
+                                    first3.forEach(date => { if (!daySlotsCache[date]) fetchDaySlotsForDate(date, formData.postcode) })
+                                  }}
+                                  className="text-xs font-medium text-blue-600 hover:text-blue-800 disabled:text-gray-300 disabled:cursor-not-allowed flex items-center gap-1"
+                                >
+                                  Next 7 days
+                                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                  </svg>
+                                </button>
                               </div>
                             )}
                           </div>
@@ -2112,9 +2225,9 @@ export default function DispositionForm() {
             )}
           </div>
 
-          {/* Map & Calendar Embeds */}
+          {/* Map Embed */}
           {postcodeZone && (
-            <div className="grid md:grid-cols-2 gap-4">
+            <div>
               <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
                 <div className="p-2 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
                   <h3 className="font-medium text-gray-900 text-sm">Service Area Map</h3>
@@ -2141,30 +2254,6 @@ export default function DispositionForm() {
                 />
               </div>
 
-              <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-                <div className="p-2 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
-                  <h3 className="font-medium text-gray-900 text-sm">Available Appointments</h3>
-                  <a
-                    href={postcodeZone.calendar_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-xs text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1"
-                  >
-                    Open
-                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                    </svg>
-                  </a>
-                </div>
-                <iframe
-                  src={convertCalendarCidToEmbed(postcodeZone.calendar_url)}
-                  width="100%"
-                  height="250"
-                  style={{ border: 0 }}
-                  frameBorder="0"
-                  scrolling="no"
-                />
-              </div>
             </div>
           )}
         </main>
