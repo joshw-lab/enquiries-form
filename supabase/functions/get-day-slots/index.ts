@@ -151,11 +151,17 @@ serve(async (req) => {
     )
 
     // Filter for available slots - check for "(No title)", empty, null, or undefined summaries
+    // Exclude slots after 7:30 PM AEST
     const availableSlots = events
       .filter(event => {
         const summary = event.summary
         const isNoTitle = !summary || summary === '(No title)' || summary.trim() === ''
-        return isNoTitle && event.start?.dateTime
+        if (!isNoTitle || !event.start?.dateTime) return false
+        // Filter out slots after 19:30 AEST
+        const startTime = new Date(event.start.dateTime)
+        const hourStr = startTime.toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit', hour12: false, timeZone: 'Australia/Sydney' })
+        const [h, m] = hourStr.split(':').map(Number)
+        return h < 19 || (h === 19 && m <= 30)
       })
       .map(event => {
         const startTime = new Date(event.start!.dateTime!)

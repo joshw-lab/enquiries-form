@@ -687,7 +687,7 @@ export default function DispositionForm() {
 
   // Load calendar heatmap when postcode is set and disposition is book_water_test
   useEffect(() => {
-    if (formData.disposition !== 'book_water_test' || !formData.postcode || formData.postcode.length !== 4) {
+    if (!formData.postcode || formData.postcode.length !== 4) {
       setCalendarHeatMap(null)
       return
     }
@@ -714,7 +714,7 @@ export default function DispositionForm() {
       .catch(err => { if (!cancelled) setHeatMapError(err.message) })
       .finally(() => { if (!cancelled) setIsLoadingHeatMap(false) })
     return () => { cancelled = true }
-  }, [formData.disposition, formData.postcode, fetchDaySlotsForDate])
+  }, [formData.postcode, fetchDaySlotsForDate])
 
   // Toggle accordion day expand/collapse
   const toggleDay = useCallback((date: string) => {
@@ -1394,172 +1394,17 @@ export default function DispositionForm() {
 
                       {/* Date of booking call — auto-set from submission timestamp in backend */}
 
-                      {/* Calendar Slot Picker */}
+                      {/* Calendar Slot Picker — selection summary */}
                       <div className="md:col-span-2">
                         <label className={getErrorLabelClass(formData.waterTestDate)}>
                           Appointment Slot *
                         </label>
 
-                        {isLoadingHeatMap && (
-                          <p className="text-sm text-gray-500 animate-pulse">Loading calendar availability...</p>
-                        )}
-                        {heatMapError && (
-                          <p className="text-sm text-red-600">Failed to load calendar: {heatMapError}</p>
-                        )}
                         {!formData.postcode && (
                           <p className="text-sm text-gray-400">Enter a postcode to see available slots</p>
                         )}
-
-                        {/* Accordion day slots */}
-                        {calendarHeatMap && (
-                          <div className="space-y-2">
-                            <div className="flex items-center justify-between">
-                              <p className="text-xs text-gray-500">
-                                {calendarHeatMap.service_area_name} &mdash; {calendarHeatMap.total_slots_available} slots available
-                              </p>
-                              {postcodeZone?.calendar_url && (
-                                <a
-                                  href={postcodeZone.calendar_url}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-xs text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1"
-                                >
-                                  Open Calendar
-                                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                                  </svg>
-                                </a>
-                              )}
-                            </div>
-
-                            <div className="space-y-1">
-                              {visibleDays.map(day => {
-                                const isExpanded = expandedDays.has(day.date)
-                                const hasSlots = day.available_count > 0
-                                const cached = daySlotsCache[day.date]
-                                const isLoading = loadingDaySlots.has(day.date)
-                                return (
-                                  <div key={day.date} className="border border-gray-200 rounded-lg overflow-hidden">
-                                    <button
-                                      type="button"
-                                      disabled={!hasSlots}
-                                      onClick={() => toggleDay(day.date)}
-                                      className={`
-                                        w-full flex items-center justify-between px-3 py-2 text-left transition-colors
-                                        ${hasSlots ? 'hover:bg-gray-50 cursor-pointer' : 'opacity-50 cursor-not-allowed bg-gray-50'}
-                                        ${isExpanded ? 'bg-blue-50 border-b border-gray-200' : ''}
-                                      `}
-                                    >
-                                      <div className="flex items-center gap-2">
-                                        <span className="text-sm font-semibold text-gray-800">{day.day_name}</span>
-                                        <span className="text-sm text-gray-500">{day.day_number} {day.month_name}</span>
-                                      </div>
-                                      <div className="flex items-center gap-2">
-                                        <span
-                                          className="text-xs font-semibold px-1.5 py-0.5 rounded"
-                                          style={{ color: day.color, backgroundColor: `${day.color}15` }}
-                                        >
-                                          {day.available_count} {day.available_count === 1 ? 'slot' : 'slots'}
-                                        </span>
-                                        {hasSlots && (
-                                          <svg
-                                            className={`w-4 h-4 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
-                                            fill="none" stroke="currentColor" viewBox="0 0 24 24"
-                                          >
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                                          </svg>
-                                        )}
-                                      </div>
-                                    </button>
-
-                                    {isExpanded && (
-                                      <div className="px-3 py-2 space-y-2">
-                                        {isLoading && (
-                                          <p className="text-xs text-gray-400 animate-pulse">Loading time slots...</p>
-                                        )}
-                                        {cached && (['morning', 'afternoon', 'evening'] as const).map(period => {
-                                          const slots = cached.grouped_by_period[period]
-                                          if (slots.length === 0) return null
-                                          return (
-                                            <div key={period}>
-                                              <p className="text-[10px] uppercase text-gray-400 font-semibold mb-1">
-                                                {period}
-                                              </p>
-                                              <div className="flex flex-wrap gap-1.5">
-                                                {slots.map(slot => {
-                                                  const isSlotSelected = selectedSlot?.event_id === slot.event_id
-                                                  return (
-                                                    <button
-                                                      key={slot.event_id}
-                                                      type="button"
-                                                      onClick={() => handleSlotSelect(slot, cached.calendar_id)}
-                                                      className={`
-                                                        px-2.5 py-1 rounded text-xs font-medium border transition-all
-                                                        ${isSlotSelected
-                                                          ? 'bg-blue-600 text-white border-blue-600'
-                                                          : 'bg-white text-gray-700 border-gray-300 hover:border-blue-400 hover:bg-blue-50'}
-                                                      `}
-                                                    >
-                                                      {slot.time}
-                                                    </button>
-                                                  )
-                                                })}
-                                              </div>
-                                            </div>
-                                          )
-                                        })}
-                                      </div>
-                                    )}
-                                  </div>
-                                )
-                              })}
-                            </div>
-
-                            {/* Pagination */}
-                            {totalPages > 1 && (
-                              <div className="flex items-center justify-between pt-1">
-                                <button
-                                  type="button"
-                                  disabled={dayPageIndex === 0}
-                                  onClick={() => {
-                                    const newPage = dayPageIndex - 1
-                                    setDayPageIndex(newPage)
-                                    const pageDays = allDays.slice(newPage * 7, (newPage + 1) * 7).filter(d => d.available_count > 0)
-                                    const first3 = pageDays.slice(0, 3).map(d => d.date)
-                                    setExpandedDays(new Set(first3))
-                                    first3.forEach(date => { if (!daySlotsCache[date]) fetchDaySlotsForDate(date, formData.postcode) })
-                                  }}
-                                  className="text-xs font-medium text-blue-600 hover:text-blue-800 disabled:text-gray-300 disabled:cursor-not-allowed flex items-center gap-1"
-                                >
-                                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                                  </svg>
-                                  Previous 7 days
-                                </button>
-                                <span className="text-xs text-gray-400">
-                                  {dayPageIndex + 1} / {totalPages}
-                                </span>
-                                <button
-                                  type="button"
-                                  disabled={dayPageIndex >= totalPages - 1}
-                                  onClick={() => {
-                                    const newPage = dayPageIndex + 1
-                                    setDayPageIndex(newPage)
-                                    const pageDays = allDays.slice(newPage * 7, (newPage + 1) * 7).filter(d => d.available_count > 0)
-                                    const first3 = pageDays.slice(0, 3).map(d => d.date)
-                                    setExpandedDays(new Set(first3))
-                                    first3.forEach(date => { if (!daySlotsCache[date]) fetchDaySlotsForDate(date, formData.postcode) })
-                                  }}
-                                  className="text-xs font-medium text-blue-600 hover:text-blue-800 disabled:text-gray-300 disabled:cursor-not-allowed flex items-center gap-1"
-                                >
-                                  Next 7 days
-                                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                                  </svg>
-                                </button>
-                              </div>
-                            )}
-                          </div>
+                        {formData.postcode && !calendarHeatMap && !isLoadingHeatMap && !heatMapError && (
+                          <p className="text-sm text-gray-400">Select a time slot from the calendar below</p>
                         )}
 
                         {/* Show selected appointment summary */}
@@ -2225,35 +2070,200 @@ export default function DispositionForm() {
             )}
           </div>
 
-          {/* Map Embed */}
-          {postcodeZone && (
-            <div>
+          {/* Map & Calendar */}
+          {formData.postcode && formData.postcode.length === 4 && (
+            <div className="grid md:grid-cols-2 gap-4">
+              {postcodeZone && (
+                <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+                  <div className="p-2 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
+                    <h3 className="font-medium text-gray-900 text-sm">Service Area Map</h3>
+                    <a
+                      href={postcodeZone.map_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1"
+                    >
+                      Open
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                      </svg>
+                    </a>
+                  </div>
+                  <iframe
+                    src={convertMapViewerToEmbed(postcodeZone.map_url)}
+                    width="100%"
+                    height="250"
+                    style={{ border: 0 }}
+                    allowFullScreen
+                    loading="lazy"
+                    referrerPolicy="no-referrer-when-downgrade"
+                  />
+                </div>
+              )}
+
+              {/* Available Appointments Accordion */}
               <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
                 <div className="p-2 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
-                  <h3 className="font-medium text-gray-900 text-sm">Service Area Map</h3>
-                  <a
-                    href={postcodeZone.map_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-xs text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1"
-                  >
-                    Open
-                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                    </svg>
-                  </a>
+                  <h3 className="font-medium text-gray-900 text-sm">
+                    Available Appointments
+                    {calendarHeatMap && (
+                      <span className="ml-2 text-xs font-normal text-gray-500">
+                        {calendarHeatMap.service_area_name} &mdash; {calendarHeatMap.total_slots_available} slots
+                      </span>
+                    )}
+                  </h3>
+                  {postcodeZone?.calendar_url && (
+                    <a
+                      href={postcodeZone.calendar_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1"
+                    >
+                      Open
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                      </svg>
+                    </a>
+                  )}
                 </div>
-                <iframe
-                  src={convertMapViewerToEmbed(postcodeZone.map_url)}
-                  width="100%"
-                  height="250"
-                  style={{ border: 0 }}
-                  allowFullScreen
-                  loading="lazy"
-                  referrerPolicy="no-referrer-when-downgrade"
-                />
-              </div>
+                <div className="p-2 max-h-[300px] overflow-y-auto">
+                  {isLoadingHeatMap && (
+                    <p className="text-sm text-gray-500 animate-pulse p-2">Loading calendar availability...</p>
+                  )}
+                  {heatMapError && (
+                    <p className="text-sm text-red-600 p-2">Failed to load calendar: {heatMapError}</p>
+                  )}
+                  {calendarHeatMap && (
+                    <div className="space-y-1">
+                      {visibleDays.map(day => {
+                        const isExpanded = expandedDays.has(day.date)
+                        const hasSlots = day.available_count > 0
+                        const cached = daySlotsCache[day.date]
+                        const isLoading = loadingDaySlots.has(day.date)
+                        return (
+                          <div key={day.date} className="border border-gray-200 rounded-lg overflow-hidden">
+                            <button
+                              type="button"
+                              disabled={!hasSlots}
+                              onClick={() => toggleDay(day.date)}
+                              className={`
+                                w-full flex items-center justify-between px-3 py-2 text-left transition-colors
+                                ${hasSlots ? 'hover:bg-gray-50 cursor-pointer' : 'opacity-50 cursor-not-allowed bg-gray-50'}
+                                ${isExpanded ? 'bg-blue-50 border-b border-gray-200' : ''}
+                              `}
+                            >
+                              <div className="flex items-center gap-2">
+                                <span className="text-sm font-semibold text-gray-800">{day.day_name}</span>
+                                <span className="text-sm text-gray-500">{day.day_number} {day.month_name}</span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <span
+                                  className="text-xs font-semibold px-1.5 py-0.5 rounded"
+                                  style={{ color: day.color, backgroundColor: `${day.color}15` }}
+                                >
+                                  {day.available_count} {day.available_count === 1 ? 'slot' : 'slots'}
+                                </span>
+                                {hasSlots && (
+                                  <svg
+                                    className={`w-4 h-4 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                                    fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                                  >
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                  </svg>
+                                )}
+                              </div>
+                            </button>
 
+                            {isExpanded && (
+                              <div className="px-3 py-2 space-y-2">
+                                {isLoading && (
+                                  <p className="text-xs text-gray-400 animate-pulse">Loading time slots...</p>
+                                )}
+                                {cached && (['morning', 'afternoon', 'evening'] as const).map(period => {
+                                  const slots = cached.grouped_by_period[period]
+                                  if (slots.length === 0) return null
+                                  return (
+                                    <div key={period}>
+                                      <p className="text-[10px] uppercase text-gray-400 font-semibold mb-1">
+                                        {period}
+                                      </p>
+                                      <div className="flex flex-wrap gap-1.5">
+                                        {slots.map(slot => {
+                                          const isSlotSelected = selectedSlot?.event_id === slot.event_id
+                                          return (
+                                            <button
+                                              key={slot.event_id}
+                                              type="button"
+                                              onClick={() => handleSlotSelect(slot, cached.calendar_id)}
+                                              className={`
+                                                px-2.5 py-1 rounded text-xs font-medium border transition-all
+                                                ${isSlotSelected
+                                                  ? 'bg-blue-600 text-white border-blue-600'
+                                                  : 'bg-white text-gray-700 border-gray-300 hover:border-blue-400 hover:bg-blue-50'}
+                                              `}
+                                            >
+                                              {slot.time}
+                                            </button>
+                                          )
+                                        })}
+                                      </div>
+                                    </div>
+                                  )
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
+
+                      {/* Pagination */}
+                      {totalPages > 1 && (
+                        <div className="flex items-center justify-between pt-1">
+                          <button
+                            type="button"
+                            disabled={dayPageIndex === 0}
+                            onClick={() => {
+                              const newPage = dayPageIndex - 1
+                              setDayPageIndex(newPage)
+                              const pageDays = allDays.slice(newPage * 7, (newPage + 1) * 7).filter(d => d.available_count > 0)
+                              const first3 = pageDays.slice(0, 3).map(d => d.date)
+                              setExpandedDays(new Set(first3))
+                              first3.forEach(date => { if (!daySlotsCache[date]) fetchDaySlotsForDate(date, formData.postcode) })
+                            }}
+                            className="text-xs font-medium text-blue-600 hover:text-blue-800 disabled:text-gray-300 disabled:cursor-not-allowed flex items-center gap-1"
+                          >
+                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                            </svg>
+                            Previous 7 days
+                          </button>
+                          <span className="text-xs text-gray-400">
+                            {dayPageIndex + 1} / {totalPages}
+                          </span>
+                          <button
+                            type="button"
+                            disabled={dayPageIndex >= totalPages - 1}
+                            onClick={() => {
+                              const newPage = dayPageIndex + 1
+                              setDayPageIndex(newPage)
+                              const pageDays = allDays.slice(newPage * 7, (newPage + 1) * 7).filter(d => d.available_count > 0)
+                              const first3 = pageDays.slice(0, 3).map(d => d.date)
+                              setExpandedDays(new Set(first3))
+                              first3.forEach(date => { if (!daySlotsCache[date]) fetchDaySlotsForDate(date, formData.postcode) })
+                            }}
+                            className="text-xs font-medium text-blue-600 hover:text-blue-800 disabled:text-gray-300 disabled:cursor-not-allowed flex items-center gap-1"
+                          >
+                            Next 7 days
+                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                            </svg>
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           )}
         </main>
