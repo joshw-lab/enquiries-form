@@ -258,10 +258,43 @@ serve(async (req) => {
       date.setDate(now.getDate() + i)
       const dateStr = date.toISOString().split('T')[0]
 
-      const daySlots = availableSlots.filter(slot => {
+      const daySlotsRaw = availableSlots.filter(slot => {
         const slotDate = new Date(slot.start!.dateTime!)
         return slotDate.toISOString().split('T')[0] === dateStr
       })
+
+      // Build TimeSlot objects with period grouping (matches get-day-slots format)
+      const slotObjects = daySlotsRaw.map(event => {
+        const startTime = new Date(event.start!.dateTime!)
+        const timeStr = startTime.toLocaleTimeString('en-AU', {
+          hour: 'numeric',
+          minute: '2-digit',
+          hour12: true,
+          timeZone: 'Australia/Sydney'
+        })
+        const hourStr = startTime.toLocaleTimeString('en-AU', {
+          hour: 'numeric',
+          hour12: false,
+          timeZone: 'Australia/Sydney'
+        })
+        const hour = parseInt(hourStr)
+        let period = 'morning'
+        if (hour >= 12 && hour < 17) period = 'afternoon'
+        if (hour >= 17) period = 'evening'
+        return {
+          event_id: event.id,
+          datetime: event.start!.dateTime,
+          time: timeStr,
+          hour,
+          period
+        }
+      })
+
+      const grouped_by_period = {
+        morning: slotObjects.filter(s => s.period === 'morning'),
+        afternoon: slotObjects.filter(s => s.period === 'afternoon'),
+        evening: slotObjects.filter(s => s.period === 'evening')
+      }
 
       const priority = getConversionPriority(i)
 
@@ -270,7 +303,9 @@ serve(async (req) => {
         day_name: date.toLocaleDateString('en-US', { weekday: 'short' }),
         day_number: date.getDate(),
         month_name: date.toLocaleDateString('en-US', { month: 'short' }),
-        available_count: daySlots.length,
+        available_count: daySlotsRaw.length,
+        slots: slotObjects,
+        grouped_by_period,
         ...priority
       })
     }
@@ -288,6 +323,7 @@ serve(async (req) => {
         region: mapping.region,
         service_area_name: mapping.service_area_name,
         coverage_description: mapping.coverage_description,
+        calendar_id: mapping.calendar_id,
         priority_breakdown: {
           critical: {
             label: 'TODAY',

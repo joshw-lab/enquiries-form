@@ -7,6 +7,12 @@ export interface DayData {
   day_number: number
   month_name: string
   available_count: number
+  slots?: TimeSlot[]
+  grouped_by_period?: {
+    morning: TimeSlot[]
+    afternoon: TimeSlot[]
+    evening: TimeSlot[]
+  }
   priority: string
   label: string
   color: string
@@ -20,6 +26,7 @@ export interface HeatMapResponse {
   region: string
   service_area_name: string
   coverage_description: string
+  calendar_id?: string
   priority_breakdown: {
     critical: { label: string; days: DayData[]; total_slots: number }
     urgent: { label: string; days: DayData[]; total_slots: number }

@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { getSupabase, PostcodeZone } from '@/lib/supabase'
 import { convertMapViewerToEmbed } from '@/lib/url-utils'
 import { fetchLeadData, LeadData, mapLeadPropertiesToFormData } from '@/lib/lead-api'
-import { getCalendarHeatMap, getDaySlots, type HeatMapResponse, type DaySlotsResponse, type TimeSlot } from '@/lib/calendar-api'
+import { getCalendarHeatMap, type HeatMapResponse, type TimeSlot } from '@/lib/calendar-api'
 import LeadInfoAccordion from './LeadInfoAccordion'
 import Toast from './Toast'
 
@@ -436,8 +436,6 @@ export default function DispositionForm() {
   const [heatMapError, setHeatMapError] = useState<string | null>(null)
   const [expandedDays, setExpandedDays] = useState<Set<string>>(new Set())
   const [dayPageIndex, setDayPageIndex] = useState(0)
-  const [daySlotsCache, setDaySlotsCache] = useState<Record<string, DaySlotsResponse>>({})
-  const [loadingDaySlots, setLoadingDaySlots] = useState<Set<string>>(new Set())
   const [selectedSlot, setSelectedSlot] = useState<TimeSlot | null>(null)
   const [selectedCalendarId, setSelectedCalendarId] = useState<string>('')
   const [selectedEventId, setSelectedEventId] = useState<string>('')
@@ -668,24 +666,7 @@ export default function DispositionForm() {
   const visibleDays = useMemo(() => allDays.slice(dayPageIndex * 7, (dayPageIndex + 1) * 7), [allDays, dayPageIndex])
   const totalPages = Math.ceil(allDays.length / 7)
 
-  // Fetch day slots for a given date and cache result
-  const fetchDaySlotsForDate = useCallback((date: string, postcode: string) => {
-    setLoadingDaySlots(prev => new Set(prev).add(date))
-    getDaySlots(postcode, date)
-      .then(data => {
-        setDaySlotsCache(prev => ({ ...prev, [date]: data }))
-      })
-      .catch(err => console.error(`Failed to load slots for ${date}:`, err))
-      .finally(() => {
-        setLoadingDaySlots(prev => {
-          const next = new Set(prev)
-          next.delete(date)
-          return next
-        })
-      })
-  }, [])
-
-  // Load calendar heatmap when postcode is set and disposition is book_water_test
+  // Load calendar heatmap when postcode is set — now returns all slot data per day in one call
   useEffect(() => {
     if (!formData.postcode || formData.postcode.length !== 4) {
       setCalendarHeatMap(null)
@@ -695,43 +676,35 @@ export default function DispositionForm() {
     setIsLoadingHeatMap(true)
     setHeatMapError(null)
     setExpandedDays(new Set())
-    setDaySlotsCache({})
     setDayPageIndex(0)
     setSelectedSlot(null)
     getCalendarHeatMap(formData.postcode)
       .then(data => {
         if (cancelled) return
         setCalendarHeatMap(data)
-        // Auto-expand first 3 days with available slots and fetch their slots
-        const sorted = Object.values(data.priority_breakdown)
+        // Auto-expand first 3 days with available slots (slot data is already inline)
+        const first3 = Object.values(data.priority_breakdown)
           .flatMap(tier => tier.days)
           .sort((a, b) => a.date.localeCompare(b.date))
           .filter(d => d.available_count > 0)
-        const first3 = sorted.slice(0, 3).map(d => d.date)
+          .slice(0, 3)
+          .map(d => d.date)
         setExpandedDays(new Set(first3))
-        first3.forEach(date => fetchDaySlotsForDate(date, formData.postcode))
       })
       .catch(err => { if (!cancelled) setHeatMapError(err.message) })
       .finally(() => { if (!cancelled) setIsLoadingHeatMap(false) })
     return () => { cancelled = true }
-  }, [formData.postcode, fetchDaySlotsForDate])
+  }, [formData.postcode])
 
-  // Toggle accordion day expand/collapse
+  // Toggle accordion day expand/collapse (no fetching needed — data is inline)
   const toggleDay = useCallback((date: string) => {
     setExpandedDays(prev => {
       const next = new Set(prev)
-      if (next.has(date)) {
-        next.delete(date)
-      } else {
-        next.add(date)
-        // Fetch slots if not cached
-        if (!daySlotsCache[date] && formData.postcode) {
-          fetchDaySlotsForDate(date, formData.postcode)
-        }
-      }
+      if (next.has(date)) next.delete(date)
+      else next.add(date)
       return next
     })
-  }, [daySlotsCache, formData.postcode, fetchDaySlotsForDate])
+  }, [])
 
   // Handle slot selection — prefill date, day, time
   const handleSlotSelect = (slot: TimeSlot, calendarId: string) => {
@@ -2138,8 +2111,6 @@ export default function DispositionForm() {
                       {visibleDays.map(day => {
                         const isExpanded = expandedDays.has(day.date)
                         const hasSlots = day.available_count > 0
-                        const cached = daySlotsCache[day.date]
-                        const isLoading = loadingDaySlots.has(day.date)
                         return (
                           <div key={day.date} className="border border-gray-200 rounded-lg overflow-hidden">
                             <button
@@ -2174,13 +2145,10 @@ export default function DispositionForm() {
                               </div>
                             </button>
 
-                            {isExpanded && (
+                            {isExpanded && day.grouped_by_period && (
                               <div className="px-3 py-2 space-y-2">
-                                {isLoading && (
-                                  <p className="text-xs text-gray-400 animate-pulse">Loading time slots...</p>
-                                )}
-                                {cached && (['morning', 'afternoon', 'evening'] as const).map(period => {
-                                  const slots = cached.grouped_by_period[period]
+                                {(['morning', 'afternoon', 'evening'] as const).map(period => {
+                                  const slots = day.grouped_by_period![period]
                                   if (slots.length === 0) return null
                                   return (
                                     <div key={period}>
@@ -2194,7 +2162,7 @@ export default function DispositionForm() {
                                             <button
                                               key={slot.event_id}
                                               type="button"
-                                              onClick={() => handleSlotSelect(slot, cached.calendar_id)}
+                                              onClick={() => handleSlotSelect(slot, calendarHeatMap?.calendar_id || '')}
                                               className={`
                                                 px-2.5 py-1 rounded text-xs font-medium border transition-all
                                                 ${isSlotSelected
@@ -2228,7 +2196,6 @@ export default function DispositionForm() {
                               const pageDays = allDays.slice(newPage * 7, (newPage + 1) * 7).filter(d => d.available_count > 0)
                               const first3 = pageDays.slice(0, 3).map(d => d.date)
                               setExpandedDays(new Set(first3))
-                              first3.forEach(date => { if (!daySlotsCache[date]) fetchDaySlotsForDate(date, formData.postcode) })
                             }}
                             className="text-xs font-medium text-blue-600 hover:text-blue-800 disabled:text-gray-300 disabled:cursor-not-allowed flex items-center gap-1"
                           >
@@ -2249,7 +2216,6 @@ export default function DispositionForm() {
                               const pageDays = allDays.slice(newPage * 7, (newPage + 1) * 7).filter(d => d.available_count > 0)
                               const first3 = pageDays.slice(0, 3).map(d => d.date)
                               setExpandedDays(new Set(first3))
-                              first3.forEach(date => { if (!daySlotsCache[date]) fetchDaySlotsForDate(date, formData.postcode) })
                             }}
                             className="text-xs font-medium text-blue-600 hover:text-blue-800 disabled:text-gray-300 disabled:cursor-not-allowed flex items-center gap-1"
                           >
