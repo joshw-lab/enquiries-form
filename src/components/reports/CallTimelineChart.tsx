@@ -43,6 +43,8 @@ const TOTAL_KEY = 'Total Calls'
 const TOTAL_BOOKED_KEY = 'Total Booked'
 const BOOKED_KEY = 'Booked Test'
 const SINGLE_LEG_KEY = 'Single Leg'
+const INBOUND_KEY = 'Inbound'
+const OUTBOUND_KEY = 'Outbound'
 
 const GROUP_COLORS: Record<string, string> = {
   [BOOKED_KEY]: '#22c55e',
@@ -53,6 +55,8 @@ const GROUP_COLORS: Record<string, string> = {
   'No Answer': '#3b82f6',
   'Other': '#94a3b8',
   [TOTAL_KEY]: '#111827',
+  [INBOUND_KEY]: '#8b5cf6',
+  [OUTBOUND_KEY]: '#0ea5e9',
 }
 
 function getGroup(disposition: string): string {
@@ -153,6 +157,20 @@ export default function CallTimelineChart({ chartCalls, dateFrom, dateTo, onDire
       buckets[slot] = {}
     }
 
+    // Direction buckets from ALL calls (not filtered)
+    const dirBuckets: Record<string, { inbound: number; outbound: number }> = {}
+    for (const slot of daySlots) {
+      dirBuckets[slot] = { inbound: 0, outbound: 0 }
+    }
+
+    for (const call of chartCalls) {
+      const dayKey = getPerthDateStr(call.callStart)
+      // Direction counts from full dataset
+      if (!dirBuckets[dayKey]) dirBuckets[dayKey] = { inbound: 0, outbound: 0 }
+      if (call.callDirection === 'INBOUND') dirBuckets[dayKey].inbound++
+      else if (call.callDirection === 'OUTBOUND') dirBuckets[dayKey].outbound++
+    }
+
     for (const call of filteredCalls) {
       const dayKey = getPerthDateStr(call.callStart)
       const group = getGroup(call.disposition)
@@ -194,11 +212,13 @@ export default function CallTimelineChart({ chartCalls, dateFrom, dateTo, onDire
         row[TOTAL_BOOKED_KEY] = (buckets[slot]?.[BOOKED_KEY] || 0) + (buckets[slot]?.[SINGLE_LEG_KEY] || 0)
       }
       row[TOTAL_KEY] = slotTotal
+      row[INBOUND_KEY] = dirBuckets[slot]?.inbound || 0
+      row[OUTBOUND_KEY] = dirBuckets[slot]?.outbound || 0
       return row
     })
 
     return { chartData, groups: displayGroups }
-  }, [isMultiDay, dateFrom, dateTo, filteredCalls])
+  }, [isMultiDay, dateFrom, dateTo, filteredCalls, chartCalls])
 
   // === SINGLE-DAY MODE: 30-min time slots ===
   const singleDayResult = useMemo(() => {
@@ -213,6 +233,22 @@ export default function CallTimelineChart({ chartCalls, dateFrom, dateTo, onDire
     const buckets: Record<string, Record<string, number>> = {}
     for (const slot of slots) {
       buckets[slot] = {}
+    }
+
+    // Direction buckets from ALL calls (not filtered)
+    const dirBuckets: Record<string, { inbound: number; outbound: number }> = {}
+    for (const slot of slots) {
+      dirBuckets[slot] = { inbound: 0, outbound: 0 }
+    }
+
+    for (const call of chartCalls) {
+      const callTime = new Date(call.callStart)
+      const slotTime = new Date(callTime)
+      slotTime.setMinutes(Math.floor(slotTime.getMinutes() / 30) * 30, 0, 0)
+      const slotKey = slotTime.toISOString()
+      if (!dirBuckets[slotKey]) dirBuckets[slotKey] = { inbound: 0, outbound: 0 }
+      if (call.callDirection === 'INBOUND') dirBuckets[slotKey].inbound++
+      else if (call.callDirection === 'OUTBOUND') dirBuckets[slotKey].outbound++
     }
 
     for (const call of filteredCalls) {
@@ -274,11 +310,13 @@ export default function CallTimelineChart({ chartCalls, dateFrom, dateTo, onDire
         }
       }
       row[TOTAL_KEY] = isFuture ? null : slotTotal
+      row[INBOUND_KEY] = isFuture ? null : (dirBuckets[slot]?.inbound || 0)
+      row[OUTBOUND_KEY] = isFuture ? null : (dirBuckets[slot]?.outbound || 0)
       return row
     })
 
     return { chartData, groups: displayGroups }
-  }, [isMultiDay, filteredCalls, nowHour])
+  }, [isMultiDay, filteredCalls, chartCalls, nowHour])
 
   const { chartData, groups } = isMultiDay ? multiDayResult! : singleDayResult!
 
@@ -291,7 +329,7 @@ export default function CallTimelineChart({ chartCalls, dateFrom, dateTo, onDire
     const totals: Record<string, number> = {}
     return chartData.map((row) => {
       const cumRow: Record<string, string | number | null> = { time: row.time, label: row.label }
-      for (const key of [...groups, TOTAL_KEY]) {
+      for (const key of [...groups, TOTAL_KEY, INBOUND_KEY, OUTBOUND_KEY]) {
         if (row[key] === null) {
           cumRow[key] = null
         } else {
@@ -444,6 +482,29 @@ export default function CallTimelineChart({ chartCalls, dateFrom, dateTo, onDire
             hide={hidden.has(TOTAL_KEY)}
             connectNulls={false}
           />
+          {/* Inbound / Outbound comparison lines */}
+          <Area
+            type="monotone"
+            dataKey={INBOUND_KEY}
+            stroke={hidden.has(INBOUND_KEY) ? 'transparent' : GROUP_COLORS[INBOUND_KEY]}
+            strokeWidth={2}
+            fill="none"
+            dot={isMultiDay ? !hidden.has(INBOUND_KEY) : false}
+            activeDot={hidden.has(INBOUND_KEY) ? false : { r: 3, strokeWidth: 0 }}
+            hide={hidden.has(INBOUND_KEY)}
+            connectNulls={false}
+          />
+          <Area
+            type="monotone"
+            dataKey={OUTBOUND_KEY}
+            stroke={hidden.has(OUTBOUND_KEY) ? 'transparent' : GROUP_COLORS[OUTBOUND_KEY]}
+            strokeWidth={2}
+            fill="none"
+            dot={isMultiDay ? !hidden.has(OUTBOUND_KEY) : false}
+            activeDot={hidden.has(OUTBOUND_KEY) ? false : { r: 3, strokeWidth: 0 }}
+            hide={hidden.has(OUTBOUND_KEY)}
+            connectNulls={false}
+          />
           {nowRefLabel && (
             <ReferenceLine
               x={nowRefLabel}
@@ -463,7 +524,7 @@ export default function CallTimelineChart({ chartCalls, dateFrom, dateTo, onDire
       </ResponsiveContainer>
       {/* Legend (clickable to toggle) */}
       <div className="flex items-center gap-4 mt-2 justify-center">
-        {[...groups, TOTAL_KEY].map((group) => (
+        {[...groups, TOTAL_KEY, INBOUND_KEY, OUTBOUND_KEY].map((group) => (
           <button
             key={group}
             onClick={() => toggleGroup(group)}
