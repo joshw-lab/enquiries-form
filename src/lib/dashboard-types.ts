@@ -261,6 +261,7 @@ export interface QueueSummary {
 export interface ChartCall {
   callStart: string
   disposition: string
+  callDirection?: string
 }
 
 // ── Queue API response ──

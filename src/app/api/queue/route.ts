@@ -125,7 +125,7 @@ export async function GET(request: NextRequest) {
     for (let page = 0; page < 10; page++) {
       let q = supabase
         .from('call_recordings')
-        .select('call_start, disposition')
+        .select('call_start, disposition, call_direction')
         .order('call_start', { ascending: true })
         .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
       if (from) q = q.gte('call_start', startOfDayAWST(from))
@@ -387,6 +387,7 @@ export async function GET(request: NextRequest) {
   const chartCalls = ((chartResult.data || []) as Record<string, unknown>[]).map((row) => ({
     callStart: row.call_start as string,
     disposition: (row.disposition as string) || 'Unknown',
+    callDirection: (row.call_direction as string) || undefined,
   }))
 
   // Compute summary from today's leads RPC data

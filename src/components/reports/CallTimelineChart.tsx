@@ -17,6 +17,7 @@ interface CallTimelineChartProps {
   chartCalls: ChartCall[]
   dateFrom?: string
   dateTo?: string
+  onDirectionChange?: (direction: string) => void
 }
 
 // Single-leg booking dispositions
@@ -120,7 +121,8 @@ function getPerthDateStr(iso: string): string {
 
 const GROUP_ORDER = [TOTAL_BOOKED_KEY, BOOKED_KEY, SINGLE_LEG_KEY, 'Needs Call Back', 'No Answer', 'Not Interested', 'Other']
 
-export default function CallTimelineChart({ chartCalls, dateFrom, dateTo }: CallTimelineChartProps) {
+export default function CallTimelineChart({ chartCalls, dateFrom, dateTo, onDirectionChange }: CallTimelineChartProps) {
+  const [directionFilter, setDirectionFilter] = useState<'' | 'INBOUND' | 'OUTBOUND'>('')
   const [nowLabel, setNowLabel] = useState(getNowLabel)
   const [nowHour, setNowHour] = useState(getPerthHourNow)
   useEffect(() => {
@@ -130,6 +132,12 @@ export default function CallTimelineChart({ chartCalls, dateFrom, dateTo }: Call
     }, 60_000)
     return () => clearInterval(id)
   }, [])
+
+  // Filter calls by direction if set
+  const filteredCalls = useMemo(() => {
+    if (!directionFilter) return chartCalls
+    return chartCalls.filter((c) => c.callDirection === directionFilter)
+  }, [chartCalls, directionFilter])
 
   // Determine if this is a multi-day range
   const isMultiDay = dateFrom && dateTo && dateFrom !== dateTo
@@ -145,7 +153,7 @@ export default function CallTimelineChart({ chartCalls, dateFrom, dateTo }: Call
       buckets[slot] = {}
     }
 
-    for (const call of chartCalls) {
+    for (const call of filteredCalls) {
       const dayKey = getPerthDateStr(call.callStart)
       const group = getGroup(call.disposition)
       activeGroups.add(group)
@@ -190,14 +198,14 @@ export default function CallTimelineChart({ chartCalls, dateFrom, dateTo }: Call
     })
 
     return { chartData, groups: displayGroups }
-  }, [isMultiDay, dateFrom, dateTo, chartCalls])
+  }, [isMultiDay, dateFrom, dateTo, filteredCalls])
 
   // === SINGLE-DAY MODE: 30-min time slots ===
   const singleDayResult = useMemo(() => {
     if (isMultiDay) return null
 
-    const refDate = chartCalls.length > 0
-      ? chartCalls[0].callStart
+    const refDate = filteredCalls.length > 0
+      ? filteredCalls[0].callStart
       : new Date().toISOString()
 
     const slots = generateFixedSlots(refDate)
@@ -207,7 +215,7 @@ export default function CallTimelineChart({ chartCalls, dateFrom, dateTo }: Call
       buckets[slot] = {}
     }
 
-    for (const call of chartCalls) {
+    for (const call of filteredCalls) {
       const callTime = new Date(call.callStart)
       const slotTime = new Date(callTime)
       slotTime.setMinutes(Math.floor(slotTime.getMinutes() / 30) * 30, 0, 0)
@@ -270,7 +278,7 @@ export default function CallTimelineChart({ chartCalls, dateFrom, dateTo }: Call
     })
 
     return { chartData, groups: displayGroups }
-  }, [isMultiDay, chartCalls, nowHour])
+  }, [isMultiDay, filteredCalls, nowHour])
 
   const { chartData, groups } = isMultiDay ? multiDayResult! : singleDayResult!
 
@@ -326,16 +334,33 @@ export default function CallTimelineChart({ chartCalls, dateFrom, dateTo }: Call
     <div className="bg-white rounded-xl border border-gray-200 px-5 py-4">
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-sm font-semibold text-[#111827]">Call Outcomes Timeline</h3>
-        <button
-          onClick={() => setCumulative((v) => !v)}
-          className={`text-[11px] px-2.5 py-1 rounded-full border cursor-pointer transition-colors ${
-            cumulative
-              ? 'bg-gray-900 text-white border-gray-900'
-              : 'bg-white text-gray-500 border-gray-300 hover:border-gray-400'
-          }`}
-        >
-          {cumulative ? 'Cumulative' : isMultiDay ? 'Per day' : 'Per interval'}
-        </button>
+        <div className="flex items-center gap-2">
+          <div className="flex items-center rounded-full border border-gray-300 overflow-hidden">
+            {([['', 'All'], ['INBOUND', 'Inbound'], ['OUTBOUND', 'Outbound']] as const).map(([val, label]) => (
+              <button
+                key={val}
+                onClick={() => { setDirectionFilter(val as '' | 'INBOUND' | 'OUTBOUND'); onDirectionChange?.(val) }}
+                className={`text-[11px] px-2.5 py-1 cursor-pointer transition-colors ${
+                  directionFilter === val
+                    ? 'bg-gray-900 text-white'
+                    : 'bg-white text-gray-500 hover:bg-gray-50'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <button
+            onClick={() => setCumulative((v) => !v)}
+            className={`text-[11px] px-2.5 py-1 rounded-full border cursor-pointer transition-colors ${
+              cumulative
+                ? 'bg-gray-900 text-white border-gray-900'
+                : 'bg-white text-gray-500 border-gray-300 hover:border-gray-400'
+            }`}
+          >
+            {cumulative ? 'Cumulative' : isMultiDay ? 'Per day' : 'Per interval'}
+          </button>
+        </div>
       </div>
       <ResponsiveContainer width="100%" height={200}>
         <AreaChart data={displayData} margin={{ top: 4, right: 0, left: -20, bottom: 0 }}>
