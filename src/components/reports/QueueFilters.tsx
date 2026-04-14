@@ -9,6 +9,7 @@ export interface QueueFilterState {
   campaignId: string
   priority: string
   operator: string
+  direction: string
   search: string
 }
 
@@ -50,6 +51,7 @@ export default function QueueFilters({ filters, onChange, availableAgents = [], 
   }
   if (filters.priority) activeFilters.push({ key: 'priority', label: `Priority: ${filters.priority}` })
   if (filters.operator) activeFilters.push({ key: 'operator', label: `Operator: ${filters.operator}` })
+  if (filters.direction) activeFilters.push({ key: 'direction', label: `Direction: ${filters.direction}` })
   if (filters.search) activeFilters.push({ key: 'search', label: `Search: ${filters.search}` })
 
   return (
@@ -117,6 +119,19 @@ export default function QueueFilters({ filters, onChange, availableAgents = [], 
         </div>
 
         <div className="flex flex-col gap-1">
+          <label className="text-[11px] text-gray-600 font-medium">Direction</label>
+          <select
+            value={filters.direction}
+            onChange={(e) => update({ direction: e.target.value })}
+            className="border border-gray-200 rounded-md px-2.5 py-1.5 text-[13px] text-[#111827] bg-white min-w-[100px]"
+          >
+            <option value="">All</option>
+            <option value="INBOUND">Inbound</option>
+            <option value="OUTBOUND">Outbound</option>
+          </select>
+        </div>
+
+        <div className="flex flex-col gap-1">
           <label className="text-[11px] text-gray-600 font-medium">Priority</label>
           <select
             value={filters.priority}
@@ -159,7 +174,7 @@ export default function QueueFilters({ filters, onChange, availableAgents = [], 
             </span>
           ))}
           <button
-            onClick={() => update({ campaignType: '', campaignId: '', priority: '', operator: '', search: '' })}
+            onClick={() => update({ campaignType: '', campaignId: '', priority: '', operator: '', direction: '', search: '' })}
             className="text-[11px] text-gray-400 hover:text-gray-600 cursor-pointer"
           >
             Clear all

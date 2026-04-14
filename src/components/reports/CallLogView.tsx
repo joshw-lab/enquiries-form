@@ -32,6 +32,7 @@ export default function CallLogView() {
       operator: '',
       region: '',
       disposition: '',
+      direction: '',
       phone: '',
     }
   })
@@ -46,6 +47,7 @@ export default function CallLogView() {
     if (filters.operator) params.set('operator', filters.operator)
     if (filters.region) params.set('region', filters.region)
     if (filters.disposition) params.set('disposition', filters.disposition)
+    if (filters.direction) params.set('direction', filters.direction)
     if (filters.phone) params.set('phone', filters.phone)
     params.set('page', String(page))
     params.set('pageSize', String(pageSize))
@@ -101,6 +103,7 @@ export default function CallLogView() {
       if (filters.operator) params.set('operator', filters.operator)
       if (filters.region) params.set('region', filters.region)
       if (filters.disposition) params.set('disposition', filters.disposition)
+      if (filters.direction) params.set('direction', filters.direction)
       if (filters.phone) params.set('phone', filters.phone)
       params.set('pageSize', 'all')
 

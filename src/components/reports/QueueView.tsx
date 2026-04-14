@@ -92,6 +92,7 @@ export default function QueueView({ selectedDate, advancedSearch = false }: Queu
       campaignId: '',
       priority: '',
       operator: '',
+      direction: '',
       search: '',
     }
   })
@@ -116,6 +117,7 @@ export default function QueueView({ selectedDate, advancedSearch = false }: Queu
     if (filters.campaignId) params.set('campaign_id', filters.campaignId)
     if (filters.priority) params.set('priority', filters.priority)
     if (filters.operator) params.set('operator', filters.operator)
+    if (filters.direction) params.set('direction', filters.direction)
     if (filters.search) params.set('search', filters.search)
     if (disposition === 'all') params.set('show_all', '1')
     else if (disposition && disposition !== 'connected') params.set('disposition', disposition)

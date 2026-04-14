@@ -78,6 +78,7 @@ export async function GET(request: NextRequest) {
   const pageSize = parseInt(params.get('pageSize') || '50', 10)
   const showAll = params.get('show_all') === '1'
   const dispositionFilter = params.get('disposition')
+  const directionFilter = params.get('direction')
 
   // ── Left column: today's uncalled leads (awaiting first call) ──
   // Uses the today_new_leads RPC, filtered to only those without a call record
@@ -109,6 +110,9 @@ export async function GET(request: NextRequest) {
   if (operatorFilter) {
     callsQuery = callsQuery.eq('agent_name', operatorFilter)
   }
+  if (directionFilter) {
+    callsQuery = callsQuery.eq('call_direction', directionFilter)
+  }
 
   const callsOffset = (callsPage - 1) * pageSize
   callsQuery = callsQuery.range(callsOffset, callsOffset + pageSize - 1)
@@ -127,6 +131,7 @@ export async function GET(request: NextRequest) {
       if (from) q = q.gte('call_start', startOfDayAWST(from))
       if (to) q = q.lte('call_start', endOfDayAWST(to))
       if (operatorFilter) q = q.eq('agent_name', operatorFilter)
+      if (directionFilter) q = q.eq('call_direction', directionFilter)
       const { data } = await q
       if (!data || data.length === 0) break
       allRows.push(...(data as Record<string, unknown>[]))

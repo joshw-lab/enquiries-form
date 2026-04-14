@@ -8,6 +8,7 @@ export interface CallLogFilterState {
   operator: string
   region: string
   disposition: string
+  direction: string
   phone: string
 }
 
@@ -44,6 +45,7 @@ export default function CallLogFilters({ filters, agents, dispositions, onChange
   if (filters.operator) activeFilters.push({ key: 'operator', label: `Agent: ${filters.operator}` })
   if (filters.region) activeFilters.push({ key: 'region', label: `Region: ${filters.region}` })
   if (filters.disposition) activeFilters.push({ key: 'disposition', label: `Disposition: ${filters.disposition}` })
+  if (filters.direction) activeFilters.push({ key: 'direction', label: `Direction: ${filters.direction}` })
   if (filters.phone) activeFilters.push({ key: 'phone', label: `Phone: ${filters.phone}` })
 
   return (
@@ -116,6 +118,20 @@ export default function CallLogFilters({ filters, agents, dispositions, onChange
           </select>
         </div>
 
+        {/* Direction */}
+        <div className="flex flex-col gap-1">
+          <label className="text-[11px] text-gray-600 font-medium">Direction</label>
+          <select
+            value={filters.direction}
+            onChange={(e) => update({ direction: e.target.value })}
+            className="border border-gray-200 rounded-md px-2.5 py-1.5 text-[13px] text-[#111827] bg-white min-w-[100px]"
+          >
+            <option value="">All</option>
+            <option value="INBOUND">Inbound</option>
+            <option value="OUTBOUND">Outbound</option>
+          </select>
+        </div>
+
         {/* Phone search */}
         <div className="flex flex-col gap-1">
           <label className="text-[11px] text-gray-600 font-medium">Phone</label>
@@ -147,7 +163,7 @@ export default function CallLogFilters({ filters, agents, dispositions, onChange
             </span>
           ))}
           <button
-            onClick={() => update({ operator: '', region: '', disposition: '', phone: '' })}
+            onClick={() => update({ operator: '', region: '', disposition: '', direction: '', phone: '' })}
             className="text-[11px] text-gray-400 hover:text-gray-600 cursor-pointer"
           >
             Clear all

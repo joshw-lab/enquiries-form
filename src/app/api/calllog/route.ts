@@ -29,6 +29,7 @@ export async function GET(request: NextRequest) {
   const region = params.get('region')
   const disposition = params.get('disposition')
   const phone = params.get('phone')
+  const direction = params.get('direction')
   const page = parseInt(params.get('page') || '1', 10)
   const pageSizeParam = params.get('pageSize')
   const exportAll = pageSizeParam === 'all'
@@ -108,6 +109,26 @@ export async function GET(request: NextRequest) {
       hubspotCallId: s.hubspot_call_id,
     }
   })
+
+  // Look up call direction from call_recordings if direction filter is set
+  if (direction) {
+    const callIds = records.map((r) => r.hubspotCallId).filter(Boolean) as string[]
+    if (callIds.length > 0) {
+      const { data: dirRows } = await supabase
+        .from('call_recordings')
+        .select('hubspot_call_id, call_direction')
+        .in('hubspot_call_id', callIds)
+      const dirMap: Record<string, string> = {}
+      if (dirRows) {
+        for (const r of dirRows as Record<string, unknown>[]) {
+          dirMap[r.hubspot_call_id as string] = r.call_direction as string
+        }
+      }
+      records = records.filter((r) => r.hubspotCallId && dirMap[r.hubspotCallId] === direction)
+    } else {
+      records = []
+    }
+  }
 
   // Client-side filters that can't be done in Supabase query
   if (operator) {
