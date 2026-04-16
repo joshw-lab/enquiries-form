@@ -131,7 +131,7 @@ export default function OperationsDashboard() {
 
   async function handleLogout() {
     const { signOut } = await import('next-auth/react')
-    signOut({ callbackUrl: '/reports/login' })
+    signOut({ callbackUrl: '/login' })
   }
 
   return (
