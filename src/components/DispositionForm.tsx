@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useSession, signOut } from 'next-auth/react'
 import { getSupabase, PostcodeZone } from '@/lib/supabase'
 import { convertMapViewerToEmbed } from '@/lib/url-utils'
 import { fetchLeadData, LeadData, mapLeadPropertiesToFormData } from '@/lib/lead-api'
@@ -416,6 +417,7 @@ const CREATE_IS_DEAL_OPTIONS: { value: string; label: string }[] = [
 ]
 
 export default function DispositionForm() {
+  const { data: session } = useSession()
   const [contactInfo, setContactInfo] = useState<ContactInfo | null>(null)
   const [formData, setFormData] = useState<FormData>(initialFormData)
   const [postcodeZone, setPostcodeZone] = useState<PostcodeZone | null>(null)
@@ -892,6 +894,25 @@ export default function DispositionForm() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      {/* User avatar */}
+      {session?.user && (
+        <div className="fixed top-2 right-2 z-50">
+          <button
+            onClick={() => signOut({ callbackUrl: '/login' })}
+            title={`${session.user.name}\nClick to sign out`}
+            className="w-8 h-8 rounded-full overflow-hidden border-2 border-white shadow-sm hover:shadow-md transition-shadow cursor-pointer"
+          >
+            {session.user.image ? (
+              <img src={session.user.image} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+            ) : (
+              <div className="w-full h-full bg-blue-600 text-white flex items-center justify-center text-xs font-medium">
+                {session.user.name?.charAt(0)?.toUpperCase()}
+              </div>
+            )}
+          </button>
+        </div>
+      )}
+
       {/* Quick Contact Info Banner - Full Width */}
       {contactInfo && (
         <div className="bg-blue-50 border-b border-blue-200 px-4 py-2">
@@ -944,11 +965,6 @@ export default function DispositionForm() {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
                   </svg>
                 </a>
-              )}
-              {contactInfo.agent_id && (
-                <span className="text-green-600 font-semibold text-xs bg-green-100 px-2 py-0.5 rounded">
-                  Agent: {contactInfo.agent_id}
-                </span>
               )}
             </div>
           </div>
