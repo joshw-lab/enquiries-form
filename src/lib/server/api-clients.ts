@@ -29,6 +29,10 @@ export function getSupabaseServerClient(): SupabaseClient {
 export interface HubSpotClient {
   searchContacts(body: Record<string, unknown>): Promise<{ total: number; results: Record<string, unknown>[] }>
   createContact(properties: Record<string, string>): Promise<{ id: string; properties: Record<string, unknown> }>
+  getContactById(
+    contactId: string,
+    properties?: string[],
+  ): Promise<{ id: string; properties: Record<string, string | null> } | null>
 }
 
 export function getHubSpotClient(): HubSpotClient {
@@ -62,6 +66,20 @@ export function getHubSpotClient(): HubSpotClient {
       if (!res.ok) {
         const text = await res.text()
         throw new Error(`HubSpot create contact failed (${res.status}): ${text}`)
+      }
+      return res.json()
+    },
+    async getContactById(contactId, properties) {
+      const props = properties ?? ['firstname', 'lastname', 'phone', 'mobilephone', 'email']
+      const qs = new URLSearchParams({ properties: props.join(',') })
+      const res = await hubspotFetch(
+        `https://api.hubapi.com/crm/v3/objects/contacts/${encodeURIComponent(contactId)}?${qs}`,
+        { method: 'GET', headers },
+      )
+      if (res.status === 404) return null
+      if (!res.ok) {
+        const text = await res.text()
+        throw new Error(`HubSpot getContactById failed (${res.status}): ${text}`)
       }
       return res.json()
     },
